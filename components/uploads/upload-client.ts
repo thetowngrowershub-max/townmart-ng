@@ -1,11 +1,11 @@
 "use client";
 
-import { finaliseImageAction, requestUploadAction } from "@/lib/storage/actions";
+import { finaliseImageAction, finaliseReviewImageAction, requestReviewUploadAction, requestUploadAction } from "@/lib/storage/actions";
 import type { ImagePurpose } from "@/lib/storage/uploads";
 
 export type UploadedImage = { key: string; url: string; width: number; height: number };
 
-const MAX_EDGE = { product: 1600, service: 1600, logo: 512, banner: 2400 } satisfies Record<ImagePurpose, number>;
+const MAX_EDGE = { product: 1600, service: 1600, logo: 512, banner: 2400, review: 1600 } satisfies Record<ImagePurpose, number>;
 
 /**
  * Shrinks an image in the browser before upload (max edge, WebP) so sellers on
@@ -40,6 +40,16 @@ async function putToStorage(kind: Parameters<typeof requestUploadAction>[0]["kin
 /** Compress → presigned PUT → server re-encode. Returns the final public image. */
 export async function uploadImage(file: File, purpose: ImagePurpose): Promise<UploadedImage> {
   const body = await compressImage(file, MAX_EDGE[purpose]);
+  if (purpose === "review") {
+    const req = await requestReviewUploadAction({ contentType: body.type, size: body.size });
+    if (!req.ok) throw new Error(req.error);
+    const { tmpKey, target } = req.data!;
+    const res = await fetch(target.url, { method: target.method, headers: target.headers, body });
+    if (!res.ok) throw new Error("Upload failed. Check your connection and try again.");
+    const fin = await finaliseReviewImageAction({ tmpKey });
+    if (!fin.ok) throw new Error(fin.error);
+    return fin.data!;
+  }
   const tmpKey = await putToStorage(purpose, body);
   const fin = await finaliseImageAction({ tmpKey, purpose });
   if (!fin.ok) throw new Error(fin.error);

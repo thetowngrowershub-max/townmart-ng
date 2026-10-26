@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { withRls } from "@/lib/db";
 import { loadListingRules } from "@/lib/promotions/live";
+import { listingReviews } from "@/lib/reviews/reviews";
 
 /** Public reads run as a guest so the storefront shows exactly what anyone can see. */
 const asGuest = <T,>(fn: Parameters<typeof withRls<T>>[1]) => withRls({ userId: null }, fn);
@@ -123,3 +124,6 @@ export const getPublicStore = cache((slug: string) =>
     }),
   ),
 );
+
+/** A listing's public reviews (hidden ones never show to guests). */
+export const getListingReviews = (where: { productId: string } | { serviceId: string }) => asGuest((tx) => listingReviews(tx, where));

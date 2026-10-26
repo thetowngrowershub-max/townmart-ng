@@ -8,12 +8,15 @@ import {
   formatDuration,
   servicePriceLabel,
 } from "@/components/storefront/listing-cards";
+import { ReviewList } from "@/components/reviews/review-list";
 import { BookService } from "@/components/storefront/book-service";
 import { SellerCard } from "@/components/storefront/seller-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import {
   getLgaNames,
+  getListingReviews,
   getListingRules,
   getPublicService,
 } from "@/lib/catalogue/storefront";
@@ -59,7 +62,7 @@ const LOCATION_TEXT = {
 export default async function ServicePage({ params }: Props) {
   const s = await getPublicService((await params).slug);
   if (!s) notFound();
-  const lgas = await getLgaNames(s.serviceLgaIds);
+  const [lgas, reviews, viewer] = await Promise.all([getLgaNames(s.serviceLgaIds), getListingReviews({ serviceId: s.id }), getCurrentUser()]);
   const now = new Date();
   const rules = await getListingRules([s.businessId]);
   const item = {
@@ -336,6 +339,11 @@ export default async function ServicePage({ params }: Props) {
           </Card>
         </div>
       </div>
+      <Card className="mt-10">
+        <CardContent className="pt-6">
+          <ReviewList avg={Number(s.ratingAvg)} total={reviews.total} breakdown={reviews.breakdown} reviews={reviews.reviews} signedIn={Boolean(viewer)} />
+        </CardContent>
+      </Card>
     </main>
   );
 }

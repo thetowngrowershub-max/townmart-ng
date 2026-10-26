@@ -35,3 +35,12 @@ export const sellerCancelBookingSchema = z.object({ bookingId: uuid, reason: z.s
 export const sellerRescheduleSchema = z.object({ bookingId: uuid, startsAt: z.iso.datetime({ offset: true, error: "Choose a time" }) });
 export const customerCancelBookingSchema = customerOrderRef.extend({ bookingId: uuid, reason: z.string().trim().max(300).optional().default("") });
 export const customerRescheduleSchema = customerOrderRef.extend({ bookingId: uuid, startsAt: z.iso.datetime({ offset: true, error: "Choose a time" }) });
+
+export const reviewSchema = z.object({
+  orderItemId: uuid,
+  rating: z.number().int().min(1, "Choose a star rating").max(5),
+  body: z.string().trim().min(10, "Tell others a little more (at least 10 characters)").max(2000),
+  imageKeys: z.array(z.string().max(200)).max(4, "Up to 4 photos").default([]),
+});
+export const reviewReplySchema = z.object({ reviewId: uuid, reply: z.string().trim().min(2, "Write a reply").max(1000) });
+export const reviewReportSchema = z.object({ reviewId: uuid, reason: z.string().trim().min(5, "Tell us what's wrong").max(300) });
