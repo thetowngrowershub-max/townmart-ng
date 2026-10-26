@@ -14,7 +14,7 @@ const config = [
     },
   },
   {
-    files: ["prisma/seed.ts", "scripts/**/*.ts"],
+    files: ["prisma/seed*.ts", "scripts/**/*.ts"],
     rules: { "no-console": "off" },
   },
 ];
