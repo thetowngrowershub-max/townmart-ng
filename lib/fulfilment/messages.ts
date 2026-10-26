@@ -22,3 +22,38 @@ export async function loadConversation(tx: Tx, p: { sellerOrderId: string; viewe
     read: m.readAt !== null,
   }));
 }
+
+export type InboxRow = { sellerOrderId: string; orderNumber: string; customer: string; last: string; lastFrom: "customer" | "seller"; at: string; unread: number };
+
+/**
+ * A seller's conversations, most recent first: one row per order with its
+ * latest message and how many customer messages are unread. Seller RLS.
+ */
+export async function sellerInbox(tx: Tx, businessId: string, take = 50): Promise<InboxRow[]> {
+  const latest = await tx.$queryRaw<{ seller_order_id: string; last_at: Date }[]>`
+    SELECT seller_order_id, max(created_at) AS last_at FROM messages
+    WHERE business_id = ${businessId}::uuid GROUP BY seller_order_id ORDER BY last_at DESC LIMIT ${take}`;
+  if (!latest.length) return [];
+  const ids = latest.map((l) => l.seller_order_id);
+  const [orders, lasts, unread] = await Promise.all([
+    tx.sellerOrder.findMany({ where: { id: { in: ids }, businessId }, select: { id: true, orderNumber: true, fulfilmentContact: true } }),
+    tx.message.findMany({ where: { sellerOrderId: { in: ids }, businessId }, orderBy: { createdAt: "desc" }, distinct: ["sellerOrderId"], select: { sellerOrderId: true, body: true, sender: true, createdAt: true } }),
+    tx.message.groupBy({ by: ["sellerOrderId"], where: { sellerOrderId: { in: ids }, businessId, sender: "customer", readAt: null }, _count: true }),
+  ]);
+  return latest.flatMap((l) => {
+    const so = orders.find((o) => o.id === l.seller_order_id);
+    const m = lasts.find((x) => x.sellerOrderId === l.seller_order_id);
+    if (!so || !m) return [];
+    return [
+      {
+        sellerOrderId: so.id,
+        orderNumber: so.orderNumber,
+        customer: (so.fulfilmentContact as { name?: string } | null)?.name ?? "Customer",
+        last: m.body.length > 120 ? `${m.body.slice(0, 120)}…` : m.body,
+        lastFrom: m.sender === "customer" ? ("customer" as const) : ("seller" as const),
+        at: formatDateTime(m.createdAt),
+        unread: unread.find((u) => u.sellerOrderId === so.id)?._count ?? 0,
+      },
+    ];
+  });
+}

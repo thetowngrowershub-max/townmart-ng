@@ -43,3 +43,10 @@ export function lagosLocalToDate(local: string): Date {
 export function dateToLagosLocal(date: Date): string {
   return new Date(date.getTime() + 3600_000).toISOString().slice(0, 16);
 }
+
+const dayFormatter = new Intl.DateTimeFormat(LOCALE, { timeZone: TIME_ZONE, weekday: "long", day: "numeric", month: "long" });
+
+/** "Tuesday 27 October": a day heading in Lagos time. */
+export function formatDay(date: Date): string {
+  return dayFormatter.format(date);
+}

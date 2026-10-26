@@ -9,6 +9,8 @@ import {
   servicePriceLabel,
 } from "@/components/storefront/listing-cards";
 import { ReviewList } from "@/components/reviews/review-list";
+import { WishlistButton } from "@/components/storefront/wishlist-button";
+import { isSaved } from "@/lib/wishlist";
 import { BookService } from "@/components/storefront/book-service";
 import { SellerCard } from "@/components/storefront/seller-card";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +65,7 @@ export default async function ServicePage({ params }: Props) {
   const s = await getPublicService((await params).slug);
   if (!s) notFound();
   const [lgas, reviews, viewer] = await Promise.all([getLgaNames(s.serviceLgaIds), getListingReviews({ serviceId: s.id }), getCurrentUser()]);
+  const saved = await isSaved(viewer?.id, { serviceId: s.id });
   const now = new Date();
   const rules = await getListingRules([s.businessId]);
   const item = {
@@ -115,7 +118,10 @@ export default async function ServicePage({ params }: Props) {
       </nav>
       <div className="grid gap-8 lg:grid-cols-[3fr_2fr]">
         <div className="flex flex-col gap-6">
-          <h1 className="text-2xl font-bold sm:text-3xl">{s.title}</h1>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-2xl font-bold sm:text-3xl">{s.title}</h1>
+            <WishlistButton target={{ serviceId: s.id }} saved={saved} signedIn={Boolean(viewer)} returnTo={`/s/${s.slug}`} />
+          </div>
           {cover && (
             <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-muted">
               <Image

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/app-shell";
 import { ReplyForm } from "@/components/reviews/reply-form";
@@ -64,7 +65,17 @@ export default async function SellerReviewsPage({ searchParams }: { searchParams
                     {r.hidden && <Badge variant="secondary">Hidden by TownMart</Badge>}
                   </div>
                   <p className="whitespace-pre-wrap">{r.body}</p>
-                  {r.images.length > 0 && <p className="text-xs text-muted-foreground">{r.images.length} photo{r.images.length === 1 ? "" : "s"}</p>}
+                  {r.images.length > 0 && (
+                    <ul className="flex gap-2">
+                      {r.images.map((src) => (
+                        <li key={src} className="relative size-16 overflow-hidden rounded-lg bg-muted">
+                          <a href={src} target="_blank" rel="noreferrer">
+                            <Image src={src} alt={`Photo from ${r.author}`} fill sizes="64px" className="object-cover" />
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {r.reply && (
                     <div className="ml-4 rounded-xl bg-muted p-3">
                       <p className="text-xs font-medium text-muted-foreground">Your reply · {r.reply.date}</p>

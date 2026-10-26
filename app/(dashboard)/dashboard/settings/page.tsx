@@ -84,6 +84,17 @@ export default async function StoreSettingsPage() {
               )}
             </CardContent>
           </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Delivery rates</CardTitle>
+              <CardDescription>Use TownMart&apos;s rates, or set your own fees and delivery times per area.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link href="/dashboard/settings/delivery" className="text-sm font-medium text-primary underline">
+                Manage delivery rates
+              </Link>
+            </CardContent>
+          </Card>
           <Alert variant="info">
             To change your business name, address, phone or type after approval, contact TownMart support so we can re-check your details.
           </Alert>
