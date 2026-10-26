@@ -1,9 +1,10 @@
-import { LogOut, User } from "lucide-react";
+import { Bell, LogOut, User } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { signOutAction } from "@/lib/auth/actions";
 import { can } from "@/lib/authz";
+import { withRls } from "@/lib/db";
 
 export async function UserMenu() {
   const user = await getCurrentUser();
@@ -19,6 +20,8 @@ export async function UserMenu() {
       </div>
     );
   }
+  // Order updates, booking changes and messages land here (Phase 4).
+  const unread = await withRls({ userId: user.id }, (tx) => tx.notification.count({ where: { userId: user.id, readAt: null } })).catch(() => 0);
   return (
     <div className="flex items-center gap-1">
       {can(user, "admin.access") && (
@@ -31,6 +34,16 @@ export async function UserMenu() {
           <Link href="/dashboard">Dashboard</Link>
         </Button>
       )}
+      <Button asChild variant="ghost" size="icon" className="relative" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}>
+        <Link href="/account/notifications">
+          <Bell aria-hidden />
+          {unread > 0 && (
+            <span aria-hidden className="absolute -top-0.5 -right-0.5 grid min-w-5 place-items-center rounded-full bg-danger px-1 text-[11px] font-bold text-danger-foreground">
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
+        </Link>
+      </Button>
       <Button asChild variant="ghost" size="sm">
         <Link href="/account">
           <User aria-hidden />

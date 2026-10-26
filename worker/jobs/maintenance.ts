@@ -1,5 +1,8 @@
-import { prisma } from "@/lib/db";
+import { prisma, withSystemContext } from "@/lib/db";
+import { sendBookingReminders } from "@/lib/bookings/reminders";
+import { autoCompleteDelivered } from "@/lib/fulfilment/orders";
 import { expireUnpaidOrders } from "@/lib/orders/payment";
+import { getCheckoutSettings } from "@/lib/settings";
 
 /** Deletes expired sessions so revoked/expired logins don't accumulate. */
 export async function purgeExpiredSessions(): Promise<{ deleted: number }> {
@@ -17,6 +20,15 @@ export async function purgeExpiredTokens(): Promise<{ tokens: number; otps: numb
   return { tokens: tokens.count, otps: otps.count };
 }
 
+/**
+ * Completes delivered orders the customer never confirmed, once the
+ * auto-complete period has passed; completion starts the escrow countdown.
+ */
+export async function completeDeliveredOrders(now = new Date()): Promise<{ completed: number }> {
+  const completed = await withSystemContext(async (tx) => autoCompleteDelivered(tx, (await getCheckoutSettings(tx)).autoCompleteDays, now));
+  return { completed };
+}
+
 type MaintenanceJob = { pattern: string; run: () => Promise<Record<string, number>> };
 
 /** Scheduled jobs (cron patterns in Africa/Lagos time). */
@@ -25,4 +37,6 @@ export const maintenanceJobs: Record<string, MaintenanceJob> = {
   "tokens.purge-expired": { pattern: "45 * * * *", run: purgeExpiredTokens },
   // Gives back stock held for orders whose payment window has passed.
   "orders.expire-unpaid": { pattern: "* * * * *", run: () => expireUnpaidOrders() },
+  "bookings.reminders": { pattern: "*/5 * * * *", run: () => sendBookingReminders() },
+  "orders.auto-complete": { pattern: "30 * * * *", run: () => completeDeliveredOrders() },
 };

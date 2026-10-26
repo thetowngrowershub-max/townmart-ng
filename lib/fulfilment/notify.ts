@@ -1,8 +1,9 @@
 import { BOOKING_STATUS_LABELS } from "@/lib/bookings/status";
 import { decrypt } from "@/lib/crypto";
-import { formatBookingTime } from "@/lib/datetime";
+import { dateToLagosLocal, formatBookingTime } from "@/lib/datetime";
 import { withSystemContext, type Tx } from "@/lib/db";
 import { env } from "@/lib/env";
+import { formatPrice } from "@/lib/money";
 import { noticeTemplate } from "@/lib/notifications/email/templates";
 import { orderUrl } from "@/lib/orders/notify";
 import { ORDER_STATUS_LABELS } from "@/lib/orders/labels";
@@ -105,5 +106,36 @@ export async function sendFulfilmentNotice(n: FulfilmentNotice): Promise<void> {
     } else {
       await tellCustomer(tx, m.sellerOrder.order, { type: "message.new", title: `${m.sellerOrder.business.name} sent you a message`, lines: [`“${preview}”`], sms: null });
     }
+  });
+}
+
+/**
+ * A booking reminder to both sides (email, SMS and in-app for the customer;
+ * email and in-app for the seller). Called by the reminder job in the system
+ * scope, inside the transaction that marked the reminder sent.
+ */
+export async function sendBookingReminder(tx: Tx, bookingId: string, which: "day" | "hour"): Promise<void> {
+  const b = await tx.booking.findUniqueOrThrow({
+    where: { id: bookingId },
+    include: { service: { select: { title: true } }, sellerOrder: { select: { id: true, order: { select: customerSelect } } }, business: { select: { ...sellerSelect, phoneEncrypted: true } } },
+  });
+  const when = formatBookingTime(b.startsAt);
+  // dateToLagosLocal gives "YYYY-MM-DDTHH:mm"; the day-before reminder may land on the same day for an evening booking.
+  const today = dateToLagosLocal(new Date()).slice(0, 10) === dateToLagosLocal(b.startsAt).slice(0, 10);
+  const soon = which === "hour" ? "in about an hour" : today ? "later today" : "tomorrow";
+  const loc = b.locationSnapshot as { kind: "customer" | "provider"; lgaName?: string } | null;
+  const where = loc?.kind === "customer" ? "The provider comes to your address." : "It's at the provider's place; the address is on your order page.";
+  const balance = b.balanceKobo > 0n ? [`Remember to pay ${formatPrice(b.balanceKobo)} to ${b.business.name} on the day.`] : [];
+  await tellCustomer(tx, b.sellerOrder.order, {
+    type: `booking.reminder_${which}`,
+    title: `Reminder: ${b.service.title} ${soon}`,
+    lines: [`Your booking with ${b.business.name} is ${soon}: ${when}.`, where, ...balance],
+    sms: `Reminder: ${b.service.title} with ${b.business.name} ${soon}, ${when}. Provider: ${decrypt(b.business.phoneEncrypted)}`,
+  });
+  await tellSeller(tx, b.business, {
+    type: `booking.reminder_${which}`,
+    title: `Coming up ${soon}: ${b.service.title}`,
+    lines: [`${b.sellerOrder.order.customerName} is booked for ${when} (${b.sellerOrder.order.orderNumber}).`],
+    path: `/dashboard/orders/${b.sellerOrder.id}`,
   });
 }
