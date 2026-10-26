@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+/* Dark mode follows the visitor's system preference. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/*
+ * TownMart design tokens. Components only use these semantic tokens
+ * (bg-primary, text-muted-foreground, …), never raw hex values, so light and
+ * dark mode stay in sync. /design-system shows them all.
+ */
+:root {
+  --radius: 1rem;
+
+  --background: #fafaf7;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+
+  /* Primary: deep green */
+  --primary: #0f6b3e;
+  --primary-foreground: #ffffff;
+  --primary-soft: #e3f1e9;
+
+  /* Accent: warm amber (promotions, CTAs) */
+  --accent: #f5a524;
+  --accent-foreground: #3b2500;
+  --accent-soft: #fdf1dc;
+
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+
+  --border: #e2e8f0;
+  --input: #cbd5e1;
+  --ring: #0f6b3e;
+
+  /* Semantic */
+  --success: #15803d;
+  --success-foreground: #ffffff;
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+  --danger: #b91c1c;
+  --danger-foreground: #ffffff;
+  --info: #1d4ed8;
+  --info-foreground: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b1210;
+    --foreground: #e8eeeb;
+    --card: #111a17;
+    --card-foreground: #e8eeeb;
+    --popover: #111a17;
+    --popover-foreground: #e8eeeb;
+
+    --primary: #3fb67a;
+    --primary-foreground: #04170d;
+    --primary-soft: #12291e;
+
+    --accent: #f7b648;
+    --accent-foreground: #2a1a00;
+    --accent-soft: #2e2412;
+
+    --secondary: #1b2622;
+    --secondary-foreground: #e8eeeb;
+    --muted: #1b2622;
+    --muted-foreground: #a3b1ab;
+
+    --border: #24332d;
+    --input: #33463e;
+    --ring: #3fb67a;
+
+    --success: #4ade80;
+    --success-foreground: #04170d;
+    --warning: #fbbf24;
+    --warning-foreground: #2a1a00;
+    --danger: #f87171;
+    --danger-foreground: #2a0606;
+    --info: #60a5fa;
+    --info-foreground: #06142a;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-jakarta), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-soft: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px rgb(15 23 42 / 0.06);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-heading tracking-tight;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
