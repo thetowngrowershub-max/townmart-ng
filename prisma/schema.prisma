@@ -1,0 +1,289 @@
+// TownMart database schema (PostgreSQL 16).
+//
+// Conventions (see DATABASE.md):
+//   * snake_case tables and columns via @@map / @map
+//   * UUID v7 primary keys generated in Postgres by uuid_generate_v7()
+//   * timestamptz everywhere; updated_at is also maintained by a trigger
+//   * money is BigInt kobo
+// Things Prisma cannot express (RLS, triggers, check constraints, grants,
+// partial indexes) live in the raw SQL sections of each migration. Postgres
+// extensions (pgcrypto, citext, pg_trgm, btree_gist) are created by the first
+// migration; pg_stat_statements by sql/bootstrap/roles.sql.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("MIGRATE_DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity & access
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  active
+  suspended
+  pending_deletion
+  anonymised
+
+  @@map("user_status")
+}
+
+enum Role {
+  customer
+  merchant
+  service_provider
+  staff
+  admin
+  super_admin
+
+  @@map("role")
+}
+
+enum OtpPurpose {
+  sign_in
+  verify_phone
+  two_factor
+
+  @@map("otp_purpose")
+}
+
+model User {
+  id                  String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  email               String     @unique @db.Citext
+  emailVerified       DateTime?  @map("email_verified_at") @db.Timestamptz(6)
+  phoneEncrypted      String?    @map("phone_encrypted")
+  phoneHash           String?    @unique @map("phone_hash")
+  passwordHash        String?    @map("password_hash")
+  name                String?
+  image               String?    @map("avatar_url")
+  status              UserStatus @default(active)
+  failedLoginCount    Int        @default(0) @map("failed_login_count")
+  lockedUntil         DateTime?  @map("locked_until") @db.Timestamptz(6)
+  deletionRequestedAt DateTime?  @map("deletion_requested_at") @db.Timestamptz(6)
+  lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  accounts  Account[]
+  sessions  Session[]
+  roles     UserRole[]
+  otpCodes  OtpCode[]
+  addresses Address[]
+
+  @@index([status])
+  @@map("users")
+}
+
+// Auth.js adapter tables. Field names are fixed by @auth/prisma-adapter.
+model Account {
+  id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String   @map("provider_account_id")
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id") @db.Uuid
+  expires      DateTime @db.Timestamptz(6)
+  userAgent    String?  @map("user_agent")
+  ipHash       String?  @map("ip_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expires])
+  @@map("sessions")
+}
+
+// Used by Auth.js and by TownMart's own email-verification and password-reset
+// flows. `token` holds a SHA-256 hash of the emailed token, never the token.
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime @db.Timestamptz(6)
+
+  @@unique([identifier, token])
+  @@index([expires])
+  @@map("verification_tokens")
+}
+
+model UserRole {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      Role
+  grantedBy String?  @map("granted_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@index([role])
+  @@map("user_roles")
+}
+
+model OtpCode {
+  id        String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId    String?    @map("user_id") @db.Uuid
+  phoneHash String?    @map("phone_hash")
+  codeHash  String     @map("code_hash")
+  purpose   OtpPurpose
+  expiresAt DateTime   @map("expires_at") @db.Timestamptz(6)
+  attempts  Int        @default(0)
+  usedAt    DateTime?  @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([phoneHash, purpose])
+  @@index([expiresAt])
+  @@map("otp_codes")
+}
+
+model Address {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  label          String?
+  recipientName  String   @map("recipient_name")
+  phoneEncrypted String   @map("phone_encrypted")
+  line1Encrypted String   @map("line1_encrypted")
+  line2Encrypted String?  @map("line2_encrypted")
+  city           String
+  stateId        Int      @map("state_id") @db.SmallInt
+  lgaId          Int      @map("lga_id") @db.SmallInt
+  landmark       String?
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  state State @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  // Composite FK: the LGA must belong to the chosen state.
+  lga   Lga   @relation(fields: [lgaId, stateId], references: [id, stateId], onDelete: Restrict, map: "addresses_lga_in_state")
+
+  @@index([userId])
+  @@index([stateId])
+  @@index([lgaId, stateId])
+  @@map("addresses")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reference data: 36 states + FCT and their 774 LGAs (seeded)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model State {
+  id        Int      @id @default(autoincrement()) @db.SmallInt
+  code      String   @unique @db.Char(2)
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lgas      Lga[]
+  addresses Address[]
+
+  @@map("states")
+}
+
+model Lga {
+  id        Int      @id @default(autoincrement()) @db.SmallInt
+  stateId   Int      @map("state_id") @db.SmallInt
+  name      String
+  slug      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  state     State     @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  addresses Address[]
+
+  @@unique([stateId, slug])
+  @@unique([id, stateId], map: "lgas_id_state_key")
+  @@index([stateId])
+  @@map("lgas")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Platform settings, audit and operations
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Setting {
+  key         String   @id
+  value       Json
+  description String?
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("settings")
+}
+
+// Append-only: UPDATE/DELETE are revoked from townmart_app and blocked by trigger.
+// actor_user_id deliberately has no foreign key: audit rows must outlive (and
+// never be rewritten by) user deletion or anonymisation.
+model AuditLog {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorRole   Role?    @map("actor_role")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  before      Json?
+  after       Json?
+  ipHash      String?  @map("ip_hash")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+enum JobRunStatus {
+  running
+  succeeded
+  failed
+
+  @@map("job_run_status")
+}
+
+model JobRun {
+  id         String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  jobName    String       @map("job_name")
+  status     JobRunStatus @default(running)
+  startedAt  DateTime     @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime?    @map("finished_at") @db.Timestamptz(6)
+  error      String?
+  meta       Json?
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([jobName, startedAt])
+  @@map("job_runs")
+}
