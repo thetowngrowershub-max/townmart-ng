@@ -1,10 +1,11 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
+import { mergeGuestCart } from "@/lib/cart";
 import { randomToken } from "@/lib/crypto";
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "./constants";
 
-/** Creates a database session (same table Auth.js uses) and sets the cookie. */
+/** Creates a database session (same table Auth.js uses), sets the cookie and merges any guest cart. */
 export async function createUserSession(
   userId: string,
   meta: { ipHash: string; userAgent: string | null },
@@ -21,6 +22,8 @@ export async function createUserSession(
     path: "/",
     expires,
   });
+  // Anything added to the cart before signing in comes along.
+  await mergeGuestCart(userId);
 }
 
 export async function currentSessionToken(): Promise<string | undefined> {

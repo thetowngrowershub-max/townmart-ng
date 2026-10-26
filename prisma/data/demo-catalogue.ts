@@ -163,6 +163,8 @@ export type DemoSeller = {
     sellsServices: boolean;
     returnWindowDays: number;
     pickup?: boolean;
+    /** Accepts pay on delivery. */
+    payOnDelivery?: boolean;
   };
   serviceLgas?: string[];
   products: DemoProduct[];
@@ -190,6 +192,7 @@ export const SELLERS: DemoSeller[] = [
       sellsServices: false,
       returnWindowDays: 3,
       pickup: true,
+      payOnDelivery: true,
     },
     products: [
       { title: "Mama Gold Rice, 50 kg", category: "rice-grains", brand: "Mama Gold", tags: "rice, parboiled", unit: "bag", price: "78500", compareAt: "82000", stock: "40", description: "Premium long-grain parboiled rice. Stone-free and easy to cook.", weightGrams: 50000, images: 2 },
@@ -235,6 +238,7 @@ export const SELLERS: DemoSeller[] = [
       sellsServices: false,
       returnWindowDays: 0,
       pickup: true,
+      payOnDelivery: true,
     },
     products: [
       { title: "Fresh Tomatoes", category: "fresh-vegetables", tags: "tomatoes, fresh", unit: "kg", fractional: true, price: "1800", stock: "250", threshold: "20", description: "Ripe Roma tomatoes, harvested the morning of delivery. Sold by the kilo.", perishable: "Keeps 5 to 7 days in a cool place.", images: 2 },

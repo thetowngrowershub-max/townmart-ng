@@ -35,7 +35,7 @@ export function StorePoliciesForm({ initial }: { initial: StoreSettingsInput }) 
       <FormField id="deliveryNotes" label="Delivery notes (optional)" hint="e.g. Same-day delivery within Ikeja for orders before 12pm." error={errors.deliveryNotes?.message}>
         <Textarea rows={2} {...form.register("deliveryNotes")} />
       </FormField>
-      <Checkbox id="acceptsPayOnDelivery" label="Accept pay on delivery" hint="Takes effect when checkout opens." {...form.register("acceptsPayOnDelivery")} />
+      <Checkbox id="acceptsPayOnDelivery" label="Accept pay on delivery" hint="Shoppers can choose to pay you in cash or by transfer when the order arrives." {...form.register("acceptsPayOnDelivery")} />
       <Button type="submit" disabled={pending} className="self-start">
         {pending ? "Saving…" : "Save policies"}
       </Button>

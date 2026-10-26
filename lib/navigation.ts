@@ -32,14 +32,14 @@ import {
  */
 export type NavItem = { href: string; label: string; icon: LucideIcon; phase: number };
 
-export const CURRENT_PHASE = 2;
+export const CURRENT_PHASE = 3;
 
 export const accountNav: NavItem[] = [
   { href: "/account", label: "Overview", icon: LayoutDashboard, phase: 0 },
   { href: "/account/orders", label: "Orders", icon: Package, phase: 3 },
   { href: "/account/bookings", label: "Bookings", icon: CalendarCheck, phase: 4 },
   { href: "/account/addresses", label: "Addresses", icon: MapPin, phase: 3 },
-  { href: "/account/wishlist", label: "Wishlist", icon: Heart, phase: 3 },
+  { href: "/account/wishlist", label: "Wishlist", icon: Heart, phase: 4 },
   { href: "/account/reviews", label: "Reviews", icon: Star, phase: 4 },
   { href: "/account/refunds", label: "Refunds & returns", icon: RotateCcw, phase: 5 },
   { href: "/account/notifications", label: "Notifications", icon: Bell, phase: 3 },

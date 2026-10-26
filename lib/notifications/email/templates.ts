@@ -116,3 +116,82 @@ export function importFinishedTemplate(params: { to: string; fileName: string; s
     text: `${params.fileName}: ${summary}\n${params.url}\n`,
   };
 }
+
+export type ReceiptSeller = {
+  name: string;
+  city: string;
+  method: "delivery" | "pickup";
+  eta: string | null;
+  returnWindowDays: number;
+  items: { title: string; options: string; qty: string; total: string; discount: string | null }[];
+  subtotal: string;
+  delivery: string;
+};
+
+/** Itemised receipt: every seller's name and location, all fees, and the refund policy. */
+export function orderReceiptTemplate(params: {
+  to: string;
+  name: string;
+  orderNumber: string;
+  placedAt: string;
+  payOnDelivery: boolean;
+  sellers: ReceiptSeller[];
+  totals: { subtotal: string; discount: string | null; delivery: string; serviceFee: string; vat: string; total: string };
+  address: string;
+  orderUrl: string;
+  refundPolicyUrl: string;
+}): EmailMessage {
+  const cell = "padding:6px 0;border-bottom:1px solid #e2e8f0;font-size:14px";
+  const sellerBlocks = params.sellers
+    .map(
+      (s) => `<h2 style="font-size:16px;margin:24px 0 4px">${escape(s.name)}</h2>
+<p style="margin:0 0 8px;font-size:13px;color:#475569">${escape(s.city)} · ${s.method === "pickup" ? "Pickup from the seller" : `Delivery${s.eta ? `, ${escape(s.eta)}` : ""}`} · Returns within ${s.returnWindowDays} days</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${s.items
+        .map(
+          (i) =>
+            `<tr><td style="${cell}">${escape(i.title)}${i.options ? ` <span style="color:#64748b">(${escape(i.options)})</span>` : ""} × ${escape(i.qty)}${i.discount ? `<br><span style="color:#0F6B3E;font-size:12px">You saved ${escape(i.discount)}</span>` : ""}</td><td align="right" style="${cell}">${escape(i.total)}</td></tr>`,
+        )
+        .join("")}<tr><td style="${cell}">Delivery</td><td align="right" style="${cell}">${escape(s.delivery)}</td></tr></table>`,
+    )
+    .join("");
+  const t = params.totals;
+  const row = (label: string, value: string, strong = false) =>
+    `<tr><td style="padding:4px 0;font-size:14px${strong ? ";font-weight:700" : ""}">${escape(label)}</td><td align="right" style="padding:4px 0;font-size:14px${strong ? ";font-weight:700" : ""}">${escape(value)}</td></tr>`;
+  const totals = `<table role="presentation" width="100%" style="margin-top:16px">${row("Items", t.subtotal)}${t.discount ? row("Discounts", `−${t.discount}`) : ""}${row("Delivery", t.delivery)}${row("Service fee", t.serviceFee)}${row("VAT on service fee", t.vat)}${row(params.payOnDelivery ? "To pay on delivery" : "Total paid", t.total, true)}</table>`;
+  const intro = params.payOnDelivery
+    ? `Thanks for your order, ${escape(params.name)}. You'll pay ${escape(t.total)} when it arrives.`
+    : `Thanks for your order, ${escape(params.name)}. We've received your payment of ${escape(t.total)}.`;
+  return {
+    to: params.to,
+    subject: `Your TownMart order ${params.orderNumber}`,
+    html: layout(
+      `Order ${params.orderNumber}`,
+      `<p>${intro}</p><p style="font-size:13px;color:#475569">Placed ${escape(params.placedAt)}. Delivering to: ${escape(params.address)}</p>${sellerBlocks}${totals}${button(params.orderUrl, "View your order")}<p style="font-size:13px;color:#475569">Something wrong? See our <a href="${escape(params.refundPolicyUrl)}">Refund &amp; Returns policy</a>. Sellers are paid only after your order is delivered.</p>`,
+    ),
+    text: `Order ${params.orderNumber}\n\n${params.payOnDelivery ? "Pay on delivery" : "Paid"}: ${t.total}\n\n${params.sellers
+      .map((s) => `${s.name} (${s.city})\n${s.items.map((i) => `- ${i.title}${i.options ? ` (${i.options})` : ""} x ${i.qty}: ${i.total}`).join("\n")}\nDelivery: ${s.delivery}`)
+      .join("\n\n")}\n\nItems ${t.subtotal}${t.discount ? `, discounts -${t.discount}` : ""}, delivery ${t.delivery}, service fee ${t.serviceFee}, VAT ${t.vat}. Total ${t.total}.\n\nView your order: ${params.orderUrl}\nRefund policy: ${params.refundPolicyUrl}\n`,
+  };
+}
+
+export function sellerNewOrderTemplate(params: {
+  to: string;
+  businessName: string;
+  orderNumber: string;
+  payOnDelivery: boolean;
+  method: "delivery" | "pickup";
+  items: { title: string; options: string; qty: string }[];
+  net: string;
+  url: string;
+}): EmailMessage {
+  const list = params.items.map((i) => `<li>${escape(i.title)}${i.options ? ` (${escape(i.options)})` : ""} × ${escape(i.qty)}</li>`).join("");
+  return {
+    to: params.to,
+    subject: `New order ${params.orderNumber}`,
+    html: layout(
+      `New order for ${params.businessName}`,
+      `<p>You have a new ${params.method === "pickup" ? "pickup" : "delivery"} order${params.payOnDelivery ? " (pay on delivery: collect payment on handover)" : ", already paid"}.</p><ul>${list}</ul><p>Your earnings after commission: <strong>${escape(params.net)}</strong>, paid out after delivery.</p>${button(params.url, "Open your dashboard")}`,
+    ),
+    text: `New order ${params.orderNumber} for ${params.businessName}:\n${params.items.map((i) => `- ${i.title} x ${i.qty}`).join("\n")}\nEarnings after commission: ${params.net}\n${params.url}\n`,
+  };
+}

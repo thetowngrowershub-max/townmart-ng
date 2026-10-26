@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { expireUnpaidOrders } from "@/lib/orders/payment";
 
 /** Deletes expired sessions so revoked/expired logins don't accumulate. */
 export async function purgeExpiredSessions(): Promise<{ deleted: number }> {
@@ -22,4 +23,6 @@ type MaintenanceJob = { pattern: string; run: () => Promise<Record<string, numbe
 export const maintenanceJobs: Record<string, MaintenanceJob> = {
   "sessions.purge-expired": { pattern: "15 * * * *", run: purgeExpiredSessions },
   "tokens.purge-expired": { pattern: "45 * * * *", run: purgeExpiredTokens },
+  // Gives back stock held for orders whose payment window has passed.
+  "orders.expire-unpaid": { pattern: "* * * * *", run: () => expireUnpaidOrders() },
 };

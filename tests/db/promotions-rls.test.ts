@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, withRls, withSystemContext } from "@/lib/db";
 import { searchProvider } from "@/lib/search";
-import { createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createBareOrder, createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
 
 /**
  * Promotions at the database layer: a seller manages only its own promotions,
@@ -16,6 +16,7 @@ type Fixture = { userId: string; businessId: string; productId: string; promotio
 let a: Fixture;
 let b: Fixture;
 let categoryId: string;
+const orderIds: string[] = [];
 const tag = randomUUID().slice(0, 8);
 const hour = 3_600_000;
 
@@ -86,6 +87,7 @@ afterAll(async () => {
   const businessIds = fixtures.map((f) => f.businessId);
   await asSystem(async (tx) => {
     await tx.promotionRedemption.deleteMany({ where: { businessId: { in: businessIds } } });
+    await tx.order.deleteMany({ where: { id: { in: orderIds } } });
     await tx.promotion.deleteMany({ where: { businessId: { in: businessIds } } });
     await tx.product.deleteMany({ where: { businessId: { in: businessIds } } });
     await tx.business.deleteMany({ where: { id: { in: businessIds } } });
@@ -170,11 +172,13 @@ describe("RLS: promotions", () => {
 
 describe("RLS: redemptions", () => {
   it("are written only by the system, which keeps the count", async () => {
+    const order = await createBareOrder(b.userId);
+    orderIds.push(order.id);
     await expect(
-      withRls(as(a), (tx) => tx.promotionRedemption.create({ data: { promotionId: a.promotionId, orderId: randomUUID(), userId: a.userId, discountKobo: 1n } })),
+      withRls(as(a), (tx) => tx.promotionRedemption.create({ data: { promotionId: a.promotionId, orderId: order.id, userId: a.userId, discountKobo: 1n } })),
     ).rejects.toThrow();
 
-    await withSystemContext((tx) => tx.promotionRedemption.create({ data: { promotionId: a.promotionId, orderId: randomUUID(), userId: b.userId, discountKobo: 20_000n } }));
+    await withSystemContext((tx) => tx.promotionRedemption.create({ data: { promotionId: a.promotionId, orderId: order.id, userId: b.userId, discountKobo: 20_000n } }));
     expect((await owner.promotion.findUniqueOrThrow({ where: { id: a.promotionId } })).redemptionCount).toBe(1);
   });
 

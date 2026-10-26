@@ -1,13 +1,43 @@
-import { DPA_VERSION, PROMOTIONS_TERMS_VERSION, SELLER_AGREEMENT_VERSION } from "./legal";
+import { DPA_VERSION, PROMOTIONS_TERMS_VERSION, REFUND_POLICY_VERSION, SELLER_AGREEMENT_VERSION, TERMS_VERSION } from "./legal";
 
 /**
- * Draft texts sellers read before accepting at onboarding. Phase 6 replaces
+ * Draft texts sellers accept at onboarding and shoppers accept at checkout. Phase 6 replaces
  * these with versioned, admin-editable legal documents reviewed by counsel;
  * the version strings recorded on each business stay valid references.
  */
 export type LegalDraft = { title: string; version: string; summary: string; sections: { heading: string; body: string[] }[] };
 
 export const LEGAL_DRAFTS: Record<string, LegalDraft> = {
+  terms: {
+    title: "Terms of Use",
+    version: TERMS_VERSION,
+    summary: "The rules for using TownMart and buying from sellers on it.",
+    sections: [
+      { heading: "1. About TownMart", body: ["TownMart is an online marketplace in Nigeria. Independent sellers list products and services; TownMart runs the platform, takes payments on their behalf and helps resolve problems. When you buy, your contract for the item is with the seller."] },
+      { heading: "2. Your account", body: ["You can buy as a guest or with an account. Keep your sign-in details private and tell us straight away if you think someone else has used your account. You must be 18 or over, or have a parent's or guardian's permission, to place an order."] },
+      { heading: "3. Prices and fees", body: ["Prices are in naira and include any discounts shown. At checkout we show, before you pay, the item total, discounts, delivery fees for each seller, TownMart's service fee and VAT on that fee. The total you see is the total you pay.", "If a price or fee changes while you are checking out, we tell you the new total and ask you to confirm it before taking payment."] },
+      { heading: "4. Payment", body: ["Online payments are processed by our payment partners (Paystack or Flutterwave). TownMart never sees or stores your full card details. Where a seller offers pay on delivery, you pay the rider or seller when the order arrives.", "Items are held for you for a short time while you pay. If payment doesn't arrive in that time the order is cancelled and the items go back on sale. If you are charged for an order that was cancelled, we refund you in full."] },
+      { heading: "5. Delivery and pickup", body: ["Each seller delivers or offers pickup separately, so one checkout may arrive in several parcels. Delivery times are estimates in working days and depend on your location."] },
+      { heading: "6. Returns and refunds", body: ["Our Refund Policy explains when and how you can return an item or get your money back. It does not limit your rights under the Federal Competition and Consumer Protection Act 2018."] },
+      { heading: "7. Using TownMart fairly", body: ["Don't misuse the site: no fraud, fake orders or reviews, scraping, or attempts to get around our security. We may cancel orders or close accounts that do."] },
+      { heading: "8. Your data", body: ["We handle your personal data as our Privacy Policy explains, in line with the Nigeria Data Protection Act 2023. Sellers receive only what they need to fulfil your order."] },
+      { heading: "9. Changes", body: ["We may update these terms. The version you accepted is recorded on each order and applies to that order."] },
+    ],
+  },
+  refunds: {
+    title: "Refund & Returns Policy",
+    version: REFUND_POLICY_VERSION,
+    summary: "When you can return an item, cancel an order or get your money back.",
+    sections: [
+      { heading: "1. Before it ships", body: ["You can ask to cancel an order until the seller marks it as shipped or ready for pickup. Paid orders cancelled this way are refunded in full, including delivery and the service fee."] },
+      { heading: "2. Returns", body: ["Each seller sets a return window, shown on the product page and at checkout, counted from delivery. Items must be unused and in their original packaging, unless they arrived damaged, faulty or not as described.", "Perishable goods such as fresh food can only be returned if they arrive spoiled or not as described, and you must tell us within 24 hours of delivery."] },
+      { heading: "3. Damaged, faulty or wrong items", body: ["If an item arrives damaged, faulty or isn't what you ordered, report it with photos within the return window. You get a full refund or replacement, including the cost of returning it."] },
+      { heading: "4. How refunds are paid", body: ["Refunds go back to the way you paid: to your card or bank account for online payments, or by bank transfer for pay on delivery. We start the refund within 2 working days of approving it; your bank may take up to 10 working days to show it.", "If you used a coupon or promotion, you get back what you actually paid for the item."] },
+      { heading: "5. Payments we can't match", body: ["If you are charged twice, or pay after an order has been cancelled and the item is no longer available, we refund the payment in full."] },
+      { heading: "6. Disputes", body: ["If you and a seller can't agree, TownMart reviews the case and decides. We hold the seller's payment until the order is delivered and the return window has passed, so refunds we approve are paid."] },
+      { heading: "7. Your legal rights", body: ["This policy adds to, and does not reduce, your rights under the Federal Competition and Consumer Protection Act 2018."] },
+    ],
+  },
   "seller-agreement": {
     title: "Seller Agreement",
     version: SELLER_AGREEMENT_VERSION,

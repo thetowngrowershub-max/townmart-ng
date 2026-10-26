@@ -39,7 +39,7 @@ It also seeds the category tree and six approved demo sellers in Lagos, Ogun and
 
 Demo promotions start at the hour the seed runs: flash deals on rice (Ikeja Fresh Mart) and tomatoes (Ogun Harvest Farms) that end within two days, money off selected gadgets and plumbing services, and coupon codes `IKEJAFRESH10` and `YABA15`. A store that already has promotions is skipped, so to refresh expired demo deals, delete that store's promotions and seed again.
 
-Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DIR`, no MinIO needed), `SMS_PROVIDER=console` (codes appear in the worker log) and `BANK_VERIFIER=fake` (any 10-digit account resolves to `TEST ACCOUNT nnnn`). `next start` refuses to run with any of these.
+Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DIR`, no MinIO needed), `SMS_PROVIDER=console` (codes appear in the worker log) and `BANK_VERIFIER=fake` (any 10-digit account resolves to `TEST ACCOUNT nnnn`) and `PAYMENT_PROVIDER=fake` (checkout goes to a local test payment page with Pay and Decline buttons; set `paystack` with test keys to use Paystack's sandbox). `next start` refuses to run with any of these.
 
 ## Scripts
 
@@ -73,7 +73,10 @@ lib/
   search/         SearchProvider interface + Postgres full-text/trigram implementation
   seller/         onboarding state and actions, seller context    admin/  seller review
   storage/        StorageProvider (S3/MinIO, local), presigned uploads, image processing
-  payments/       bank account verification (Paystack, fake)
+  payments/       Paystack, Flutterwave and test payment providers; bank account verification
+  checkout/       cart pricing, delivery quotes and totals
+  orders/         placing orders, confirming payments, receipts
+  ledger/         double-entry postings
   queue/ redis.ts rate-limit.ts audit.ts money.ts datetime.ts env.ts
 prisma/           schema.prisma, migrations/, seed.ts, seed-catalogue.ts, data/ (states + LGAs, demo catalogue)
 sql/bootstrap/    cluster bootstrap run once as superuser (roles, database)
