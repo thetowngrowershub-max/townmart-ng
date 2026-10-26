@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { koboToNairaString } from "@/lib/money";
-import { PaymentProviderError, type PaymentProvider, type StartPayment, type VerifiedPayment, type WebhookEvent } from "./provider";
+import { PaymentProviderError, type PaymentProvider, type ProviderRefund, type StartPayment, type StartRefund, type VerifiedPayment, type WebhookEvent } from "./provider";
 
 type Res<T> = { status: string; message: string; data: T };
 
@@ -58,14 +58,38 @@ export class FlutterwaveProvider implements PaymentProvider {
   }
 
   parseWebhook(rawBody: string): WebhookEvent {
-    const body = JSON.parse(rawBody) as { event?: string; data?: { id?: number; tx_ref?: string; status?: string } };
+    const body = JSON.parse(rawBody) as { event?: string; data?: { id?: number; tx_ref?: string; status?: string; reference?: string } };
     const eventType = body.event ?? "unknown";
+    const kind = eventType.startsWith("charge.") ? "charge" : eventType.startsWith("refund.") ? "refund" : eventType.startsWith("transfer.") ? "transfer" : "other";
     return {
-      eventId: `${eventType}:${body.data?.id ?? body.data?.tx_ref ?? "none"}`,
+      eventId: `${eventType}:${body.data?.id ?? body.data?.tx_ref ?? "none"}${kind === "charge" ? "" : `:${body.data?.status ?? ""}`}`,
       eventType,
       reference: body.data?.tx_ref ?? null,
       isChargeSuccess: eventType === "charge.completed" && body.data?.status === "successful",
+      kind,
+      transferReference: kind === "transfer" ? (body.data?.reference ?? null) : null,
       payload: body,
     };
+  }
+
+  private refundResult(res: Res<{ id: number; status: string } | null>): ProviderRefund {
+    if (res.status !== "success" || !res.data) return { providerRefundReference: null, status: "failed", message: res.message, raw: res };
+    const s = res.data.status;
+    return { providerRefundReference: String(res.data.id), status: s === "completed" ? "completed" : s === "failed" ? "failed" : "processing", raw: res.data };
+  }
+
+  async refund(p: StartRefund): Promise<ProviderRefund> {
+    // Flutterwave refunds by its own transaction id, which the verify response carries.
+    const id = (p.verification as { id?: number } | null)?.id;
+    if (!id) return { providerRefundReference: null, status: "failed", message: "No Flutterwave transaction id on this payment", raw: null };
+    const res = await this.call<{ id: number; status: string }>(`/transactions/${id}/refund`, {
+      method: "POST",
+      body: JSON.stringify({ amount: koboToNairaString(p.amountKobo), comments: `TownMart refund ${p.refundNumber}` }),
+    });
+    return this.refundResult(res);
+  }
+
+  async refundStatus(providerRefundReference: string): Promise<ProviderRefund> {
+    return this.refundResult(await this.call<{ id: number; status: string }>(`/refunds/${encodeURIComponent(providerRefundReference)}`));
   }
 }

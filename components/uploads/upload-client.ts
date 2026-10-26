@@ -1,6 +1,6 @@
 "use client";
 
-import { finaliseImageAction, finaliseReviewImageAction, requestReviewUploadAction, requestUploadAction } from "@/lib/storage/actions";
+import { finaliseEvidenceAction, finaliseImageAction, finaliseReviewImageAction, requestEvidenceUploadAction, requestReviewUploadAction, requestUploadAction } from "@/lib/storage/actions";
 import type { ImagePurpose } from "@/lib/storage/uploads";
 
 export type UploadedImage = { key: string; url: string; width: number; height: number };
@@ -54,6 +54,19 @@ export async function uploadImage(file: File, purpose: ImagePurpose): Promise<Up
   const fin = await finaliseImageAction({ tmpKey, purpose });
   if (!fin.ok) throw new Error(fin.error);
   return fin.data!;
+}
+
+/** A photo for a refund request: private, readable only by the customer, the seller and TownMart. */
+export async function uploadEvidence(file: File, order: { orderNumber: string; token: string | null }): Promise<string> {
+  const body = await compressImage(file, 1600);
+  const req = await requestEvidenceUploadAction({ ...order, contentType: body.type, size: body.size });
+  if (!req.ok) throw new Error(req.error);
+  const { tmpKey, target } = req.data!;
+  const res = await fetch(target.url, { method: target.method, headers: target.headers, body });
+  if (!res.ok) throw new Error("Upload failed. Check your connection and try again.");
+  const fin = await finaliseEvidenceAction({ ...order, tmpKey });
+  if (!fin.ok) throw new Error(fin.error);
+  return fin.data!.key;
 }
 
 /** KYC documents and CSVs: uploaded as-is to the private bucket; the form's action finalises them. */

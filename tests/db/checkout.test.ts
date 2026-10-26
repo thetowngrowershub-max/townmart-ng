@@ -8,8 +8,7 @@ import { applyVerifiedPayment, expireUnpaidOrders, processPaymentEvent } from "@
 import { OrderError, placeOrder, type PlacedOrder } from "@/lib/orders/place";
 import { FakePaymentProvider } from "@/lib/payments/fake";
 import type { VerifiedPayment } from "@/lib/payments";
-import { redis } from "@/lib/redis";
-import { createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createUser, deleteMoneyTrail, deleteUsers, lagosIkeja, owner } from "./helpers";
 
 /**
  * Checkout end to end at the database layer: placing orders across sellers,
@@ -149,10 +148,7 @@ afterAll(async () => {
   const businessIds = sellers.map((s) => s.businessId);
   const orderIds = (await owner.sellerOrder.findMany({ where: { businessId: { in: businessIds } }, select: { orderId: true } })).map((o) => o.orderId);
   await asSystem(async (tx) => {
-    const txIds = (await tx.ledgerEntry.findMany({ where: { businessId: { in: businessIds } }, select: { transactionId: true } })).map((e) => e.transactionId);
-    await tx.ledgerEntry.deleteMany({ where: { transactionId: { in: txIds } } });
-    await tx.ledgerTransaction.deleteMany({ where: { id: { in: txIds } } });
-    await tx.ledgerAccount.deleteMany({ where: { ownerId: { in: businessIds } } });
+    await deleteMoneyTrail(tx, { businessIds, orderIds });
     await tx.paymentEvent.deleteMany({ where: { payload: { path: ["tag"], equals: tag } } });
     await tx.promotionRedemption.deleteMany({ where: { orderId: { in: orderIds } } });
     await tx.payment.deleteMany({ where: { orderId: { in: orderIds } } });
@@ -164,7 +160,6 @@ afterAll(async () => {
   await deleteUsers(...users);
   await owner.$disconnect();
   await prisma.$disconnect();
-  redis.disconnect();
 });
 
 describe("placing an order", () => {

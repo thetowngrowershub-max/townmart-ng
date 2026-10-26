@@ -200,7 +200,7 @@ A payment is only ever confirmed by calling the provider's **verify** API, never
 
 Webhooks (`/api/webhooks/{paystack|flutterwave}`) check the signature (Paystack HMAC-SHA512, Flutterwave `verif-hash`), store every delivery in `payment_events` (unique per provider and event id, so replays are acknowledged and ignored) and hand valid ones to the worker, which verifies with the provider.
 
-The `orders.expire-unpaid` job runs every minute: it asks the provider about any unpaid order past its hold (in case a webhook is late), otherwise cancels it and puts the stock back. A payment that arrives after expiry takes the stock again if it can; if not, or if the amount is wrong or the order was already paid, the order is logged as needing attention for a refund (Phase 5).
+The `orders.expire-unpaid` job runs every minute: it asks the provider about any unpaid order past its hold (in case a webhook is late), otherwise cancels it and puts the stock back. A payment that arrives after expiry takes the stock again if it can; if not, or if the amount is wrong or the order was already paid, the payment is refunded automatically (`refundUnappliedPayment`, Phase 5).
 
 ### Ledger
 
@@ -213,7 +213,7 @@ Double-entry, BigInt kobo, append-only (`ledger_accounts`, `ledger_transactions`
 | Each seller's escrow | | the seller's net (goods − own discounts + delivery − commission) |
 | Platform commission, fees, tax | | commission, service fee, VAT |
 
-`lib/ledger/entries.ts` builds balanced postings; a deferred constraint trigger also rejects any transaction whose debits and credits differ when it commits. Each transaction is unique per (kind, reference), so a retry can't post twice. Escrow is released to sellers in Phase 5.
+`lib/ledger/entries.ts` builds balanced postings; a deferred constraint trigger also rejects any transaction whose debits and credits differ when it commits. Each transaction is unique per (kind, reference), so a retry can't post twice. Escrow release, refunds and payouts (Phase 5) add their own transaction kinds.
 
 ### After the order
 
@@ -248,6 +248,46 @@ Only a verified buyer can review (`findReviewable`): the account that placed the
 `/dashboard` shows today's sales, orders to handle, bookings this week, payout balance (from the ledger), rating, a 14-day earnings chart and top products. `/dashboard/bookings` is a day-by-day diary with the booking actions, `/dashboard/messages` an inbox, `/dashboard/reviews` the review list with replies, and `/dashboard/settings/delivery` lets a seller replace TownMart's default rates for any zone with its own weight bands.
 
 Shoppers get `/account/bookings`, `/account/reviews` (items waiting for a review, and their reviews) and `/account/wishlist` (the Save button on product and service pages).
+
+## Phase 5: refunds, disputes and payouts
+
+### Refunds
+
+A refund (`refunds`, with `refund_items` for the lines it covers) belongs to one seller order, or to a payment only when TownMart returns a payment it couldn't use. It moves requested → approved → processing → completed, or failed; a request can also be rejected. `lib/refunds/core.ts` holds the rules:
+
+- **Who asks.** The customer from `/orders/{number}/help/{seller order}` (signed in, or a guest with the order link): cancel while the seller hasn't started (full refund at once), or ask for a refund or return of some items within the store's return window (fresh produce within 24 hours, with a photo; damaged, wrong or not-as-described items need a photo). The seller can cancel a paid order it can't fulfil (full refund). Cancelling a paid booking refunds it under the policy: all of it if the provider cancels or the customer cancels 24 hours or more before the start, `refunds.late_cancel_percent` (50%) after that. TownMart can refund any seller order from the admin console. One request can be open per seller order (a unique partial index).
+- **Who decides.** The seller approves (all, or less than asked, choosing what goes back on sale) or declines with a reason, by `refunds.seller_response_hours` (48). The `refunds.escalate` job hands overdue requests to TownMart as a dispute. Approval fixes the money split and writes the ledger in the same transaction; restocking and order status follow (a full refund cancels a seller order that hasn't been handed over, or marks it refunded).
+- **The money split.** The refund amount comes back from the seller's share; TownMart returns the commission and any TownMart-funded discount in proportion, so the seller loses only what they received for those items. The service fee and VAT are refunded with the refund that empties the whole order. Before escrow is released the seller's part is taken from escrow, afterwards from their available balance.
+- **Paying it back.** After approval, `sendRefund()` claims the refund (processing) and calls the provider outside any transaction, keyed by the refund number; the `refunds.process` job (every 2 minutes) retries anything left behind and checks pending provider refunds. A provider refusal marks it failed; TownMart sees failed refunds on `/admin/payouts` and can send them again. Provider `refund.*` webhooks are verified the same way as payments. Completion posts `refund_paid` and sets the order's payment status to refunded or partially refunded.
+
+Pay-on-delivery orders can't be refunded through TownMart (the seller holds the cash), but they can be disputed.
+
+### Disputes
+
+The customer asks TownMart to decide (`disputes`, `dispute_messages`), after a declined refund or about anything else on a seller order; an overdue refund request becomes one automatically. One open dispute per seller order. The customer, the seller and TownMart write in one thread (append-only); the customer can withdraw. An admin decides on `/admin/disputes/[id]`: full refund of what's left, a part refund or no refund, with a note both sides see. A refund decision creates and approves the refund in the same transaction. Every admin decision is in the audit log.
+
+### Escrow and payouts
+
+A seller's share of an online payment is held in escrow until delivery plus `escrow_release_days` (3), then the `escrow.release` job (every 15 minutes) moves what's left of it to the seller's available balance (`escrow_released`). Nothing is released while a refund request or dispute on that order is open. For pay-on-delivery orders the same job, once the cash is collected and the period has passed, takes TownMart's commission, service fee and VAT share from the seller's available balance (`pod_settled`).
+
+`payouts.run` (weekdays 10:00 Lagos) pays each approved seller with a verified bank account its whole available balance once it reaches `payouts.minimum_naira` (₦1,000); the owner can also pay out now from `/dashboard/payouts`. One payout per business can be in flight (unique partial index plus an advisory lock). The ledger moves the money to provider clearing when the payout is created; the transfer is sent afterwards with our reference as the idempotency key, asking the provider about that reference first so a retry never pays twice. `payouts.sync` follows transfers in progress and `transfer.*` webhooks; a failed transfer reverses the posting, so the money is back in the seller's balance. Payouts use Paystack transfers to the recipient registered when the seller's bank account was verified (`BANK_VERIFIER=fake` in development).
+
+Ledger postings added in this phase (all in `lib/ledger/entries.ts`, balanced and unique per kind and reference):
+
+| Kind | Reference | Debit | Credit |
+|---|---|---|---|
+| `escrow_released` | seller order | seller escrow | seller available |
+| `pod_settled` | seller order | seller available; platform promotions (TownMart-funded discounts) | commission, fees, tax |
+| `refund_approved` | refund | seller escrow or available; commission; fees; tax | platform promotions; platform refunds |
+| `refund_paid` | refund | platform refunds | provider clearing |
+| `payment_unapplied` | refund | provider clearing | platform refunds |
+| `payout` / `payout_returned` | payout | seller available / transfer clearing | transfer clearing / seller available |
+
+### Statements and money screens
+
+`/dashboard/payouts` (owner only) shows the available and held balances, the next release, this month's sales, commission, refunds and payouts, the bank account, a pay-out-now button and the payout history. Monthly statements are built from the ledger in Lagos time (`lib/payouts/statement.ts`): opening and closing balances and every movement, as a printable page or CSV (text cells are guarded against spreadsheet formulas). `/dashboard/refunds` lists requests waiting for the seller (with the deadline), all refunds and disputes. Customers see their refunds at `/account/refunds` and on each order. `/admin/orders` has queues for open disputes, refund requests and failed refunds, plus order search; `/admin/payouts` shows payouts, failed refunds, where the money is (sellers' escrow and balances, TownMart's commission, fees, VAT and refunds owed, provider clearing) with a trial-balance check, and buttons to run the escrow and payout jobs now.
+
+Notices for refunds, disputes and payouts go through the same worker job as order notices (`refund.update`, `dispute.update`, `payout.update`), by email and in-app notification. Photos for refund requests are stored privately under `evidence/o-<order id>/` and opened through `/api/refunds/[id]/evidence/[n]`, which checks the viewer is the customer (or has the order link), the seller or TownMart and redirects to a 60-second signed URL.
 
 ## Design system
 

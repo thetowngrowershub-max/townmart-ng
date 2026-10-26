@@ -215,7 +215,7 @@ async function seedSeller(prisma: PrismaClient, seller: DemoSeller, categoryIds:
       });
       await tx.businessKyc.create({ data: { businessId: id, provider: "manual", verificationStatus: "verified", idDocumentType: b.cac ? "cac_certificate" : "nin_slip", verifiedAt: now, notes: "Demo seller (seed data)" } });
       await tx.payoutAccount.create({
-        data: { businessId: id, bankCode: "058", bankName: "Guaranty Trust Bank", accountNumberLast4: seller.owner.phone.slice(-4), accountName: b.name.toUpperCase(), providerSubaccountCode: `ACCT_demo_${b.slug}`, verifiedAt: now },
+        data: { businessId: id, bankCode: "058", bankName: "Guaranty Trust Bank", accountNumberLast4: seller.owner.phone.slice(-4), accountName: b.name.toUpperCase(), providerSubaccountCode: `ACCT_demo_${b.slug}`, providerRecipientCode: `RCP_demo_${b.slug}`, verifiedAt: now },
       });
 
       const logoKey = await putImage(`logos/${id}/seed-logo.webp`, await placeholder({ title: b.name, caption: "", colour: b.colour, width: 512, height: 512, variant: 0 }));

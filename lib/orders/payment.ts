@@ -10,6 +10,8 @@ import { postLedgerTransaction } from "@/lib/ledger/post";
 import { logger } from "@/lib/logger";
 import { paymentProvider, paymentProviderOrder, PaymentProviderError, type ProviderName, type VerifiedPayment } from "@/lib/payments";
 import { enqueueOrderEvent } from "@/lib/queue";
+import { syncPayoutByReference } from "@/lib/payouts/payouts";
+import { refundUnappliedPayment, syncRefundsForPayment } from "@/lib/refunds/core";
 import { writeRedemptions } from "./place";
 import { moveSellerOrders } from "./status";
 
@@ -125,6 +127,8 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
   if (verified.amountKobo !== current.amountKobo || verified.currency !== "NGN") {
     await tx.payment.update({ where: { id: payment.id }, data: { status: "failed", rawVerification: verified.raw as Prisma.InputJsonValue } });
     logger.error({ reference, expected: current.amountKobo.toString(), got: verified.amountKobo.toString(), currency: verified.currency }, "payment amount mismatch");
+    // Whatever arrived goes back (in naira; another currency is left for a person to sort out).
+    if (verified.currency === "NGN") await refundUnappliedPayment(tx, { paymentId: payment.id, amountKobo: verified.amountKobo, why: "Paid the wrong amount" });
     return "needs_attention" as const;
   }
 
@@ -134,8 +138,9 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
   });
 
   if (order.paymentStatus === "paid") {
-    // A second successful attempt for an already-paid order: money to give back (Phase 5 refunds).
-    logger.error({ reference, orderNumber: order.orderNumber }, "duplicate payment for a paid order: refund needed");
+    // A second successful attempt for an already-paid order: refunded in full.
+    logger.warn({ reference, orderNumber: order.orderNumber }, "duplicate payment for a paid order: refunding it");
+    await refundUnappliedPayment(tx, { paymentId: payment.id, amountKobo: current.amountKobo, why: "Paid twice for the same order" });
     return "needs_attention" as const;
   }
   if (order.cancelledAt) {
@@ -143,7 +148,8 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
     if (!(await retakeHolds(tx, order.id))) {
       // Paid after the hold expired and the stock or time has gone: the order stays cancelled and is refunded.
       await tx.$executeRaw`ROLLBACK TO SAVEPOINT retake`;
-      logger.error({ reference, orderNumber: order.orderNumber }, "late payment for an order whose stock or booking time has gone: refund needed");
+      logger.warn({ reference, orderNumber: order.orderNumber }, "late payment for an order whose stock or booking time has gone: refunding it");
+      await refundUnappliedPayment(tx, { paymentId: payment.id, amountKobo: current.amountKobo, why: "Paid after the items sold out" });
       return "needs_attention" as const;
     }
     await tx.$executeRaw`RELEASE SAVEPOINT retake`;
@@ -173,6 +179,7 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
 
 export async function applyVerifiedPayment(reference: string, verified: VerifiedPayment): Promise<ConfirmResult> {
   const result = await withSystemContext((tx) => applyVerifiedPaymentTx(tx, reference, verified));
+  // Refunds of unusable payments are sent by the refunds job (lib/refunds/core.ts processRefunds).
   if (typeof result === "string") return result;
   await enqueueOrderEvent({ kind: "order.confirmed", orderId: result.orderId });
   return "paid";
@@ -195,7 +202,13 @@ export async function processPaymentEvent(eventId: string): Promise<void> {
   if (!event || event.processedAt || !event.signatureValid) return;
   let error: string | null = null;
   try {
-    if (event.reference) {
+    // Refund and transfer events are hints too: the refund or payout is checked with the provider's API.
+    if (event.eventType.startsWith("refund.") && event.reference) {
+      await syncRefundsForPayment(event.reference);
+    } else if (event.eventType.startsWith("transfer.")) {
+      const ref = paymentProvider(event.provider as ProviderName).parseWebhook(JSON.stringify(event.payload)).transferReference;
+      if (ref) await syncPayoutByReference(ref);
+    } else if (event.reference) {
       const known = await withSystemContext((tx) => tx.payment.findUnique({ where: { providerReference: event.reference! }, select: { id: true } }));
       if (known) await verifyAndApply(event.reference);
     }

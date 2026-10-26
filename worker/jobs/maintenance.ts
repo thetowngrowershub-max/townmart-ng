@@ -1,7 +1,11 @@
 import { prisma, withSystemContext } from "@/lib/db";
 import { sendBookingReminders } from "@/lib/bookings/reminders";
 import { autoCompleteDelivered } from "@/lib/fulfilment/orders";
+import { escalateOverdueRefunds } from "@/lib/disputes/core";
 import { expireUnpaidOrders } from "@/lib/orders/payment";
+import { releaseDueEscrow } from "@/lib/payouts/escrow";
+import { runPayouts, syncPayouts } from "@/lib/payouts/payouts";
+import { processRefunds } from "@/lib/refunds/core";
 import { getCheckoutSettings } from "@/lib/settings";
 
 /** Deletes expired sessions so revoked/expired logins don't accumulate. */
@@ -39,4 +43,12 @@ export const maintenanceJobs: Record<string, MaintenanceJob> = {
   "orders.expire-unpaid": { pattern: "* * * * *", run: () => expireUnpaidOrders() },
   "bookings.reminders": { pattern: "*/5 * * * *", run: () => sendBookingReminders() },
   "orders.auto-complete": { pattern: "30 * * * *", run: () => completeDeliveredOrders() },
+  // Sends approved refunds to the payment provider and checks on ones in progress.
+  "refunds.process": { pattern: "*/2 * * * *", run: () => processRefunds() },
+  // Refund requests a seller hasn't answered in time go to TownMart.
+  "refunds.escalate": { pattern: "10,40 * * * *", run: async () => ({ escalated: (await escalateOverdueRefunds()).escalated.length }) },
+  "escrow.release": { pattern: "*/15 * * * *", run: () => releaseDueEscrow() },
+  // Daily payout run on working mornings, plus a check on transfers still in progress.
+  "payouts.run": { pattern: "0 10 * * 1-5", run: () => runPayouts() },
+  "payouts.sync": { pattern: "*/15 * * * *", run: () => syncPayouts() },
 };

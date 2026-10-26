@@ -9,11 +9,13 @@ import { OrderMessages } from "@/components/orders/order-messages";
 import { BookingStatusBadge, OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { SellerOrderActions } from "@/components/orders/seller-order-actions";
 import { OrderTimeline } from "@/components/orders/order-timeline";
+import { RefundList } from "@/components/refunds/refund-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { can } from "@/lib/authz";
 import { loadConversation } from "@/lib/fulfilment/messages";
 import { CONTACT_RETENTION_DAYS, loadSellerOrder } from "@/lib/fulfilment/seller-view";
+import { sellerOrderRefunds } from "@/lib/refunds/seller-view";
 import { requireSellerPage, withSellerRls } from "@/lib/seller/context";
 
 export const metadata: Metadata = { title: "Order" };
@@ -26,10 +28,10 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
     const order = await loadSellerOrder(tx, ctx.business.id, id);
     if (!order) return null;
     const messages = await loadConversation(tx, { sellerOrderId: id, viewer: "seller", sellerName: ctx.business.name, customerName: order.customer.name });
-    return { order, messages };
+    return { order, messages, money: await sellerOrderRefunds(tx, ctx.business.id, id) };
   });
   if (!data) notFound();
-  const { order, messages } = data;
+  const { order, messages, money } = data;
   const canManage = can(ctx.user, "order.manage", { businessId: ctx.business.id });
   const canBook = can(ctx.user, "booking.manage", { businessId: ctx.business.id });
 
@@ -112,6 +114,31 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
               </dl>
             </CardContent>
           </Card>
+
+          {(money.refunds.length > 0 || money.dispute) && (
+            <Card id="refunds">
+              <CardHeader>
+                <CardTitle>Refunds</CardTitle>
+                {money.dispute && (
+                  <CardDescription>
+                    <Link href={`/dashboard/disputes/${money.dispute.id}`} className="text-primary underline">
+                      {money.dispute.status === "open" ? "The customer has asked TownMart to decide. Give your side." : "See TownMart's decision on the dispute."}
+                    </Link>
+                  </CardDescription>
+                )}
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <RefundList refunds={money.refunds} side="seller" />
+                {money.refunds
+                  .filter((r) => r.status === "requested")
+                  .map((r) => (
+                    <Button key={r.id} asChild size="sm" className="self-start">
+                      <Link href={`/dashboard/refunds/${r.id}`}>Answer {r.number}</Link>
+                    </Button>
+                  ))}
+              </CardContent>
+            </Card>
+          )}
 
           <Card id="messages">
             <CardHeader>

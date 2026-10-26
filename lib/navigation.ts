@@ -32,7 +32,7 @@ import {
  */
 export type NavItem = { href: string; label: string; icon: LucideIcon; phase: number };
 
-export const CURRENT_PHASE = 4;
+export const CURRENT_PHASE = 5;
 
 export const accountNav: NavItem[] = [
   { href: "/account", label: "Overview", icon: LayoutDashboard, phase: 0 },
@@ -55,6 +55,7 @@ export const dashboardNav: NavItem[] = [
   { href: "/dashboard/promotions", label: "Promotions", icon: BadgePercent, phase: 2 },
   { href: "/dashboard/orders", label: "Orders", icon: ClipboardList, phase: 4 },
   { href: "/dashboard/bookings", label: "Bookings", icon: CalendarCheck, phase: 4 },
+  { href: "/dashboard/refunds", label: "Refunds & disputes", icon: RotateCcw, phase: 5 },
   { href: "/dashboard/payouts", label: "Payouts", icon: Wallet, phase: 5 },
   { href: "/dashboard/reviews", label: "Reviews", icon: Star, phase: 4 },
   { href: "/dashboard/messages", label: "Messages", icon: MessageSquare, phase: 4 },

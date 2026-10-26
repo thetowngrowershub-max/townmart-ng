@@ -23,7 +23,10 @@ export type FulfilmentNotice =
   | { type: "order.status"; sellerOrderId: string; status: string }
   /** `ref` tells repeat changes apart (a booking moved twice), so neither notice is de-duplicated away. */
   | { type: "booking.status"; bookingId: string; status: string; by: "seller" | "customer" | "system"; ref?: string }
-  | { type: "message.new"; messageId: string };
+  | { type: "message.new"; messageId: string }
+  | { type: "refund.update"; refundId: string; status: string }
+  | { type: "dispute.update"; disputeId: string; event: "opened" | "message" | "resolved"; messageId?: string }
+  | { type: "payout.update"; payoutId: string; status: string };
 
 export type OrderJobs = {
   "order.confirmed": { kind: "order.confirmed"; orderId: string };
@@ -52,8 +55,22 @@ export async function enqueueOrderEvent(data: OrderJobs[keyof OrderJobs]): Promi
   await ordersQueue().add(data.kind, data, { jobId });
 }
 
-const noticeKey = (n: FulfilmentNotice) =>
-  n.type === "order.status" ? `order-${n.sellerOrderId}-${n.status}` : n.type === "booking.status" ? `booking-${n.bookingId}-${n.status}${n.ref ? `-${n.ref}` : ""}` : `message-${n.messageId}`;
+function noticeKey(n: FulfilmentNotice): string {
+  switch (n.type) {
+    case "order.status":
+      return `order-${n.sellerOrderId}-${n.status}`;
+    case "booking.status":
+      return `booking-${n.bookingId}-${n.status}${n.ref ? `-${n.ref}` : ""}`;
+    case "message.new":
+      return `message-${n.messageId}`;
+    case "refund.update":
+      return `refund-${n.refundId}-${n.status}`;
+    case "dispute.update":
+      return `dispute-${n.disputeId}-${n.event}${n.messageId ? `-${n.messageId}` : ""}`;
+    case "payout.update":
+      return `payout-${n.payoutId}-${n.status}`;
+  }
+}
 
 /** Tells the other side about a change. Never throws: a queue outage mustn't undo the change itself. */
 export async function enqueueNotice(notice: FulfilmentNotice): Promise<void> {

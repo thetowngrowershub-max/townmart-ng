@@ -8,9 +8,10 @@ import { noticeTemplate } from "@/lib/notifications/email/templates";
 import { orderUrl } from "@/lib/orders/notify";
 import { ORDER_STATUS_LABELS } from "@/lib/orders/labels";
 import { enqueueEmail, enqueueSms, type FulfilmentNotice } from "@/lib/queue";
+import { sendMoneyNotice } from "@/lib/refunds/notify";
 
-type Customer = { id: string; orderNumber: string; isGuest: boolean; userId: string | null; contactEmail: string; contactPhoneEncrypted: string; customerName: string };
-type Seller = { name: string; email: string; ownerUserId: string };
+export type Customer = { id: string; orderNumber: string; isGuest: boolean; userId: string | null; contactEmail: string; contactPhoneEncrypted: string; customerName: string };
+export type Seller = { name: string; email: string; ownerUserId: string };
 
 /** One in-app notification, written once even if the job is retried. */
 async function inApp(tx: Tx, n: { userId: string; type: string; title: string; body: string; link: string }) {
@@ -21,20 +22,20 @@ async function inApp(tx: Tx, n: { userId: string; type: string; title: string; b
 /** The customer's way back to their order: their account page, or the guest link. */
 const customerLink = (o: Customer) => ({ url: orderUrl(o), path: `/account/orders/${o.orderNumber}` });
 
-async function tellCustomer(tx: Tx, o: Customer, p: { type: string; title: string; lines: string[]; sms: string | null }) {
-  const link = customerLink(o);
-  await enqueueEmail(noticeTemplate({ to: o.contactEmail, subject: `${p.title} · ${o.orderNumber}`, title: p.title, lines: [`Hi ${o.customerName},`, ...p.lines], url: link.url, buttonLabel: "View your order" }));
+export async function tellCustomer(tx: Tx, o: Customer, p: { type: string; title: string; lines: string[]; sms: string | null; link?: { url: string; path: string }; buttonLabel?: string }) {
+  const link = p.link ?? customerLink(o);
+  await enqueueEmail(noticeTemplate({ to: o.contactEmail, subject: `${p.title} · ${o.orderNumber}`, title: p.title, lines: [`Hi ${o.customerName},`, ...p.lines], url: link.url, buttonLabel: p.buttonLabel ?? "View your order" }));
   if (p.sms) await enqueueSms({ to: decrypt(o.contactPhoneEncrypted), body: `TownMart: ${p.sms}` });
   if (o.userId) await inApp(tx, { userId: o.userId, type: p.type, title: p.title, body: p.lines[0] ?? "", link: link.path });
 }
 
-async function tellSeller(tx: Tx, s: Seller, p: { type: string; title: string; lines: string[]; path: string }) {
+export async function tellSeller(tx: Tx, s: Seller, p: { type: string; title: string; lines: string[]; path: string }) {
   await enqueueEmail(noticeTemplate({ to: s.email, subject: p.title, title: p.title, lines: p.lines, url: `${env().APP_URL}${p.path}`, buttonLabel: "Open in your dashboard" }));
   await inApp(tx, { userId: s.ownerUserId, type: p.type, title: p.title, body: p.lines[0] ?? "", link: p.path });
 }
 
-const customerSelect = { id: true, orderNumber: true, isGuest: true, userId: true, contactEmail: true, contactPhoneEncrypted: true, customerName: true } as const;
-const sellerSelect = { name: true, email: true, ownerUserId: true } as const;
+export const customerSelect = { id: true, orderNumber: true, isGuest: true, userId: true, contactEmail: true, contactPhoneEncrypted: true, customerName: true } as const;
+export const sellerSelect = { name: true, email: true, ownerUserId: true } as const;
 
 /**
  * Worker handler for "fulfilment.notice": tells the other side about an
@@ -42,6 +43,7 @@ const sellerSelect = { name: true, email: true, ownerUserId: true } as const;
  * steps that matter on the day) and in-app.
  */
 export async function sendFulfilmentNotice(n: FulfilmentNotice): Promise<void> {
+  if (n.type === "refund.update" || n.type === "dispute.update" || n.type === "payout.update") return sendMoneyNotice(n);
   await withSystemContext(async (tx) => {
     if (n.type === "order.status") {
       const so = await tx.sellerOrder.findUnique({ where: { id: n.sellerOrderId }, include: { order: { select: customerSelect }, business: { select: sellerSelect } } });

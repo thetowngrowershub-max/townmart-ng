@@ -42,6 +42,10 @@ export const newTmpKey = (businessId: string) => `${tmpPrefix(businessId)}${rand
  */
 export const customerOwner = (userId: string) => `u-${userId}`;
 
+/** Refund evidence belongs to the order (guests can add photos too): `o-<orderId>`. */
+export const orderOwner = (orderId: string) => `o-${orderId}`;
+export const evidencePrefix = (orderId: string) => `evidence/${orderOwner(orderId)}/`;
+
 /** Public image keys are namespaced by business (or customer) so ownership can be checked from the key alone. */
 export const imagePrefix = (purpose: ImagePurpose, businessId: string) => `${purpose}s/${businessId}/`;
 
@@ -84,6 +88,23 @@ export async function processImage(input: Buffer, businessId: string, purpose: I
   const key = `${imagePrefix(purpose, businessId)}${randomUUID()}.webp`;
   await storage().putObject("public", key, data, "image/webp");
   return { key, width: info.width, height: info.height };
+}
+
+/**
+ * Refund evidence photos: re-encoded like other images (metadata stripped) but
+ * kept in the PRIVATE bucket, read through /api/refunds/:id/evidence/:n by
+ * the customer, the seller and TownMart only.
+ */
+export async function finaliseEvidence(orderId: string, tmpKey: string): Promise<{ key: string }> {
+  const input = await takeTmp(orderOwner(orderId), tmpKey, MAX_IMAGE_BYTES);
+  try {
+    const data = await sharp(input, { limitInputPixels: 40_000_000 }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
+    const key = `${evidencePrefix(orderId)}${randomUUID()}.webp`;
+    await storage().putObject("private", key, data, "image/webp");
+    return { key };
+  } catch {
+    throw new UploadError("Please upload a JPEG, PNG or WebP photo.");
+  }
 }
 
 /** KYC documents: PDFs are kept as-is after a magic-byte check; images are re-encoded to strip metadata. */

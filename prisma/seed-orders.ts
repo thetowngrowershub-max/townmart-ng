@@ -28,7 +28,7 @@ import { writeReview } from "../lib/reviews/reviews";
 
 type Tx = Prisma.TransactionClient;
 
-const EMAIL = "bola@demo.townmart.ng";
+export const EMAIL = "bola@demo.townmart.ng";
 const NAME = "Bola Adeyemi";
 const DAY = 86_400_000;
 
@@ -64,11 +64,8 @@ function lagosAt(days: number, hour: number): Date {
   );
 }
 
-export async function seedDemoOrders(prisma: PrismaClient) {
-  if (await prisma.user.findUnique({ where: { email: EMAIL } })) {
-    console.log("• Demo orders already seeded");
-    return;
-  }
+/** The demo shopper's address, and helpers that buy as the checkout page does, in the system scope. */
+export async function shopperKit(prisma: PrismaClient, userId: string) {
   const system = <T>(fn: (tx: Tx) => Promise<T>) =>
     prisma.$transaction(
       async (tx) => {
@@ -78,17 +75,6 @@ export async function seedDemoOrders(prisma: PrismaClient) {
       { timeout: 60_000 },
     );
 
-  const password = randomBytes(9).toString("base64url");
-  // Created last-step-safe: if a step below fails, the shopper is removed so the next seed run tries again.
-  const user = await prisma.user.create({
-    data: {
-      email: EMAIL,
-      name: NAME,
-      emailVerified: new Date(),
-      passwordHash: await hashPassword(password),
-      roles: { create: [{ role: "customer" }] },
-    },
-  });
   const state = await prisma.state.findUniqueOrThrow({ where: { code: "LA" } });
   const lga = await prisma.lga.findFirstOrThrow({
     where: { stateId: state.id, slug: "ikeja" },
@@ -103,21 +89,6 @@ export async function seedDemoOrders(prisma: PrismaClient) {
     stateId: state.id,
     lgaId: lga.id,
   };
-  await prisma.address.create({
-    data: {
-      userId: user.id,
-      label: "Home",
-      recipientName: NAME,
-      phoneEncrypted: encrypt(address.phone),
-      line1Encrypted: encrypt(address.line1),
-      landmark: address.landmark,
-      city: "Ikeja",
-      stateId: state.id,
-      lgaId: lga.id,
-      isDefault: true,
-    },
-  });
-
   const business = (slug: string) =>
     prisma.business.findUniqueOrThrow({
       where: { slug },
@@ -143,16 +114,15 @@ export async function seedDemoOrders(prisma: PrismaClient) {
       },
       select: { id: true, businessId: true },
     });
-
   /** Fills the shopper's cart, prices it and places the order, as the checkout page does. */
   async function buy(
     items: Prisma.CartItemCreateWithoutCartInput[],
     payment: "online" | "pay_on_delivery",
   ) {
-    await prisma.cart.deleteMany({ where: { userId: user.id } });
+    await prisma.cart.deleteMany({ where: { userId: userId } });
     const cart = await prisma.cart.create({
       data: {
-        userId: user.id,
+        userId: userId,
         expiresAt: new Date(Date.now() + DAY),
         items: { create: items },
       },
@@ -160,12 +130,12 @@ export async function seedDemoOrders(prisma: PrismaClient) {
     return system(async (tx) => {
       const { quote } = await computeCheckout(tx, {
         cartId: cart.id,
-        userId: user.id,
+        userId: userId,
         address: { stateId: state.id, lgaId: lga.id },
       });
       const placed = await placeOrder(tx, {
         cartId: cart.id,
-        userId: user.id,
+        userId: userId,
         accountEmail: EMAIL,
         accountName: NAME,
         ipHash: "seed",
@@ -204,6 +174,42 @@ export async function seedDemoOrders(prisma: PrismaClient) {
       return placed;
     });
   }
+
+  return { system, buy, business, variants, service, address, state, lga };
+}
+
+export async function seedDemoOrders(prisma: PrismaClient) {
+  if (await prisma.user.findUnique({ where: { email: EMAIL } })) {
+    console.log("• Demo orders already seeded");
+    return;
+  }
+  const password = randomBytes(9).toString("base64url");
+  // Created last-step-safe: if a step below fails, the shopper is removed so the next seed run tries again.
+  const user = await prisma.user.create({
+    data: {
+      email: EMAIL,
+      name: NAME,
+      emailVerified: new Date(),
+      passwordHash: await hashPassword(password),
+      roles: { create: [{ role: "customer" }] },
+    },
+  });
+  const { system, buy, business, variants, service, address, state, lga } = await shopperKit(prisma, user.id);
+
+  await prisma.address.create({
+    data: {
+      userId: user.id,
+      label: "Home",
+      recipientName: NAME,
+      phoneEncrypted: encrypt(address.phone),
+      line1Encrypted: encrypt(address.line1),
+      landmark: address.landmark,
+      city: "Ikeja",
+      stateId: state.id,
+      lgaId: lga.id,
+      isDefault: true,
+    },
+  });
 
   const done: string[] = [];
   try {
