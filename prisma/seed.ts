@@ -2,9 +2,10 @@
  * Seeds reference data and platform accounts. Idempotent: safe to run repeatedly.
  * Runs as `townmart_migrator` (MIGRATE_DATABASE_URL), which owns the tables.
  *
- * Phase 0 seeds: 36 states + FCT and their 774 LGAs, default settings, and one
- * admin and one super admin. Demo sellers, catalogue and orders come with the
- * phases that add those tables.
+ * Seeds 36 states + FCT and their 774 LGAs, default settings, one admin and one
+ * super admin, then the catalogue: categories plus six demo sellers with
+ * products and services (seed-catalogue.ts). Promotions, orders and bookings
+ * come with the phases that add those tables.
  */
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
@@ -12,6 +13,7 @@ import { PrismaClient, type Role } from "@prisma/client";
 import { hashPassword } from "../lib/auth/password";
 import { slugify } from "../lib/slug";
 import statesData from "./data/nigeria-states-lgas.json";
+import { seedDemoCatalogue } from "./seed-catalogue";
 
 const url = process.env.MIGRATE_DATABASE_URL;
 if (!url) throw new Error("MIGRATE_DATABASE_URL is required to seed");
@@ -90,6 +92,7 @@ async function main() {
   await seedSettings();
   await seedStaffAccount("admin@townmart.local", "TownMart Admin", ["admin", "customer"], "SEED_ADMIN_PASSWORD");
   await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN_PASSWORD");
+  await seedDemoCatalogue(prisma);
 }
 
 main()
