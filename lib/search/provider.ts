@@ -21,6 +21,8 @@ export type SearchQuery = {
   minRating?: number;
   stateId?: number;
   lgaId?: number;
+  /** Only this store's listings (store pages). */
+  businessId?: string;
   /** Products only: in stock, untracked or backorderable. */
   inStock?: boolean;
   sort: SearchSort;

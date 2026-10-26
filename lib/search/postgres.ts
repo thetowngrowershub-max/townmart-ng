@@ -14,7 +14,7 @@ const empty = <T>(): Page<T> => ({ items: [], total: 0 });
 export class PostgresSearchProvider implements SearchProvider {
   async search(query: SearchQuery): Promise<SearchResults> {
     const q = query.q?.trim().slice(0, 100) || undefined;
-    const want = (k: SearchQuery["kind"]) => query.kind === "all" || query.kind === k;
+    const want = (k: SearchQuery["kind"]) => (query.kind === "all" && !(k === "stores" && query.businessId)) || query.kind === k;
     return withRls({ userId: null }, async (tx) => {
       // Sequential: one transaction is one connection.
       const products = want("products") ? await searchProducts(tx, query, q) : empty<ProductHit>();
@@ -97,6 +97,7 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
        ${query.stateId ? Prisma.sql`AND b.state_id = ${query.stateId}` : Prisma.empty}
        ${query.lgaId ? Prisma.sql`AND b.lga_id = ${query.lgaId}` : Prisma.empty}
        ${query.inStock ? Prisma.sql`AND ${inStockExpr}` : Prisma.empty}
+       ${query.businessId ? Prisma.sql`AND p.business_id = ${query.businessId}::uuid` : Prisma.empty}
      ORDER BY ${orderBy("p", query, !!q)}
      LIMIT ${query.pageSize} OFFSET ${offset(query)}`;
 
@@ -154,6 +155,7 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
        ${ratingFilter("sv", query)}
        ${stateFilter}
        ${lgaFilter}
+       ${query.businessId ? Prisma.sql`AND sv.business_id = ${query.businessId}::uuid` : Prisma.empty}
      ORDER BY ${orderBy("sv", query, !!q)}
      LIMIT ${query.pageSize} OFFSET ${offset(query)}`;
 

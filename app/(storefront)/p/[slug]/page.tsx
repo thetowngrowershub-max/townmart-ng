@@ -1,0 +1,152 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { CardGrid, ProductCard } from "@/components/storefront/listing-cards";
+import { ProductPurchase, type VariantView } from "@/components/storefront/product-purchase";
+import { PolicySummary, SellerCard } from "@/components/storefront/seller-card";
+import { Alert } from "@/components/ui/alert";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getPublicProduct, getRelatedProducts } from "@/lib/catalogue/storefront";
+import { unitLabel } from "@/lib/catalogue/units";
+import { env } from "@/lib/env";
+import { koboToNairaString } from "@/lib/money";
+import { publicImageUrl } from "@/lib/storage";
+
+type Props = { params: Promise<{ slug: string }> };
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const p = await getPublicProduct((await params).slug);
+  if (!p) return { title: "Product not found" };
+  const description = p.metaDescription ?? `${p.title} from ${p.business.name}, ${p.business.city}. Buy on TownMart.`;
+  const cover = p.images[0];
+  return {
+    title: p.metaTitle ?? p.title,
+    description,
+    alternates: { canonical: `/p/${p.slug}` },
+    openGraph: { title: p.title, description, type: "website", images: cover ? [{ url: publicImageUrl(cover.storageKey), alt: cover.altText }] : undefined },
+  };
+}
+
+export default async function ProductPage({ params }: Props) {
+  const p = await getPublicProduct((await params).slug);
+  if (!p) notFound();
+  const related = await getRelatedProducts(p.id, p.categoryId);
+
+  const images = p.images.map((i) => ({ url: publicImageUrl(i.storageKey), alt: i.altText, width: i.width, height: i.height }));
+  const variants: VariantView[] = p.variants.map((v) => {
+    const qty = v.stockQty;
+    const state: VariantView["stock"]["state"] = !p.trackInventory
+      ? "in"
+      : qty.lte(0)
+        ? p.allowBackorder
+          ? "backorder"
+          : "out"
+        : qty.lte(v.lowStockThreshold)
+          ? "low"
+          : "in";
+    const imgIdx = p.images.findIndex((i) => i.variantId === v.id);
+    return {
+      id: v.id,
+      optionValues: (v.optionValues ?? {}) as Record<string, string>,
+      priceKobo: v.priceKobo.toString(),
+      compareAtPriceKobo: v.compareAtPriceKobo?.toString() ?? null,
+      stock: { state, qty: state === "low" ? qty.toString() : undefined },
+      imageIndex: imgIdx >= 0 ? imgIdx : null,
+    };
+  });
+  const inStock = variants.some((v) => v.stock.state !== "out");
+  const appUrl = env().APP_URL;
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: p.title,
+    image: images.map((i) => new URL(i.url, appUrl).toString()),
+    brand: p.brand ? { "@type": "Brand", name: p.brand } : undefined,
+    sku: p.variants[0]?.sku,
+    offers: {
+      "@type": "AggregateOffer",
+      priceCurrency: "NGN",
+      lowPrice: koboToNairaString(p.variants.reduce((m, v) => (v.priceKobo < m ? v.priceKobo : m), p.basePriceKobo)),
+      highPrice: koboToNairaString(p.variants.reduce((m, v) => (v.priceKobo > m ? v.priceKobo : m), p.basePriceKobo)),
+      availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      seller: { "@type": "Organization", name: p.business.name },
+    },
+    aggregateRating: p.ratingCount > 0 ? { "@type": "AggregateRating", ratingValue: Number(p.ratingAvg), reviewCount: p.ratingCount } : undefined,
+  };
+  const crumbs = [p.category.parent, { name: p.category.name, slug: p.category.slug }].filter(Boolean) as { name: string; slug: string }[];
+
+  return (
+    <main id="main" className="mx-auto max-w-7xl px-4 py-8">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }} />
+      <nav aria-label="Breadcrumb" className="mb-4 text-sm text-muted-foreground">
+        <ol className="flex flex-wrap gap-1">
+          <li>
+            <Link href="/" className="hover:underline">
+              Home
+            </Link>
+          </li>
+          {crumbs.map((c, i) => (
+            <li key={c.slug}>
+              /{" "}
+              <Link href={i === 0 && crumbs.length > 1 ? `/c/${c.slug}` : crumbs.length > 1 ? `/c/${crumbs[0]!.slug}/${c.slug}` : `/c/${c.slug}`} className="hover:underline">
+                {c.name}
+              </Link>
+            </li>
+          ))}
+        </ol>
+      </nav>
+      <ProductPurchase
+        title={p.title}
+        images={images}
+        options={p.options.map((o) => ({ name: o.name, values: o.values }))}
+        variants={variants}
+        unitLabel={unitLabel(p.unit)}
+        minOrder={p.minOrderQty.toString()}
+      >
+        <Alert variant="info">Checkout opens soon. You can browse and compare now; ordering arrives in the next release.</Alert>
+        {p.isPerishable && <p className="text-sm">Perishable{p.shelfLifeNote ? `: ${p.shelfLifeNote}` : "."}</p>}
+        <SellerCard business={p.business} />
+        <PolicySummary policy={p.business.policy} />
+      </ProductPurchase>
+
+      {p.descriptionHtml && (
+        <Card className="mt-10">
+          <CardHeader>
+            <CardTitle>Description</CardTitle>
+          </CardHeader>
+          {/* Sanitised with an allowlist when saved (lib/sanitize.ts). */}
+          <CardContent className="prose-tm max-w-3xl text-sm" dangerouslySetInnerHTML={{ __html: p.descriptionHtml }} />
+        </Card>
+      )}
+
+      {related.length > 0 && (
+        <section aria-labelledby="related" className="mt-12">
+          <h2 id="related" className="mb-4 text-xl font-bold">
+            More in {p.category.name}
+          </h2>
+          <CardGrid>
+            {related.map((r) => (
+              <ProductCard
+                key={r.id}
+                p={{
+                  id: r.id,
+                  slug: r.slug,
+                  title: r.title,
+                  priceKobo: r.basePriceKobo,
+                  compareAtPriceKobo: r.compareAtPriceKobo,
+                  unit: r.unit,
+                  coverKey: r.images[0]?.storageKey ?? null,
+                  coverAlt: r.images[0]?.altText ?? null,
+                  ratingAvg: Number(r.ratingAvg),
+                  ratingCount: r.ratingCount,
+                  inStock: !r.trackInventory || r.allowBackorder || r.variants.some((v) => v.stockQty.gt(0)),
+                  business: { name: r.business.name, slug: r.business.slug, city: r.business.city, stateName: r.business.state.name },
+                }}
+              />
+            ))}
+          </CardGrid>
+        </section>
+      )}
+    </main>
+  );
+}
