@@ -50,7 +50,23 @@ Phase 0 policies:
 | `user_roles` | read own roles; a user may insert only `customer` for themselves (sign-up); any other write needs admin/system scope |
 | `audit_logs` | anyone may append; only admin/system may read |
 
-Tables without RLS in Phase 0: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data, `settings`, `job_runs`. Tenant tables from Phase 1 onwards (`products`, `services`, `seller_orders`, `order_items`, `bookings`, `payouts`, …) get business-scoped policies on `app_current_business_id()`.
+Phase 1 policies (tenant isolation on `business_id = app_current_business_id()`):
+
+| Table | Read | Write |
+|---|---|---|
+| `businesses` | approved stores publicly; own business (owner or current business) | owner/current business; `DELETE` admin/system only. Status, review and rating changes need admin/system (trigger) |
+| `business_staff` | own membership rows and the current business | current business |
+| `business_kyc`, `payout_accounts`, `import_jobs` | current business only | current business only. KYC `verified`/`failed` needs admin/system (trigger) |
+| `store_policies` | public | current business |
+| `products`, `services` | active, not deleted, business approved; or the current business | current business |
+| `product_images`, `product_options`, `product_variants`, `service_packages`, `service_images`, `service_availability`, `service_blackouts` | when the parent is readable | current business. Composite foreign keys `(parent_id, business_id)` stop a child pointing at another seller's parent |
+| `stock_movements` | current business | insert only; `UPDATE`/`DELETE` revoked from `townmart_app` |
+
+Categories and category attributes are public reference data, written by admins.
+
+`tests/db/catalogue-rls.test.ts` proves these: seller A can't read B's drafts, KYC, payout account or import jobs; can't update, delete or insert B's listings, variants or payouts; can't adjust B's stock; can't approve itself, start a business as approved, verify its own KYC or set its rating; and guests and search see only live listings of approved sellers.
+
+Tables without RLS: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data (states, LGAs, categories), `settings`, `job_runs`.
 
 RLS is defence in depth. The application `authz` check always runs first.
 
@@ -66,7 +82,7 @@ RLS is defence in depth. The application `authz` check always runs first.
 
 ## Encryption and hashing
 
-- Column-level encryption: `lib/crypto` AES-256-GCM, format `v1.<keyId>.<iv>.<tag>.<ciphertext>`, key id bound into the authenticated data. Used for `*_encrypted` columns (phone numbers, address lines; KYC references from Phase 1).
+- Column-level encryption: `lib/crypto` AES-256-GCM, format `v1.<keyId>.<iv>.<tag>.<ciphertext>`, key id bound into the authenticated data. Used for `*_encrypted` columns (phone numbers, address lines, business phone and address, KYC provider references). Full bank account numbers are never stored: only the last 4 digits and Paystack's subaccount code.
 - Lookups on encrypted values use keyed HMAC-SHA256 hashes (`phone_hash`, `ip_hash`) with a separate `DATA_HASH_KEY`.
 - Key rotation: [scripts/db/rotate-keys.md](scripts/db/rotate-keys.md).
 

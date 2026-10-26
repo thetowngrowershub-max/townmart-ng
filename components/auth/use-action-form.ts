@@ -12,7 +12,7 @@ import type { ActionResult } from "@/lib/validation/form-result";
  */
 export function useActionForm<TSchema extends z.ZodType<FieldValues, FieldValues>>(
   schema: TSchema,
-  action: (values: z.input<TSchema>) => Promise<ActionResult>,
+  action: (values: z.input<TSchema>) => Promise<ActionResult<unknown>>,
   defaultValues: DefaultValues<z.input<TSchema>>,
 ) {
   const form = useForm<z.input<TSchema>, unknown, z.output<TSchema>>({
@@ -21,7 +21,7 @@ export function useActionForm<TSchema extends z.ZodType<FieldValues, FieldValues
     defaultValues,
   });
   const [pending, startTransition] = useTransition();
-  const [result, setResult] = useState<ActionResult | null>(null);
+  const [result, setResult] = useState<ActionResult<unknown> | null>(null);
 
   const onSubmit = form.handleSubmit((_parsed) => {
     // Send the raw input: the action re-validates with the same schema.

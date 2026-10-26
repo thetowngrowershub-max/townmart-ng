@@ -2,7 +2,7 @@ import "server-only";
 import type { Role } from "@prisma/client";
 import { forbidden, redirect } from "next/navigation";
 import { cache } from "react";
-import { can, type Permission } from "@/lib/authz";
+import { can, type GlobalPermission } from "@/lib/authz";
 import { withRls } from "@/lib/db";
 import { auth } from "./config";
 
@@ -41,7 +41,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
  * and whether they hold `permission`, so the caller can render a 403 view.
  */
 export async function requireUser(
-  permission: Permission & `${string}.access` | "design_system.view" | "system_health.view",
+  permission: GlobalPermission,
   nextPath: string,
 ): Promise<{ user: CurrentUser; allowed: boolean }> {
   const user = await getCurrentUser();

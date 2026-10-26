@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nigerianPhone, otpCode } from "./common";
 
 export const emailSchema = z
   .string()
@@ -55,3 +56,7 @@ export const verifyEmailSchema = z.object({
   email: emailSchema,
   token: z.string().min(20).max(200),
 });
+
+export const phoneOnlySchema = z.object({ phone: nigerianPhone });
+export const phoneCodeSchema = z.object({ phone: nigerianPhone, code: otpCode, next: safeNextPath });
+export type PhoneCodeInput = z.input<typeof phoneCodeSchema>;

@@ -16,7 +16,7 @@ export default function HomePage() {
             Groceries, fashion, electronics and fresh farm produce, plus trusted plumbers, tailors and other artisans near
             you.
           </p>
-          <SearchForm size="lg" className="max-w-2xl text-foreground" />
+          <SearchForm id="q-hero" size="lg" className="max-w-2xl text-foreground" />
         </div>
       </section>
 

@@ -44,6 +44,9 @@ export default async function SignInPage({
           </>
         )}
         <SignInForm next={next} />
+        <Button asChild variant="outline" className="w-full">
+          <Link href={next ? `/auth/sign-in/phone?next=${encodeURIComponent(next)}` : "/auth/sign-in/phone"}>Sign in with a phone code</Link>
+        </Button>
         <p className="text-center text-sm text-muted-foreground">
           New to TownMart?{" "}
           <Link href="/auth/sign-up" className="font-semibold text-primary hover:underline">

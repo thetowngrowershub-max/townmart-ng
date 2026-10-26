@@ -64,6 +64,8 @@ jobs:
         run: |
           cp .env.example .env
           sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=postgres-ci|" .env
+          # No MinIO here: the seed writes its demo images to local files instead.
+          sed -i "s|^STORAGE_DRIVER=.*|STORAGE_DRIVER=local|" .env
           for k in AUTH_SECRET DATA_ENCRYPTION_KEY DATA_HASH_KEY; do
             sed -i "s|^$k=.*|$k=$(openssl rand -base64 32)|" .env
           done

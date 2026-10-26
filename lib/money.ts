@@ -26,3 +26,17 @@ export function parseNairaToKobo(input: string): bigint {
   const fraction = BigInt((match[2] ?? "").padEnd(2, "0"));
   return whole * 100n + fraction;
 }
+
+/** Kobo as a plain naira string for form inputs and CSVs: "9500", "9500.5" → "9500.50". */
+export function koboToNairaString(kobo: bigint): string {
+  const negative = kobo < 0n;
+  const abs = negative ? -kobo : kobo;
+  const rest = abs % 100n;
+  return `${negative ? "-" : ""}${abs / 100n}${rest === 0n ? "" : `.${rest.toString().padStart(2, "0")}`}`;
+}
+
+/** Like formatNaira but drops ".00" for whole amounts: `₦12,500`. For price tags. */
+export function formatPrice(kobo: bigint): string {
+  const full = formatNaira(kobo);
+  return full.endsWith(".00") ? full.slice(0, -3) : full;
+}

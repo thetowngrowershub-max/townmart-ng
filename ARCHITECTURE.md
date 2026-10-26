@@ -1,6 +1,6 @@
 # TownMart architecture
 
-This describes the system as of **Phase 0**. Each phase updates it.
+This describes the system as of **Phase 1**. Each phase updates it.
 
 ## Runtime view
 
@@ -18,9 +18,9 @@ flowchart LR
 ```
 
 - **Web app** (`app/`, `lib/`): renders pages and runs Server Actions. Connects to Postgres as `townmart_app`, which cannot bypass row-level security.
-- **Worker** (`worker/`): a separate Node process consuming BullMQ queues in Redis. Phase 0 ships the `notifications` queue (email) and `maintenance` jobs (purge expired sessions and tokens), each recorded in `job_runs`.
+- **Worker** (`worker/`): a separate Node process consuming BullMQ queues in Redis. Queues: `notifications` (email, SMS, low-stock alerts), `imports` (product CSV) and `maintenance` (purge expired sessions and tokens), each run recorded in `job_runs`.
 - **Redis**: rate limiting, BullMQ queues; later stock locks and idempotency keys.
-- **Object storage**: MinIO in development with a public bucket (images) and a private, encrypted bucket (KYC, exports). The `StorageProvider` interface arrives with image uploads in Phase 1.
+- **Object storage**: `StorageProvider` (`lib/storage`) over S3/MinIO, or local files in development. A public bucket holds listing and store images; a private, encrypted bucket holds KYC documents, CSV imports and upload staging (`tmp/`).
 
 ## Request path for a mutation
 
@@ -100,6 +100,47 @@ erDiagram
   verification_tokens { text identifier
     text token "SHA-256" }
 ```
+
+## Phase 1: sellers, catalogue and search
+
+### Seller onboarding and approval
+
+`/sell/onboarding` walks a signed-in customer through six saved steps: business details, phone verification (SMS code), identity documents (private bucket), payout account (name resolved with the bank through Paystack), branding, and agreements. Submitting moves the business from `draft` (or `rejected`) to `pending`. Admins work the queue at `/admin/sellers`: start review, mark ID verified or failed, approve, request changes, suspend or reinstate. Approval needs verified ID, a verified payout account and a verified phone; each decision is audited and emailed. KYC documents open through `/api/admin/kyc/...`, which audits the view and redirects to a 60-second signed URL.
+
+Sellers can't skip this: Postgres triggers (`guard_business_status`, `guard_kyc_status`) reject any status, review, rating or KYC-verification change unless the RLS scope is `admin` or `system`.
+
+### Uploads
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as Server Action
+  participant S as Storage
+  B->>B: compress to WebP (images)
+  B->>A: requestUploadAction(kind, type, size)
+  A-->>B: presigned PUT to private tmp/{businessId}/...
+  B->>S: PUT file
+  B->>A: finaliseImageAction(tmpKey) or the form's own action
+  A->>S: read, check the real format, re-encode with sharp (strips EXIF and GPS), write to the public bucket
+```
+
+KYC documents and CSV files are moved out of `tmp/` by the action that uses them. Nothing the browser uploads is served before the server has checked it.
+
+### Catalogue
+
+- **Products** have up to three options (Size, Colour…) and a variant per combination, each with its own SKU (unique per business), price, stock and low-stock threshold, and optionally its own image. Units are piece, kg, litre, crate, bag and pack; fractional quantities are allowed per product.
+- **Stock** changes only through `adjustStock()`, which updates the variant and appends a `stock_movements` row in one statement pair; the app role can't update or delete movements. Crossing a threshold queues one low-stock email per variant per day.
+- **Services** have pricing models (fixed, from, hourly, packages), packages, weekly availability, blackout dates, service LGAs or a radius, deposit and confirmation settings.
+- **CSV import** (one row per variant, grouped by `handle`, matched by SKU) runs in the worker with one transaction per product and a downloadable report. Export uses the same format, so a file can round-trip.
+- Seller rich text (Tiptap) is sanitised on the server with DOMPurify before it is stored.
+
+### Search
+
+Pages call `searchProvider().search(query)` only (`lib/search/provider.ts`), so Postgres can later be swapped for Meilisearch or Typesense. The Postgres implementation combines `websearch_to_tsquery` on trigger-maintained `search_vector` columns with trigram similarity for typos, and filters by kind, category (with children), price, rating, state/LGA, store and stock. It runs as a guest under RLS and also filters on live, approved listings explicitly.
+
+### Storefront
+
+`/search`, `/c/[category]`, `/c/[category]/[sub]`, `/p/[slug]` (with Product JSON-LD), `/s/[slug]`, `/store/[slug]`, `/legal/[slug]` and a dynamic `sitemap.xml`. Add to cart and booking buttons say they arrive in the next releases.
 
 ## Design system
 

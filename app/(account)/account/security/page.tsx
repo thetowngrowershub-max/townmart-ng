@@ -1,5 +1,6 @@
 import { Monitor } from "lucide-react";
 import type { Metadata } from "next";
+import { AccountPhone } from "@/components/account/account-phone";
 import { RevokeSessionButton } from "@/components/account/revoke-session-button";
 import { PageHeader } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { signOutEverywhereAction } from "@/lib/auth/actions";
 import { requirePermission } from "@/lib/auth/current-user";
 import { currentSessionToken } from "@/lib/auth/session";
+import { decryptNullable } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
+import { maskPhone } from "@/lib/phone";
 import { formatDateTime } from "@/lib/datetime";
 
 export const metadata: Metadata = { title: "Profile & security" };
@@ -23,6 +26,8 @@ function describeAgent(ua: string | null): string {
 export default async function SecurityPage() {
   const user = await requirePermission("account.access", "/account/security");
   const token = await currentSessionToken();
+  const account = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { phoneEncrypted: true, phoneVerifiedAt: true } });
+  const phone = account.phoneVerifiedAt ? decryptNullable(account.phoneEncrypted) : null;
   const sessions = await prisma.session.findMany({
     where: { userId: user.id, expires: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
@@ -31,7 +36,16 @@ export default async function SecurityPage() {
 
   return (
     <>
-      <PageHeader title="Profile & security" description="See where you're signed in and sign out of other devices." />
+      <PageHeader title="Profile & security" description="Your phone number, and where you're signed in." />
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Phone number</CardTitle>
+          <CardDescription>Add a verified number to sign in with a text-message code. We never show it to sellers unless you order from them.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AccountPhone masked={phone ? maskPhone(phone) : null} />
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Active sessions</CardTitle>

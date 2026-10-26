@@ -154,3 +154,38 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Rich text from listing descriptions (editor and storefront). */
+@layer components {
+  .prose-tm {
+    line-height: 1.65;
+  }
+  .prose-tm > * + * {
+    margin-top: 0.75em;
+  }
+  .prose-tm h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+  }
+  .prose-tm h3 {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .prose-tm ul {
+    list-style: disc;
+    padding-left: 1.25rem;
+  }
+  .prose-tm ol {
+    list-style: decimal;
+    padding-left: 1.25rem;
+  }
+  .prose-tm a {
+    color: var(--color-primary);
+    text-decoration: underline;
+  }
+  .prose-tm blockquote {
+    border-left: 3px solid var(--color-border);
+    padding-left: 0.75rem;
+    color: var(--color-muted-foreground);
+  }
+}

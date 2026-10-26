@@ -23,6 +23,28 @@ const schema = z.object({
   SMTP_PORT: z.coerce.number().int().default(1025),
   RESEND_API_KEY: z.string().optional(),
   TURNSTILE_SECRET_KEY: z.string().optional(),
+
+  // Object storage: "s3" (MinIO/R2/S3) or "local" (files on disk; development and tests only)
+  STORAGE_DRIVER: z.enum(["s3", "local"]).default("s3"),
+  LOCAL_STORAGE_DIR: z.string().default(".storage"),
+  S3_ENDPOINT: z.string().optional(),
+  S3_REGION: z.string().default("us-east-1"),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_FORCE_PATH_STYLE: z.stringbool().default(true),
+  S3_PUBLIC_BUCKET: z.string().default("townmart-public"),
+  S3_PRIVATE_BUCKET: z.string().default("townmart-private"),
+  S3_PUBLIC_BASE_URL: z.string().optional(),
+
+  // SMS: "termii" or "console" (logs messages; development only)
+  SMS_PROVIDER: z.enum(["termii", "console"]).default("console"),
+  TERMII_API_KEY: z.string().optional(),
+  TERMII_SENDER_ID: z.string().default("TownMart"),
+  TERMII_BASE_URL: z.url().default("https://api.ng.termii.com"),
+
+  // Bank account verification and payout subaccounts: "paystack" or "fake" (development only)
+  BANK_VERIFIER: z.enum(["paystack", "fake"]).default("paystack"),
+  PAYSTACK_SECRET_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -39,6 +61,14 @@ export function env(): Env {
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
       throw new Error(`Invalid environment variables:\n${issues}`);
+    }
+    if (parsed.data.NODE_ENV === "production") {
+      const devOnly = [
+        parsed.data.STORAGE_DRIVER === "local" && "STORAGE_DRIVER=local",
+        parsed.data.SMS_PROVIDER === "console" && "SMS_PROVIDER=console",
+        parsed.data.BANK_VERIFIER === "fake" && "BANK_VERIFIER=fake",
+      ].filter(Boolean);
+      if (devOnly.length) throw new Error(`Development-only drivers are not allowed in production: ${devOnly.join(", ")}`);
     }
     cached = parsed.data;
   }
