@@ -174,6 +174,8 @@ CREATE TRIGGER trg_promotion_targets_business BEFORE INSERT OR UPDATE ON promoti
   FOR EACH ROW EXECUTE FUNCTION promotion_child_business();
 CREATE TRIGGER trg_coupons_business BEFORE INSERT OR UPDATE ON coupons
   FOR EACH ROW EXECUTE FUNCTION promotion_child_business();
+CREATE TRIGGER trg_promotion_redemptions_business BEFORE INSERT ON promotion_redemptions
+  FOR EACH ROW EXECUTE FUNCTION promotion_child_business();
 
 -- ── Counters maintained by triggers, never by sellers ───────────────────────
 CREATE OR REPLACE FUNCTION coupons_sync_has_coupon() RETURNS trigger

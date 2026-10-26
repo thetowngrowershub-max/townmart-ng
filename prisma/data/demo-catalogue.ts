@@ -385,3 +385,43 @@ export const SELLERS: DemoSeller[] = [
     ],
   },
 ];
+
+export type DemoPromotion = {
+  name: string;
+  description?: string;
+  type: "percentage" | "fixed";
+  /** Whole percent, or naira off each item. */
+  value: string;
+  scope: "store" | "product" | "products" | "category" | "service";
+  products?: string[];
+  services?: string[];
+  categories?: string[];
+  /** Runs from the hour the seed runs, for this many hours. */
+  hours: number;
+  flash?: boolean;
+  coupon?: string;
+  minOrder?: string;
+  usageLimit?: string;
+  perCustomerLimit?: string;
+};
+
+/** Demo promotions by store slug. */
+export const PROMOTIONS: Record<string, DemoPromotion[]> = {
+  "ikeja-fresh-mart": [
+    { name: "Rice and grains flash sale", description: "15% off every bag of rice, semovita and grains.", type: "percentage", value: "15", scope: "category", categories: ["rice-grains"], hours: 48, flash: true },
+    { name: "Welcome to Ikeja Fresh Mart", description: "10% off your first order of ₦20,000 or more.", type: "percentage", value: "10", scope: "store", hours: 24 * 30, coupon: "IKEJAFRESH10", minOrder: "20000", perCustomerLimit: "1" },
+  ],
+  "ogun-harvest-farms": [
+    { name: "Tomato harvest deal", description: "Fresh from this morning's harvest.", type: "percentage", value: "20", scope: "product", products: ["Fresh Tomatoes"], hours: 24, flash: true, usageLimit: "100" },
+  ],
+  "yaba-threads": [
+    { name: "Yaba Threads weekend code", description: "15% off when you spend ₦25,000 or more.", type: "percentage", value: "15", scope: "store", hours: 24 * 14, coupon: "YABA15", minOrder: "25000" },
+    { name: "Ankara dress sale", type: "fixed", value: "2500", scope: "products", products: ["Ankara Wrap Dress", "Ankara Tote Bag"], hours: 24 * 7 },
+  ],
+  "cv-gadget-hub": [
+    { name: "Gadget week", description: "Money off selected phones and accessories.", type: "fixed", value: "5000", scope: "products", products: ["Samsung Galaxy A15", "Oraimo 20,000 mAh Power Bank", "Oraimo FreePods 4"], hours: 24 * 7 },
+  ],
+  "chukwudi-fixit-plumbing": [
+    { name: "Plumbing check-up offer", description: "10% off leak repairs and drain clearing this month.", type: "percentage", value: "10", scope: "service", services: ["Leaking Pipe and Tap Repair", "Blocked Drain and Toilet Clearing"], hours: 24 * 21 },
+  ],
+};

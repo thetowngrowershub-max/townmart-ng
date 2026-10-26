@@ -81,6 +81,7 @@ export function SearchFilters({
           </Select>
         </div>
       )}
+      <Checkbox id="f-promo" name="promo" value="1" label="On promotion" defaultChecked={query.promotion !== undefined} />
       {showStock && <Checkbox id="f-instock" name="instock" value="1" label="In stock only" defaultChecked={query.inStock} />}
       <Button type="submit" variant="outline">
         Apply filters

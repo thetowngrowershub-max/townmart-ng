@@ -110,6 +110,16 @@ export function isListingPromotion(rule: PromotionRule): boolean {
   return rule.coupon === null && rule.minOrderKobo === 0n;
 }
 
+/** What a listing card or page needs to show a deal. */
+export type ListingDeal = {
+  originalKobo: bigint;
+  finalKobo: bigint;
+  percentOff: number;
+  promotionName: string;
+  endsAt: Date;
+  isFlashDeal: boolean;
+};
+
 export type ListingPrice = {
   originalKobo: bigint;
   finalKobo: bigint;

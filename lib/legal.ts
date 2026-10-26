@@ -5,3 +5,5 @@
  */
 export const SELLER_AGREEMENT_VERSION = "2026-10-draft";
 export const DPA_VERSION = "2026-10-draft";
+/** Shoppers don't accept this one; the version is shown on the page. */
+export const PROMOTIONS_TERMS_VERSION = "2026-10-draft";

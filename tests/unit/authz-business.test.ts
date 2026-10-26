@@ -10,7 +10,7 @@ const admin: Actor = { id: "u-admin", roles: ["admin"] };
 
 describe("can — business permissions", () => {
   it("gives owners every permission on their own business only", () => {
-    for (const p of ["listing.read", "listing.write", "import.manage", "store.manage"] as const) {
+    for (const p of ["listing.read", "listing.write", "import.manage", "store.manage", "promotion.manage"] as const) {
       expect(can(owner, p, { businessId: A })).toBe(true);
       expect(can(owner, p, { businessId: B })).toBe(false);
     }
@@ -21,6 +21,14 @@ describe("can — business permissions", () => {
     expect(can(stockKeeper, "import.manage", { businessId: A })).toBe(true);
     expect(can(stockKeeper, "store.manage", { businessId: A })).toBe(false);
     expect(can(stockKeeper, "listing.read", { businessId: B })).toBe(false);
+  });
+
+  it("keeps promotions to staff with the promotions flag", () => {
+    const marketer: Actor = { id: "u-mkt", roles: ["staff"], businesses: [{ id: A, role: "staff", permissions: { promotions: true } }] };
+    expect(can(marketer, "promotion.manage", { businessId: A })).toBe(true);
+    expect(can(marketer, "listing.write", { businessId: A })).toBe(false);
+    expect(can(stockKeeper, "promotion.manage", { businessId: A })).toBe(false);
+    expect(can(admin, "promotion.manage", { businessId: A })).toBe(false);
   });
 
   it("denies listing access to staff without the inventory flag", () => {

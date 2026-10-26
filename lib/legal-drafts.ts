@@ -1,4 +1,4 @@
-import { DPA_VERSION, SELLER_AGREEMENT_VERSION } from "./legal";
+import { DPA_VERSION, PROMOTIONS_TERMS_VERSION, SELLER_AGREEMENT_VERSION } from "./legal";
 
 /**
  * Draft texts sellers read before accepting at onboarding. Phase 6 replaces
@@ -52,6 +52,56 @@ export const LEGAL_DRAFTS: Record<string, LegalDraft> = {
         ],
       },
       { heading: "Enforcement", body: ["Listings that break this policy are removed. Repeated or serious breaches lead to suspension and may be reported to the authorities."] },
+    ],
+  },
+  promotions: {
+    title: "Promotions & Coupon Terms",
+    version: PROMOTIONS_TERMS_VERSION,
+    summary: "How discounts, flash deals and coupon codes work on TownMart, for shoppers and sellers.",
+    sections: [
+      {
+        heading: "1. Who runs a promotion",
+        body: [
+          "Most promotions are run by the seller named on the listing, who pays for the discount. TownMart may also run platform-wide promotions, which say so.",
+          "The seller sets the discount, what it covers, when it starts and ends (Lagos time), and any limits. TownMart may end a promotion that breaks these terms.",
+        ],
+      },
+      {
+        heading: "2. Honest prices",
+        body: [
+          "A discounted price must be a real reduction from the price the item normally sells for on TownMart. Sellers must not raise a price just before a promotion to make the discount look bigger.",
+          "Every promotion shows its real end date and time. TownMart does not show fake countdowns or fake stock warnings.",
+          "Flash deals last no more than 72 hours.",
+        ],
+      },
+      {
+        heading: "3. How discounts are worked out",
+        body: [
+          "Each item gets the single best discount it qualifies for. A coupon code replaces that discount if the coupon is better, unless the seller allows the code to be combined, in which case it is taken off the already-discounted price.",
+          "Prices never go below ₦0. Discounts are rounded to the nearest kobo. Delivery fees are not discounted unless the promotion says so.",
+          "A minimum order means the value of that seller's items in your cart, before discounts.",
+        ],
+      },
+      {
+        heading: "4. Coupon codes",
+        body: [
+          "A code works only for the promotion it belongs to, during its dates, and up to any total or per-customer limit. Codes have no cash value and can't be exchanged or transferred for payment.",
+          "We may refuse or reverse a discount obtained by fraud, by abusing limits (for example with several accounts), or because of an obvious pricing error, and will tell you why.",
+        ],
+      },
+      {
+        heading: "5. Refunds and returns",
+        body: [
+          "If you return a discounted item, you are refunded what you actually paid for it. If returning part of an order means you no longer meet a minimum order, the refund is reduced by the discount that no longer applies.",
+          "Your rights under the Federal Competition and Consumer Protection Act 2018 are not affected by any promotion.",
+        ],
+      },
+      {
+        heading: "6. Changes and ending early",
+        body: [
+          "A seller may pause or end a promotion early. Orders already placed keep the price shown at checkout.",
+        ],
+      },
     ],
   },
 };

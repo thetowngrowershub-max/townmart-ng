@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { lagosLocalToDate } from "@/lib/datetime";
-import { commaList, nairaAmount, optionalNairaAmount, quantity, signedQuantity, uuid } from "./common";
+import { commaList, lagosDateTime, nairaAmount, optionalNairaAmount, quantity, signedQuantity, uuid } from "./common";
 
 const units = ["piece", "kg", "litre", "crate", "bag", "pack"] as const;
 const FRACTIONAL_UNITS: readonly string[] = ["kg", "litre"];
@@ -141,12 +140,6 @@ export const bulkStatusSchema = z.object({
 // ─── Services ───────────────────────────────────────────────────────────────
 
 /** `datetime-local` input, interpreted as Lagos time. */
-const lagosDateTime = (message: string) =>
-  z
-    .string({ error: message })
-    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/, message)
-    .transform(lagosLocalToDate);
-
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, "Use HH:MM");
 
 export const availabilityInput = z
