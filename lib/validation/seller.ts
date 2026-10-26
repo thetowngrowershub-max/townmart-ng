@@ -15,7 +15,6 @@ export const businessDetailsSchema = z
       .min(3, "At least 3 characters")
       .max(40)
       .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Use lowercase letters, numbers and single hyphens"),
-    description: z.string().trim().max(1000).optional(),
     cacNumber: z
       .string()
       .trim()
@@ -80,3 +79,10 @@ export const reviewDecisionSchema = z.discriminatedUnion("decision", [
   z.object({ businessId: z.uuid(), decision: z.literal("kyc_failed"), reason: z.string().trim().min(10).max(500) }),
 ]);
 export type ReviewDecisionInput = z.input<typeof reviewDecisionSchema>;
+
+export const brandingSchema = z.object({
+  description: z.string().trim().min(30, "Tell shoppers about your business in at least 30 characters").max(1000),
+  logoKey: z.string().max(200).optional().or(z.literal("")),
+  bannerKey: z.string().max(200).optional().or(z.literal("")),
+});
+export type BrandingInput = z.input<typeof brandingSchema>;

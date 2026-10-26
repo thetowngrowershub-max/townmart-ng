@@ -96,9 +96,17 @@ export type SaveProductResult = { productId: string; slug: string; removedImageK
  */
 export async function saveProduct(
   tx: Tx,
-  params: { businessId: string; actorUserId: string; data: ProductData; productId?: string },
+  params: {
+    businessId: string;
+    actorUserId: string;
+    data: ProductData;
+    productId?: string;
+    /** How stock edits are labelled in the stock log. */
+    stockSource?: { reason: StockMovementReason; note: string };
+  },
 ): Promise<SaveProductResult> {
   const { businessId, actorUserId, data } = params;
+  const source = params.stockSource;
 
   const category = await tx.category.findUnique({ where: { id: data.categoryId }, select: { kind: true, isActive: true } });
   if (!category || category.kind !== "product" || !category.isActive) {
@@ -173,6 +181,7 @@ export async function saveProduct(
   const currentById = new Map(current.map((v) => [v.id, v]));
   const keepIds = new Set(data.variants.map((v) => v.id).filter((id): id is string => !!id && currentById.has(id)));
   const stockChanges: StockChange[] = [];
+  const variantIdByImageKey = new Map<string, string>();
 
   for (const removed of current.filter((v) => !keepIds.has(v.id))) {
     if (!new Prisma.Decimal(removed.stockQty).isZero()) {
@@ -200,17 +209,19 @@ export async function saveProduct(
       const prev = v.id ? currentById.get(v.id) : undefined;
       if (prev) {
         await tx.productVariant.update({ where: { id: prev.id }, data: variantFields });
+        if (v.imageKey) variantIdByImageKey.set(v.imageKey, prev.id);
         const delta = target.minus(new Prisma.Decimal(prev.stockQty));
         if (!delta.isZero()) {
           stockChanges.push(
-            await adjustStock(tx, { businessId, variantId: prev.id, change: delta, reason: "manual_adjustment", note: "Edited in product form", actorUserId, allowNegative: true }),
+            await adjustStock(tx, { businessId, variantId: prev.id, change: delta, reason: source?.reason ?? "manual_adjustment", note: source?.note ?? "Edited in product form", actorUserId, allowNegative: true }),
           );
         }
       } else {
         const created = await tx.productVariant.create({ data: { ...variantFields, productId, businessId }, select: { id: true } });
+        if (v.imageKey) variantIdByImageKey.set(v.imageKey, created.id);
         if (!target.isZero()) {
           stockChanges.push(
-            await adjustStock(tx, { businessId, variantId: created.id, change: target, reason: "manual_adjustment", note: "Opening stock", actorUserId }),
+            await adjustStock(tx, { businessId, variantId: created.id, change: target, reason: source?.reason ?? "manual_adjustment", note: source?.note ?? "Opening stock", actorUserId }),
           );
         }
       }
@@ -234,6 +245,7 @@ export async function saveProduct(
         width: img.width,
         height: img.height,
         isCover: img.isCover,
+        variantId: variantIdByImageKey.get(img.key) ?? null,
         sortOrder,
       })),
     });

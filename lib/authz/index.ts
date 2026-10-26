@@ -31,7 +31,7 @@ type OwnedPermission = keyof OwnedResources;
 
 type BusinessPermission = "listing.read" | "listing.write" | "import.manage" | "store.manage";
 
-type GlobalPermission =
+export type GlobalPermission =
   | "account.access"
   | "dashboard.access"
   | "admin.access"

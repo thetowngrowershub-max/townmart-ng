@@ -41,6 +41,8 @@ export const variantInput = z.object({
   compareAtPrice: optionalNairaAmount,
   stockQty: quantity,
   lowStockThreshold: quantity,
+  /** Key of one of the product's images to show when this variant is picked. */
+  imageKey: z.string().max(200).optional().or(z.literal("")),
 });
 
 export const productInputSchema = z
@@ -109,6 +111,9 @@ export const productInputSchema = z
         p.options.every((o) => o.values.includes(v.optionValues[o.name] ?? ""));
       if (!valid) {
         ctx.addIssue({ code: "custom", path: ["variants", i, "optionValues"], message: "Pick a value for every option" });
+      }
+      if (v.imageKey && !p.images.some((img) => img.key === v.imageKey)) {
+        ctx.addIssue({ code: "custom", path: ["variants", i, "imageKey"], message: "Pick one of the product's images" });
       }
       const combo = p.options.map((o) => v.optionValues[o.name]).join("|");
       if (combos.has(combo)) {

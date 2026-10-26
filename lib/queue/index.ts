@@ -10,7 +10,11 @@ export const QUEUES = {
   imports: "imports",
 } as const;
 
-export type NotificationJobs = { "email.send": EmailMessage; "sms.send": SmsMessage };
+export type NotificationJobs = {
+  "email.send": EmailMessage;
+  "sms.send": SmsMessage;
+  "stock.low": { businessId: string; variantIds: string[] };
+};
 export type ImportJobs = { "products.csv": { importJobId: string; businessId: string } };
 
 const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue; importsQueue?: Queue };
@@ -39,6 +43,11 @@ export async function enqueueSms(message: SmsMessage): Promise<void> {
     attempts: 3,
     backoff: { type: "fixed", delay: 5_000 },
   });
+}
+
+/** Low-stock alert for variants that just crossed their threshold. The worker de-duplicates per day. */
+export async function enqueueLowStockAlert(data: NotificationJobs["stock.low"]): Promise<void> {
+  await notificationsQueue().add("stock.low", data, { attempts: 3 });
 }
 
 function importsQueue(): Queue {
