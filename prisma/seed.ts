@@ -5,7 +5,8 @@
  * Seeds 36 states + FCT and their 774 LGAs, default settings, one admin and one
  * super admin, then the catalogue: categories plus six demo sellers with
  * products, services and promotions (seed-catalogue.ts), and default delivery
- * zones, rates and commission (seed-delivery.ts).
+ * zones, rates and commission (seed-delivery.ts), then demo orders, bookings
+ * and reviews (seed-orders.ts).
  */
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
@@ -15,6 +16,7 @@ import { slugify } from "../lib/slug";
 import statesData from "./data/nigeria-states-lgas.json";
 import { seedDemoCatalogue } from "./seed-catalogue";
 import { seedDeliveryAndCommission } from "./seed-delivery";
+import { seedDemoOrders } from "./seed-orders";
 
 const url = process.env.MIGRATE_DATABASE_URL;
 if (!url) throw new Error("MIGRATE_DATABASE_URL is required to seed");
@@ -100,6 +102,7 @@ async function main() {
   await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN_PASSWORD");
   await seedDeliveryAndCommission(prisma);
   await seedDemoCatalogue(prisma);
+  if (!isProd || process.env.SEED_DEMO_DATA === "true") await seedDemoOrders(prisma);
 }
 
 main()

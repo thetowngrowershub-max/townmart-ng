@@ -217,7 +217,37 @@ Double-entry, BigInt kobo, append-only (`ledger_accounts`, `ledger_transactions`
 
 ### After the order
 
-The worker's `order.confirmed` job sends the itemised receipt (email and SMS), an email and in-app notification to each seller, and low-stock alerts, once per order. Shoppers see their orders, saved addresses, payment attempts and notifications under `/account`; guests open their order from the link in the receipt (a token derived from the order id; only its hash is stored). Sellers see their part of recent orders on the dashboard; full order management is Phase 4.
+The worker's `order.confirmed` job sends the itemised receipt (email and SMS), an email and in-app notification to each seller, and low-stock alerts, once per order. Shoppers see their orders, saved addresses, payment attempts and notifications under `/account`; guests open their order from the link in the receipt (a token derived from the order id; only its hash is stored). Sellers manage their part of each order from `/dashboard/orders` (Phase 4).
+
+## Phase 4: fulfilment, bookings and reviews
+
+### Orders after payment
+
+Each seller handles its own `seller_order`. The steps are fixed (`lib/fulfilment/orders.ts`): paid → processing → shipped (with optional tracking) or ready for pickup → delivered. The seller takes these steps under its own RLS; the `guard_seller_order_status` trigger allows exactly these moves for a seller, and column grants stop it touching money columns. Pay-on-delivery orders start at processing; the seller records "I've been paid" when the cash is handed over and can cancel before sending. Completing an order (the customer's "I received it", or the `orders.auto-complete` job `orders.auto_complete_days` after delivery, 7 by default) runs in the system scope and starts the escrow countdown. A booking-only seller order completes when its last booking ends.
+
+Sellers get an order list with filters, an order page (items, customer contact, history, messages, next step) and a printable packing slip (`/print/packing-slip/[id]`). The customer's phone number is hidden from the seller 30 days after completion. Customers see one merged timeline per seller on their order page and can confirm receipt.
+
+### Bookings
+
+A service line in the cart carries a start time. The slot engine (`lib/bookings/slots.ts`, pure) lays the provider's weekly hours on a grid in Lagos time, removes blackouts, the lead time and full slots, and counts places left (`max_per_slot`). `placeOrder()` claims each booking with `claimSlot()`: a per-service advisory lock, a re-check of the grid, then the first free place number. The `bookings_no_overlap` exclusion constraint on `(service_id, slot_no, tstzrange)` is the final word, so a slot can't be oversold even by code that skips the checks; a test races 8 shoppers for a 2-place slot.
+
+Deposits: a service can ask for part of the price online (`deposit_percent`); the rest is recorded as `pay_later` on the booking, the seller order and the order, and is paid to the provider on the day. The order total, payment and ledger exclude it (the seller's escrow credit is its net minus the balance it collects itself).
+
+Statuses: held (waiting for online payment) → requested (if the provider confirms bookings) or confirmed → in progress → completed, or cancelled / no-show. The provider confirms, starts and completes under its own RLS (`guard_booking_status`). Cancelling and moving run in the system scope after an authz check: customers can cancel or move before the start time (a move goes back to "requested" if the provider confirms bookings), providers can decline, cancel or move. A move updates the booking in place and keeps `previous_starts_at`; `guard_booking_time` stops anything but TownMart code changing the time. Every change is in `booking_status_history`.
+
+### Messages and notices
+
+Each seller order has one conversation between the customer and the seller (`messages`, append-only apart from `read_at`). Order steps, booking changes and new messages queue a `fulfilment.notice` job; the worker tells the other side by email, in-app notification and, for steps that matter on the day, SMS. Job ids de-duplicate retries. The `bookings.reminders` job (every 5 minutes) reminds both sides 24 hours and 1 hour before a confirmed booking, claiming each reminder by setting its `reminder_*_sent_at` column first. The header bell shows unread in-app notifications.
+
+### Reviews
+
+Only a verified buyer can review (`findReviewable`): the account that placed the order, once per item, after the goods were delivered or the booking was completed, on an order that wasn't cancelled. Reviews have a rating, text and up to 4 photos (uploaded to `reviews/u-<user id>/`, and only the reviewer's own uploads are accepted), and show the reviewer as "First L.". Writing a review recomputes the product, service and store ratings (`refresh_ratings`, system scope). The seller can reply publicly; anyone signed in can report a review, which marks it for moderation (Phase 7). Hidden reviews are visible only to their author, the seller and TownMart.
+
+### Seller tools
+
+`/dashboard` shows today's sales, orders to handle, bookings this week, payout balance (from the ledger), rating, a 14-day earnings chart and top products. `/dashboard/bookings` is a day-by-day diary with the booking actions, `/dashboard/messages` an inbox, `/dashboard/reviews` the review list with replies, and `/dashboard/settings/delivery` lets a seller replace TownMart's default rates for any zone with its own weight bands.
+
+Shoppers get `/account/bookings`, `/account/reviews` (items waiting for a review, and their reviews) and `/account/wishlist` (the Save button on product and service pages).
 
 ## Design system
 
