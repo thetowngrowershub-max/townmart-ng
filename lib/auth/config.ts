@@ -42,7 +42,11 @@ const config: NextAuthConfig = {
       );
     },
     async signIn({ user }) {
-      if (user.id) await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+      if (!user.id) return;
+      await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+      // Google sign-in: bring the guest cart along (imported lazily to avoid a cycle with lib/cart).
+      const { mergeGuestCart } = await import("@/lib/cart");
+      await mergeGuestCart(user.id);
     },
   },
   logger: {

@@ -158,13 +158,66 @@ Platform-wide promotions (`business_id` NULL) are supported by the schema and pr
 - **Coupons** replace the automatic discount if they are better, or, if the seller allowed stacking, come off the already-discounted price.
 - **Minimum order** is checked against that seller's own items in the cart before discounts (the whole cart for platform promotions).
 - Percentages round half-up to the kobo; a fixed amount is taken off each unit; no price goes below ₦0.
-- `listingPrice()` is what cards and listing pages show: automatic promotions only (no coupon, no minimum order). `priceCart()` is what checkout will use in Phase 3, returning per-line discounts, coupon status and the redemptions to record.
+- `listingPrice()` is what cards and listing pages show: automatic promotions only (no coupon, no minimum order). `priceCart()` is what checkout uses, returning per-line discounts, coupon status and the redemptions to record.
 
 `lib/promotions/live.ts` loads the live rules for the businesses on a page (as a guest, under RLS) and turns them into a `ListingDeal` for each card. The search "On promotion" filter and the flash-deals section use an SQL predicate (`onPromotionSql`) that mirrors the same rules. Search price filters and sorting still use the undiscounted price.
 
 ### Honest pricing
 
 Listings show the real end date of every deal and never a fake countdown. Product JSON-LD uses the price a shopper actually pays today. The rules are written up for shoppers in the draft Promotions & Coupon Terms (`/legal/promotions`).
+
+## Phase 3: cart, checkout and payments
+
+### Cart
+
+Guests get a cart tied to an `HttpOnly` cookie (`tm_cart`, a random token; only its keyed hash is stored, 30 days). Signing in merges the guest cart into the account cart (the larger quantity wins). The cart is grouped by seller, re-priced and re-checked for stock every time it opens, and supports saved-for-later and one coupon. RLS lets a request see only its own cart (`app.current_cart_id` for guests).
+
+### Checkout
+
+`lib/checkout/compute.ts` loads everything (cart, live promotions, zones and rates, commission rules, settings) and `lib/checkout/quote.ts` does all the arithmetic, pure and in BigInt kobo:
+
+- **Delivery** (`lib/checkout/delivery.ts`): the address's zone (a zone naming the LGA beats one naming the state, then the lowest priority), the weight band, and free delivery over a threshold. A seller with its own rates for a zone replaces TownMart's defaults for it. Each seller ships separately; a seller can also offer pickup.
+- **Service fee** 1% of goods after discounts, capped at ₦1,000; **VAT** 7.5% of the service fee only (settings `fees.*`).
+- **Commission** per line: business rule, then category, then parent category, then global (5% seeded), then the default. It is charged on what the seller is paid for, so a TownMart-funded discount doesn't cost the seller.
+
+The page shows subtotal, discounts, delivery per seller, service fee and VAT before payment. The shopper must tick the Terms of Use and Refund Policy box (the versions are stored on the order); marketing consent is a separate box, unticked by default.
+
+### Placing an order
+
+`placeOrder()` runs in one database transaction in the system scope:
+
+1. Recompute everything from the database and refuse if the total differs from what the shopper saw (`expectedTotalKobo`).
+2. Lock the promotions being used (`FOR UPDATE`) and re-check usage limits.
+3. Create the order (number `TM-YYYY-NNNNNN` from a sequence), one `seller_order` per seller and the items, with price snapshots.
+4. Take the stock now through `adjustStock()` (a `reservation` movement). The variant's row lock serialises concurrent buyers and stock can't go below zero, so it can't be oversold; variants are locked in id order to avoid deadlocks. A test races 50 buyers for 10 units and exactly 10 orders succeed.
+5. Online payment: the stock is held for 15 minutes (`checkout.stock_hold_minutes`). Pay on delivery (when the global switch is on and every seller in the order accepts it) is confirmed straight away.
+
+### Payments
+
+`lib/payments` has one `PaymentProvider` interface with Paystack, Flutterwave (amounts converted from naira at the edge) and a development-only fake provider (`/checkout/pay/fake`, refused in production). If the primary provider can't start a payment, the fallback (`PAYMENT_FALLBACK_PROVIDER`) is tried. Each attempt is a `payments` row with its own reference.
+
+A payment is only ever confirmed by calling the provider's **verify** API, never from a webhook body or the browser redirect. `applyVerifiedPayment()` locks the order, checks the amount and currency exactly, marks it paid, converts the stock holds, records promotion redemptions and posts the ledger, all in one transaction, and is idempotent. The shopper's return from the payment page, webhooks and the expiry job can all call it safely.
+
+Webhooks (`/api/webhooks/{paystack|flutterwave}`) check the signature (Paystack HMAC-SHA512, Flutterwave `verif-hash`), store every delivery in `payment_events` (unique per provider and event id, so replays are acknowledged and ignored) and hand valid ones to the worker, which verifies with the provider.
+
+The `orders.expire-unpaid` job runs every minute: it asks the provider about any unpaid order past its hold (in case a webhook is late), otherwise cancels it and puts the stock back. A payment that arrives after expiry takes the stock again if it can; if not, or if the amount is wrong or the order was already paid, the order is logged as needing attention for a refund (Phase 5).
+
+### Ledger
+
+Double-entry, BigInt kobo, append-only (`ledger_accounts`, `ledger_transactions`, `ledger_entries`). For a captured payment:
+
+| Account | Debit | Credit |
+|---|---|---|
+| Provider clearing | total paid | |
+| Platform promotions | discounts TownMart funds | |
+| Each seller's escrow | | the seller's net (goods − own discounts + delivery − commission) |
+| Platform commission, fees, tax | | commission, service fee, VAT |
+
+`lib/ledger/entries.ts` builds balanced postings; a deferred constraint trigger also rejects any transaction whose debits and credits differ when it commits. Each transaction is unique per (kind, reference), so a retry can't post twice. Escrow is released to sellers in Phase 5.
+
+### After the order
+
+The worker's `order.confirmed` job sends the itemised receipt (email and SMS), an email and in-app notification to each seller, and low-stock alerts, once per order. Shoppers see their orders, saved addresses, payment attempts and notifications under `/account`; guests open their order from the link in the receipt (a token derived from the order id; only its hash is stored). Sellers see their part of recent orders on the dashboard; full order management is Phase 4.
 
 ## Design system
 

@@ -177,6 +177,8 @@ export type PricedLine = {
   discountKobo: bigint;
   totalKobo: bigint;
   promotions: AppliedPromotion[];
+  /** Who pays for each part of the discount: the seller, or TownMart (fundedBy null). */
+  parts: { promotionId: string; fundedBy: string | null; discountKobo: bigint }[];
 };
 
 export type Redemption = { promotionId: string; couponId: string | null; businessId: string | null; discountKobo: bigint };
@@ -290,13 +292,17 @@ export function priceCart(lines: readonly CartLine[], rules: readonly PromotionR
     }
 
     let discount = 0n;
+    const parts: PricedLine["parts"] = [];
     for (const u of used) {
-      discount += u.d;
-      note(u.r, u.d, u.isCoupon);
-      if (u.isCoupon) couponTotal += u.d;
+      // Never more than what's left of the line.
+      const d = u.d > sub - discount ? sub - discount : u.d;
+      if (d <= 0n) continue;
+      discount += d;
+      parts.push({ promotionId: u.r.id, fundedBy: u.r.businessId, discountKobo: d });
+      note(u.r, d, u.isCoupon);
+      if (u.isCoupon) couponTotal += d;
     }
-    if (discount > sub) discount = sub;
-    return { key: l.key, subtotalKobo: sub, discountKobo: discount, totalKobo: sub - discount, promotions: used.map((u) => applied(u.r)) };
+    return { key: l.key, subtotalKobo: sub, discountKobo: discount, totalKobo: sub - discount, promotions: used.map((u) => applied(u.r)), parts };
   });
 
   if (couponRule) {

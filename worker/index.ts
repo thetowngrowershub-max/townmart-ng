@@ -5,6 +5,7 @@
  * Queues:
  *   notifications — emails, SMS and low-stock alerts
  *   imports       — seller CSV product imports
+ *   orders        — order confirmations and payment webhook processing
  *   maintenance   — scheduled clean-up jobs, recorded in job_runs
  */
 import "dotenv/config";
@@ -15,7 +16,9 @@ import { runProductImport } from "@/lib/catalogue/import";
 import { sendLowStockAlert } from "@/lib/catalogue/low-stock-alert";
 import { emailProvider, type EmailMessage } from "@/lib/notifications/email";
 import { smsProvider } from "@/lib/notifications/sms";
-import { QUEUES, type ImportJobs, type NotificationJobs } from "@/lib/queue";
+import { sendOrderConfirmed } from "@/lib/orders/notify";
+import { processPaymentEvent } from "@/lib/orders/payment";
+import { QUEUES, type ImportJobs, type NotificationJobs, type OrderJobs } from "@/lib/queue";
 import { newRedisConnection } from "@/lib/redis";
 import { maintenanceJobs } from "./jobs/maintenance";
 import { trackJobRun } from "./job-runs";
@@ -54,6 +57,25 @@ async function handleImport(job: Job) {
   return result;
 }
 
+async function handleOrder(job: Job) {
+  switch (job.name) {
+    case "order.confirmed": {
+      const { orderId } = job.data as OrderJobs["order.confirmed"];
+      const sent = await sendOrderConfirmed(orderId);
+      logger.info({ jobId: job.id, orderId, sent }, "order confirmation processed");
+      return;
+    }
+    case "payment.event": {
+      const { eventId } = job.data as OrderJobs["payment.event"];
+      await processPaymentEvent(eventId);
+      logger.info({ jobId: job.id, eventId }, "payment event processed");
+      return;
+    }
+    default:
+      throw new Error(`Unknown orders job: ${job.name}`);
+  }
+}
+
 async function handleMaintenance(job: Job) {
   const def = maintenanceJobs[job.name];
   if (!def) throw new Error(`Unknown maintenance job: ${job.name}`);
@@ -75,6 +97,7 @@ async function main() {
   const workers = [
     new Worker(QUEUES.notifications, handleNotification, { connection: newRedisConnection(), concurrency: 5 }),
     new Worker(QUEUES.imports, handleImport, { connection: newRedisConnection(), concurrency: 2 }),
+    new Worker(QUEUES.orders, handleOrder, { connection: newRedisConnection(), concurrency: 5 }),
     new Worker(QUEUES.maintenance, handleMaintenance, { connection: newRedisConnection(), concurrency: 1 }),
   ];
   for (const w of workers) {

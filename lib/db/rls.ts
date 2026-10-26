@@ -10,7 +10,7 @@ export type Tx = Prisma.TransactionClient;
  *  - `system`: worker jobs and platform internals with no end user
  */
 export type RlsContext =
-  | { scope?: "user"; userId: string | null; businessId?: string | null }
+  | { scope?: "user"; userId: string | null; businessId?: string | null; cartId?: string | null }
   | { scope: "admin"; userId: string; businessId?: string | null }
   | { scope: "system"; userId?: null; businessId?: null };
 
@@ -29,7 +29,8 @@ export async function withRls<T>(ctx: RlsContext, fn: (tx: Tx) => Promise<T>, op
     await tx.$executeRaw`
       SELECT set_config('app.current_user_id', ${ctx.userId ?? ""}, true),
              set_config('app.current_business_id', ${ctx.businessId ?? ""}, true),
-             set_config('app.current_scope', ${ctx.scope ?? "user"}, true)`;
+             set_config('app.current_scope', ${ctx.scope ?? "user"}, true),
+             set_config('app.current_cart_id', ${("cartId" in ctx && ctx.cartId) || ""}, true)`;
     return fn(tx);
   }, options);
 }

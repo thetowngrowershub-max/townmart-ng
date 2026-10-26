@@ -38,6 +38,7 @@ Migrations are forward-only in production. Never edit a migration that has been 
 |---|---|---|
 | `app.current_user_id` | `app_current_user_id()` | signed-in user, or empty |
 | `app.current_business_id` | `app_current_business_id()` | seller business being acted for (from Phase 1) |
+| `app.current_cart_id` | `app_current_cart_id()` | a guest's cart (from Phase 3) |
 | `app.current_scope` | `app_current_scope()`, `app_is_privileged()` | `user` (default), `admin` (admin console, after an authz check), `system` (worker jobs) |
 
 Settings use `set_config(name, value, true)`, i.e. transaction-local. They can't leak to the next request on a pooled connection, including through PgBouncer in transaction mode (a test checks this).
@@ -71,11 +72,33 @@ Phase 2 policies:
 | `promotions` | active, not ended, from an approved store or platform-wide; or the current business | current business. Platform-wide (`business_id` NULL) needs admin/system. `has_coupon` and `redemption_count` are kept by triggers; a direct change is rejected (`guard_promotion_counters`) |
 | `promotion_targets` | when the promotion is readable | current business. `business_id` is copied from the promotion by a trigger, and composite foreign keys `(product_id, business_id)` / `(service_id, business_id)` stop a target pointing at another seller's listing |
 | `coupons` | current business only (codes are never public) | current business. Codes are `citext`, unique across TownMart |
-| `promotion_redemptions` | the store, the customer, or admin/system | insert admin/system only (checkout, Phase 3); `UPDATE`/`DELETE` revoked from `townmart_app`. Inserting one bumps the promotion's `redemption_count` |
+| `promotion_redemptions` | the store, the customer, or admin/system | insert admin/system only (checkout); `UPDATE`/`DELETE` revoked from `townmart_app`. Inserting one bumps the promotion's `redemption_count` |
 
 `tests/db/promotions-rls.test.ts` proves these: seller A can't see B's paused promotions or any of B's coupons; can't update, delete or create B's promotions, create platform-wide ones, attach targets to B's promotion or put B's product in its own; can't set its own counters; and can't write, edit or delete redemptions.
 
 `tests/db/catalogue-rls.test.ts` proves these: seller A can't read B's drafts, KYC, payout account or import jobs; can't update, delete or insert B's listings, variants or payouts; can't adjust B's stock; can't approve itself, start a business as approved, verify its own KYC or set its rating; and guests and search see only live listings of approved sellers.
+
+Phase 3 policies:
+
+| Table | Read | Write |
+|---|---|---|
+| `carts`, `cart_items` | the signed-in owner, or the guest whose cart is `app.current_cart_id` | same |
+| `orders` | the customer who placed it | admin/system only (checkout runs in the system scope) |
+| `seller_orders`, `order_items`, `order_status_history` | the seller for its own rows, or the customer through their order | admin/system only; status history is append-only |
+| `stock_reservations` | the seller for its own rows | admin/system only |
+| `payments` | the customer through their order | admin/system only |
+| `payment_events` | admin/system only | admin/system only; only `processed_at` and `error` can be updated |
+| `ledger_accounts`, `ledger_entries` | the seller for its own accounts and entries | insert admin/system only; `UPDATE`/`DELETE`/`TRUNCATE` revoked, `UPDATE` blocked by trigger |
+| `ledger_transactions` | the seller when one of its entries is in it | insert admin/system only |
+| `delivery_zones`, `delivery_rates` | public | zones admin/system; a seller may write its own rates |
+| `commission_rules` | global rules, the seller's own, admin/system | admin/system |
+| `notifications` | the recipient | insert admin/system; the recipient may update `read_at` only |
+
+A seller never reads the `orders` row: it holds the customer's contact details and other sellers' totals. The order number and pay-on-delivery flag are copied onto `seller_orders` for the seller's view.
+
+Money tables carry check constraints: an order's total must equal subtotal − discount + delivery + service fee + VAT, and likewise for seller orders and items; a ledger entry is a positive debit or a positive credit, never both. The constraint trigger `ledger_check_balanced` (deferred to commit) rejects any ledger transaction that doesn't balance.
+
+`tests/db/checkout.test.ts` proves: a two-seller checkout splits correctly and holds stock; a changed total is refused; 50 concurrent buyers for 10 units produce exactly 10 orders; a payment is applied once (replayed webhooks are stored once and processed once), a wrong amount is not accepted; the ledger balances and rejects unbalanced or edited entries; expiry puts stock back; a seller sees only its own part of a shared order and its own ledger; shoppers see only their own orders and payments; guest carts are kept apart.
 
 Tables without RLS: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data (states, LGAs, categories), `settings`, `job_runs`.
 

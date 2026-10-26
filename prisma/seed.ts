@@ -4,8 +4,8 @@
  *
  * Seeds 36 states + FCT and their 774 LGAs, default settings, one admin and one
  * super admin, then the catalogue: categories plus six demo sellers with
- * products and services (seed-catalogue.ts). Promotions, orders and bookings
- * come with the phases that add those tables.
+ * products, services and promotions (seed-catalogue.ts), and default delivery
+ * zones, rates and commission (seed-delivery.ts).
  */
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
@@ -14,6 +14,7 @@ import { hashPassword } from "../lib/auth/password";
 import { slugify } from "../lib/slug";
 import statesData from "./data/nigeria-states-lgas.json";
 import { seedDemoCatalogue } from "./seed-catalogue";
+import { seedDeliveryAndCommission } from "./seed-delivery";
 
 const url = process.env.MIGRATE_DATABASE_URL;
 if (!url) throw new Error("MIGRATE_DATABASE_URL is required to seed");
@@ -44,7 +45,9 @@ const DEFAULT_SETTINGS: { key: string; value: unknown; description: string }[] =
   { key: "payments.pay_on_delivery_enabled", value: true, description: "Global switch for Pay on Delivery." },
   { key: "checkout.stock_hold_minutes", value: 15, description: "How long stock is reserved during checkout." },
   { key: "commission.default_percent", value: 5, description: "Default platform commission (%), before category/seller overrides." },
-  { key: "fees.vat_percent", value: 7.5, description: "VAT rate (%) applied where applicable." },
+  { key: "fees.vat_percent", value: 7.5, description: "VAT rate (%) on TownMart's service fee." },
+  { key: "fees.service_fee_percent", value: 1, description: "Service fee charged to shoppers (% of goods after discounts)." },
+  { key: "fees.service_fee_cap_naira", value: 1000, description: "Maximum service fee per order (₦)." },
   { key: "auth.max_failed_logins", value: 5, description: "Failed sign-ins before a temporary lockout." },
   { key: "dsr.response_days", value: 30, description: "Deadline for data subject requests (days)." },
 ];
@@ -92,6 +95,7 @@ async function main() {
   await seedSettings();
   await seedStaffAccount("admin@townmart.local", "TownMart Admin", ["admin", "customer"], "SEED_ADMIN_PASSWORD");
   await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN_PASSWORD");
+  await seedDeliveryAndCommission(prisma);
   await seedDemoCatalogue(prisma);
 }
 

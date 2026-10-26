@@ -8,6 +8,7 @@ export const QUEUES = {
   notifications: "notifications",
   maintenance: "maintenance",
   imports: "imports",
+  orders: "orders",
 } as const;
 
 export type NotificationJobs = {
@@ -16,6 +17,26 @@ export type NotificationJobs = {
   "stock.low": { businessId: string; variantIds: string[] };
 };
 export type ImportJobs = { "products.csv": { importJobId: string; businessId: string } };
+export type OrderJobs = {
+  "order.confirmed": { kind: "order.confirmed"; orderId: string };
+  "payment.event": { kind: "payment.event"; eventId: string };
+};
+
+const globalForOrders = globalThis as unknown as { ordersQueue?: Queue };
+
+function ordersQueue(): Queue {
+  globalForOrders.ordersQueue ??= new Queue(QUEUES.orders, {
+    connection: redis,
+    defaultJobOptions: { attempts: 8, backoff: { type: "exponential", delay: 5_000 }, removeOnComplete: 1000, removeOnFail: { age: 30 * 24 * 3600 } },
+  });
+  return globalForOrders.ordersQueue;
+}
+
+/** Order follow-ups (notifications) and webhook processing. Job ids de-duplicate repeats. */
+export async function enqueueOrderEvent(data: OrderJobs[keyof OrderJobs]): Promise<void> {
+  const jobId = data.kind === "order.confirmed" ? `order-confirmed-${data.orderId}` : `payment-event-${data.eventId}`;
+  await ordersQueue().add(data.kind, data, { jobId });
+}
 
 const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue; importsQueue?: Queue };
 

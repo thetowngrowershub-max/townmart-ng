@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { formatPrice } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { AddToCart } from "./add-to-cart";
 import { ImageGallery, type GalleryItem } from "./image-gallery";
 
 export type VariantView = {
@@ -28,6 +29,7 @@ export function ProductPurchase({
   variants,
   unitLabel,
   minOrder,
+  fractional,
   children,
 }: {
   title: string;
@@ -36,6 +38,7 @@ export function ProductPurchase({
   variants: VariantView[];
   unitLabel: string;
   minOrder: string;
+  fractional: boolean;
   children?: React.ReactNode;
 }) {
   const [selected, setSelected] = useState<Record<string, string>>(variants[0]?.optionValues ?? {});
@@ -122,6 +125,7 @@ export function ProductPurchase({
         ))}
 
         {Number(minOrder) !== 1 && <p className="text-sm text-muted-foreground">Minimum order: {minOrder} {unitLabel}</p>}
+        <AddToCart key={variant?.id ?? "none"} variantId={variant?.id ?? null} disabled={!variant || variant.stock.state === "out"} minOrder={minOrder} fractional={fractional} unitLabel={unitLabel} />
         {children}
       </div>
     </div>

@@ -45,6 +45,15 @@ const schema = z.object({
   // Bank account verification and payout subaccounts: "paystack" or "fake" (development only)
   BANK_VERIFIER: z.enum(["paystack", "fake"]).default("paystack"),
   PAYSTACK_SECRET_KEY: z.string().optional(),
+
+  // Card/transfer/USSD payments: "paystack", "flutterwave", or "fake" (a local
+  // stand-in payment page; development only). The fallback is tried when the
+  // primary can't start a payment.
+  PAYMENT_PROVIDER: z.enum(["paystack", "flutterwave", "fake"]).default("paystack"),
+  PAYMENT_FALLBACK_PROVIDER: z.enum(["paystack", "flutterwave", "none"]).default("none"),
+  FLUTTERWAVE_SECRET_KEY: z.string().optional(),
+  // The "secret hash" set on the Flutterwave dashboard, sent back in the verif-hash header.
+  FLUTTERWAVE_WEBHOOK_HASH: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -67,6 +76,7 @@ export function env(): Env {
         parsed.data.STORAGE_DRIVER === "local" && "STORAGE_DRIVER=local",
         parsed.data.SMS_PROVIDER === "console" && "SMS_PROVIDER=console",
         parsed.data.BANK_VERIFIER === "fake" && "BANK_VERIFIER=fake",
+        parsed.data.PAYMENT_PROVIDER === "fake" && "PAYMENT_PROVIDER=fake",
       ].filter(Boolean);
       if (devOnly.length) throw new Error(`Development-only drivers are not allowed in production: ${devOnly.join(", ")}`);
     }

@@ -211,7 +211,7 @@ async function seedSeller(prisma: PrismaClient, seller: DemoSeller, categoryIds:
       });
       const id = business.id;
       await tx.storePolicy.create({
-        data: { businessId: id, returnWindowDays: b.returnWindowDays, deliveryOptions: { delivery: true, pickup: !!b.pickup, notes: "" }, pickupAddressEncrypted: b.pickup ? encrypt(b.address) : null },
+        data: { businessId: id, returnWindowDays: b.returnWindowDays, deliveryOptions: { delivery: true, pickup: !!b.pickup, notes: "" }, pickupAddressEncrypted: b.pickup ? encrypt(b.address) : null, acceptsPayOnDelivery: !!b.payOnDelivery },
       });
       await tx.businessKyc.create({ data: { businessId: id, provider: "manual", verificationStatus: "verified", idDocumentType: b.cac ? "cac_certificate" : "nin_slip", verifiedAt: now, notes: "Demo seller (seed data)" } });
       await tx.payoutAccount.create({

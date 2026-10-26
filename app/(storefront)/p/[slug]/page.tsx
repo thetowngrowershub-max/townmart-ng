@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { CardGrid, ProductCard } from "@/components/storefront/listing-cards";
 import { ProductPurchase, type VariantView } from "@/components/storefront/product-purchase";
 import { PolicySummary, SellerCard } from "@/components/storefront/seller-card";
-import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getListingRules, getPublicProduct, getRelatedProducts } from "@/lib/catalogue/storefront";
 import { formatDateTime } from "@/lib/datetime";
@@ -118,8 +117,8 @@ export default async function ProductPage({ params }: Props) {
         variants={variants}
         unitLabel={unitLabel(p.unit)}
         minOrder={p.minOrderQty.toString()}
+        fractional={p.allowFractionalQty}
       >
-        <Alert variant="info">Checkout opens soon. You can browse and compare now; ordering arrives in the next release.</Alert>
         {p.isPerishable && <p className="text-sm">Perishable{p.shelfLifeNote ? `: ${p.shelfLifeNote}` : "."}</p>}
         <SellerCard business={p.business} />
         <PolicySummary policy={p.business.policy} />
