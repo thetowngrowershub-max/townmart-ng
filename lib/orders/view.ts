@@ -1,5 +1,8 @@
-import type { BookingStatus, OrderPaymentStatus, OrderStatus, PaymentProviderName, Prisma } from "@prisma/client";
+import type { BookingStatus, OrderStatus, Prisma } from "@prisma/client";
 import { BOOKING_STATUS_LABELS } from "@/lib/bookings/status";
+import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, PROVIDER_LABELS } from "./labels";
+import { loadConversation, type MessageView } from "@/lib/fulfilment/messages";
+import { mergeTimeline } from "@/lib/fulfilment/timeline";
 import { decrypt } from "@/lib/crypto";
 import { formatBookingTime, formatDateTime } from "@/lib/datetime";
 import type { Tx } from "@/lib/db";
@@ -7,35 +10,7 @@ import { formatPrice } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
 import type { ShippingSnapshot } from "./place";
 
-export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-  pending_payment: "Awaiting payment",
-  paid: "Paid",
-  processing: "Processing",
-  ready_for_pickup: "Ready for pickup",
-  shipped: "On its way",
-  delivered: "Delivered",
-  completed: "Completed",
-  cancelled: "Cancelled",
-  refund_requested: "Refund requested",
-  refunded: "Refunded",
-  partially_refunded: "Partly refunded",
-};
-
-export const PAYMENT_STATUS_LABELS: Record<OrderPaymentStatus, string> = {
-  unpaid: "Not paid",
-  paid: "Paid",
-  failed: "Payment failed",
-  pay_on_delivery: "Pay on delivery",
-  refunded: "Refunded",
-  partially_refunded: "Partly refunded",
-};
-
-export const PROVIDER_LABELS: Record<PaymentProviderName, string> = {
-  paystack: "Paystack",
-  flutterwave: "Flutterwave",
-  pay_on_delivery: "Pay on delivery",
-  fake: "Test payment",
-};
+export { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, PROVIDER_LABELS };
 
 const detailInclude = {
   sellerOrders: {
@@ -44,7 +19,20 @@ const detailInclude = {
       items: {
         orderBy: { createdAt: "asc" },
         include: {
-          booking: { select: { id: true, startsAt: true, endsAt: true, status: true, atProvider: true, depositKobo: true, balanceKobo: true, rescheduledTo: { select: { id: true } } } },
+          booking: {
+            select: {
+              id: true,
+              serviceId: true,
+              packageId: true,
+              startsAt: true,
+              endsAt: true,
+              status: true,
+              atProvider: true,
+              depositKobo: true,
+              balanceKobo: true,
+              statusHistory: { orderBy: { createdAt: "asc" }, select: { toStatus: true, note: true, createdAt: true } },
+            },
+          },
           review: { select: { id: true, rating: true } },
         },
       },
@@ -67,6 +55,7 @@ export type OrderDetailView = {
   cancelReason: string | null;
   canPay: boolean;
   contactEmail: string;
+  customerName: string;
   address: { recipientName: string; lines: string[] };
   sellers: {
     id: string;
@@ -91,7 +80,17 @@ export type OrderDetailView = {
       discount: string | null;
       total: string;
       imageUrl: string | null;
-      booking: { id: string; when: string; where: string; status: string; statusKey: BookingStatus; payLater: string | null; canChange: boolean } | null;
+      booking: {
+        id: string;
+        serviceId: string;
+        packageId: string | null;
+        when: string;
+        where: string;
+        status: string;
+        statusKey: BookingStatus;
+        payLater: string | null;
+        canChange: boolean;
+      } | null;
       /** Completed and not yet reviewed. */
       canReview: boolean;
       reviewRating: number | null;
@@ -120,6 +119,7 @@ export async function loadOrderDetail(tx: Tx, where: { id: string } | { orderNum
     cancelReason: o.cancelReason,
     canPay: status === "awaiting_payment" && o.paymentDueAt !== null && o.paymentDueAt > now,
     contactEmail: o.contactEmail,
+    customerName: o.customerName,
     address: {
       recipientName: a.recipientName,
       lines: [
@@ -139,7 +139,7 @@ export async function loadOrderDetail(tx: Tx, where: { id: string } | { orderNum
       eta: so.etaDaysMin !== null && so.etaDaysMax !== null ? `${so.etaDaysMin}–${so.etaDaysMax} working days` : null,
       tracking: so.trackingNumber ? { carrier: so.carrier, number: so.trackingNumber } : null,
       canConfirmReceived: so.status === "delivered",
-      timeline: so.statusHistory.map((h) => ({ label: ORDER_STATUS_LABELS[h.toStatus], note: h.note, at: formatDateTime(h.createdAt) })),
+      timeline: mergeTimeline(so.statusHistory, so.items),
       messageCount: so._count.messages,
       items: so.items.map((i) => {
         const s = i.snapshot as { kind?: "product" | "service"; title: string; slug: string; options: Record<string, string>; imageKey: string | null };
@@ -158,6 +158,8 @@ export async function loadOrderDetail(tx: Tx, where: { id: string } | { orderNum
           booking: b
             ? {
                 id: b.id,
+                serviceId: b.serviceId,
+                packageId: b.packageId,
                 when: formatBookingTime(b.startsAt),
                 where: b.atProvider ? "At the provider's place" : "At your address",
                 status: BOOKING_STATUS_LABELS[b.status],
@@ -166,7 +168,8 @@ export async function loadOrderDetail(tx: Tx, where: { id: string } | { orderNum
                 canChange: (b.status === "requested" || b.status === "confirmed") && b.startsAt > now,
               }
             : null,
-          canReview: done && !i.review && o.paymentStatus !== "unpaid" && !o.cancelledAt,
+          // Reviews belong to accounts: guest orders can't leave one.
+          canReview: done && !i.review && o.userId !== null && o.paymentStatus !== "unpaid" && !o.cancelledAt,
           reviewRating: i.review?.rating ?? null,
         };
       }),
@@ -184,4 +187,11 @@ export async function loadOrderDetail(tx: Tx, where: { id: string } | { orderNum
       totalKobo: o.totalKobo.toString(),
     },
   };
+}
+
+/** Each seller's conversation with the customer, keyed by seller order. `tx` is the customer's scope. */
+export async function loadOrderConversations(tx: Tx, order: Pick<OrderDetailView, "customerName" | "sellers">): Promise<Record<string, MessageView[]>> {
+  const out: Record<string, MessageView[]> = {};
+  for (const s of order.sellers) out[s.id] = await loadConversation(tx, { sellerOrderId: s.id, viewer: "customer", sellerName: s.name, customerName: order.customerName });
+  return out;
 }

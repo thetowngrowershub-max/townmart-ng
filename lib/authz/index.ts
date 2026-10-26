@@ -29,7 +29,16 @@ type OwnedResources = {
 };
 type OwnedPermission = keyof OwnedResources;
 
-type BusinessPermission = "listing.read" | "listing.write" | "import.manage" | "store.manage" | "promotion.manage";
+type BusinessPermission =
+  | "listing.read"
+  | "listing.write"
+  | "import.manage"
+  | "store.manage"
+  | "promotion.manage"
+  | "order.read"
+  | "order.manage"
+  | "booking.manage"
+  | "review.manage";
 
 export type GlobalPermission =
   | "account.access"
@@ -66,6 +75,7 @@ const ADMIN: Grant[] = [
   "address.read:any",
   "session.revoke:any",
   "listing.read:any",
+  "order.read:any",
 ];
 
 export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {
@@ -78,7 +88,17 @@ export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {
 };
 
 const OWNED: ReadonlySet<string> = new Set<OwnedPermission>(["address.read", "address.write", "session.revoke"]);
-const BUSINESS: ReadonlySet<string> = new Set<BusinessPermission>(["listing.read", "listing.write", "import.manage", "store.manage", "promotion.manage"]);
+const BUSINESS: ReadonlySet<string> = new Set<BusinessPermission>([
+  "listing.read",
+  "listing.write",
+  "import.manage",
+  "store.manage",
+  "promotion.manage",
+  "order.read",
+  "order.manage",
+  "booking.manage",
+  "review.manage",
+]);
 
 /** Which staff permission flag unlocks each business permission. `null` = owner only. */
 const STAFF_FLAG: Record<BusinessPermission, string | null> = {
@@ -87,6 +107,11 @@ const STAFF_FLAG: Record<BusinessPermission, string | null> = {
   "import.manage": "inventory",
   "store.manage": null,
   "promotion.manage": "promotions",
+  // Orders cover order messages; bookings are a separate flag for front-desk staff.
+  "order.read": "orders",
+  "order.manage": "orders",
+  "booking.manage": "bookings",
+  "review.manage": "reviews",
 };
 
 function hasGrant(actor: NonNullable<Actor>, grant: Grant): boolean {

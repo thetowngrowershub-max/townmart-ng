@@ -56,7 +56,7 @@ CREATE TABLE "bookings" (
     "deposit_kobo" BIGINT NOT NULL DEFAULT 0,
     "balance_kobo" BIGINT NOT NULL DEFAULT 0,
     "hold_expires_at" TIMESTAMPTZ(6),
-    "rescheduled_from_id" UUID,
+    "previous_starts_at" TIMESTAMPTZ(6),
     "cancel_reason" TEXT,
     "reminder_24_sent_at" TIMESTAMPTZ(6),
     "reminder_1_sent_at" TIMESTAMPTZ(6),
@@ -132,9 +132,6 @@ CREATE TABLE "wishlist_items" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "bookings_order_item_id_key" ON "bookings"("order_item_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "bookings_rescheduled_from_id_key" ON "bookings"("rescheduled_from_id");
 
 -- CreateIndex
 CREATE INDEX "bookings_seller_order_id_business_id_idx" ON "bookings"("seller_order_id", "business_id");
@@ -240,9 +237,6 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_business_id_fkey" FOREIGN KEY ("
 
 -- AddForeignKey
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_customer_user_id_fkey" FOREIGN KEY ("customer_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "bookings" ADD CONSTRAINT "bookings_rescheduled_from_id_fkey" FOREIGN KEY ("rescheduled_from_id") REFERENCES "bookings"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "booking_status_history" ADD CONSTRAINT "booking_status_history_booking_id_business_id_fkey" FOREIGN KEY ("booking_id", "business_id") REFERENCES "bookings"("id", "business_id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -376,6 +370,21 @@ REVOKE UPDATE ON seller_orders FROM townmart_app;
 GRANT UPDATE (status, tracking_number, carrier, shipped_at, delivered_at, completed_at, cash_collected_at, escrow_release_at, updated_at) ON seller_orders TO townmart_app;
 REVOKE UPDATE ON bookings FROM townmart_app;
 GRANT UPDATE (status, cancel_reason, reminder_24_sent_at, reminder_1_sent_at, hold_expires_at, updated_at) ON bookings TO townmart_app;
+-- Moving a booking (and retaking a place after a late payment) changes its
+-- time and place. Column grants can't tell the system scope from a seller, so
+-- these are granted and a trigger keeps them to TownMart code.
+GRANT UPDATE (starts_at, ends_at, slot_no, capacity, previous_starts_at) ON bookings TO townmart_app;
+CREATE OR REPLACE FUNCTION guard_booking_time() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT app_is_privileged() AND (NEW.starts_at, NEW.ends_at, NEW.slot_no, NEW.capacity, NEW.previous_starts_at)
+       IS DISTINCT FROM (OLD.starts_at, OLD.ends_at, OLD.slot_no, OLD.capacity, OLD.previous_starts_at) THEN
+    RAISE EXCEPTION 'Only TownMart can move a booking' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER trg_bookings_time BEFORE UPDATE ON bookings
+  FOR EACH ROW EXECUTE FUNCTION guard_booking_time();
 REVOKE UPDATE ON reviews FROM townmart_app;
 GRANT UPDATE (seller_reply, seller_replied_at, status, report_reason, reported_at, updated_at) ON reviews TO townmart_app;
 

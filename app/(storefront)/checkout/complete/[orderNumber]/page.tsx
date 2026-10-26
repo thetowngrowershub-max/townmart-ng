@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { withSystemContext } from "@/lib/db";
 import { findViewableOrder } from "@/lib/orders/access";
-import { loadOrderDetail } from "@/lib/orders/view";
+import { loadOrderConversations, loadOrderDetail } from "@/lib/orders/view";
 
 export const metadata: Metadata = { title: "Your order", robots: { index: false } };
 
@@ -18,7 +18,11 @@ export default async function OrderComplete({ params, searchParams }: { params: 
   const { t, payment } = await searchParams;
   const found = await findViewableOrder(orderNumber, t);
   if (!found) notFound();
-  const order = (await withSystemContext((tx) => loadOrderDetail(tx, { id: found.id })))!;
+  // The link (or ownership) was checked above; the order is read in the system scope so guests can see it.
+  const { order, conversations } = await withSystemContext(async (tx) => {
+    const order = (await loadOrderDetail(tx, { id: found.id }))!;
+    return { order, conversations: await loadOrderConversations(tx, order) };
+  });
   const user = await getCurrentUser();
 
   const heading =
@@ -55,7 +59,7 @@ export default async function OrderComplete({ params, searchParams }: { params: 
           </Alert>
         )}
       </div>
-      <OrderDetail order={order} />
+      <OrderDetail order={order} token={t ?? null} conversations={conversations} />
     </main>
   );
 }

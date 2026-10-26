@@ -5,7 +5,7 @@
  * Queues:
  *   notifications — emails, SMS and low-stock alerts
  *   imports       — seller CSV product imports
- *   orders        — order confirmations and payment webhook processing
+ *   orders        — order confirmations, payment webhooks, and order/booking/message notices
  *   maintenance   — scheduled clean-up jobs, recorded in job_runs
  */
 import "dotenv/config";
@@ -16,6 +16,7 @@ import { runProductImport } from "@/lib/catalogue/import";
 import { sendLowStockAlert } from "@/lib/catalogue/low-stock-alert";
 import { emailProvider, type EmailMessage } from "@/lib/notifications/email";
 import { smsProvider } from "@/lib/notifications/sms";
+import { sendFulfilmentNotice } from "@/lib/fulfilment/notify";
 import { sendOrderConfirmed } from "@/lib/orders/notify";
 import { processPaymentEvent } from "@/lib/orders/payment";
 import { QUEUES, type ImportJobs, type NotificationJobs, type OrderJobs } from "@/lib/queue";
@@ -69,6 +70,12 @@ async function handleOrder(job: Job) {
       const { eventId } = job.data as OrderJobs["payment.event"];
       await processPaymentEvent(eventId);
       logger.info({ jobId: job.id, eventId }, "payment event processed");
+      return;
+    }
+    case "fulfilment.notice": {
+      const { notice } = job.data as OrderJobs["fulfilment.notice"];
+      await sendFulfilmentNotice(notice);
+      logger.info({ jobId: job.id, type: notice.type }, "notice processed");
       return;
     }
     default:

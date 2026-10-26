@@ -1550,7 +1550,8 @@ model Booking {
   depositKobo       BigInt        @default(0) @map("deposit_kobo")
   balanceKobo       BigInt        @default(0) @map("balance_kobo")
   holdExpiresAt     DateTime?     @map("hold_expires_at") @db.Timestamptz(6)
-  rescheduledFromId String?       @unique @map("rescheduled_from_id") @db.Uuid
+  // When the booking was last moved: the time it had before.
+  previousStartsAt  DateTime?     @map("previous_starts_at") @db.Timestamptz(6)
   cancelReason      String?       @map("cancel_reason")
   reminder24SentAt  DateTime?     @map("reminder_24_sent_at") @db.Timestamptz(6)
   reminder1SentAt   DateTime?     @map("reminder_1_sent_at") @db.Timestamptz(6)
@@ -1563,8 +1564,6 @@ model Booking {
   package         ServicePackage?        @relation(fields: [packageId], references: [id], onDelete: SetNull)
   business        Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
   customer        User?                  @relation(fields: [customerUserId], references: [id], onDelete: SetNull)
-  rescheduledFrom Booking?               @relation("Rescheduled", fields: [rescheduledFromId], references: [id], onDelete: SetNull)
-  rescheduledTo   Booking?               @relation("Rescheduled")
   statusHistory   BookingStatusHistory[]
   review          Review?
 

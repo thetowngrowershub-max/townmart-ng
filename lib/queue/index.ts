@@ -1,4 +1,5 @@
 import { Queue } from "bullmq";
+import { logger } from "@/lib/logger";
 import type { EmailMessage } from "@/lib/notifications/email";
 import type { SmsMessage } from "@/lib/notifications/sms";
 import { redis } from "@/lib/redis";
@@ -17,9 +18,17 @@ export type NotificationJobs = {
   "stock.low": { businessId: string; variantIds: string[] };
 };
 export type ImportJobs = { "products.csv": { importJobId: string; businessId: string } };
+/** Status changes and messages that the customer or seller is told about. */
+export type FulfilmentNotice =
+  | { type: "order.status"; sellerOrderId: string; status: string }
+  /** `ref` tells repeat changes apart (a booking moved twice), so neither notice is de-duplicated away. */
+  | { type: "booking.status"; bookingId: string; status: string; by: "seller" | "customer" | "system"; ref?: string }
+  | { type: "message.new"; messageId: string };
+
 export type OrderJobs = {
   "order.confirmed": { kind: "order.confirmed"; orderId: string };
   "payment.event": { kind: "payment.event"; eventId: string };
+  "fulfilment.notice": { kind: "fulfilment.notice"; notice: FulfilmentNotice };
 };
 
 const globalForOrders = globalThis as unknown as { ordersQueue?: Queue };
@@ -34,8 +43,25 @@ function ordersQueue(): Queue {
 
 /** Order follow-ups (notifications) and webhook processing. Job ids de-duplicate repeats. */
 export async function enqueueOrderEvent(data: OrderJobs[keyof OrderJobs]): Promise<void> {
-  const jobId = data.kind === "order.confirmed" ? `order-confirmed-${data.orderId}` : `payment-event-${data.eventId}`;
+  const jobId =
+    data.kind === "order.confirmed"
+      ? `order-confirmed-${data.orderId}`
+      : data.kind === "payment.event"
+        ? `payment-event-${data.eventId}`
+        : `notice-${noticeKey(data.notice)}`;
   await ordersQueue().add(data.kind, data, { jobId });
+}
+
+const noticeKey = (n: FulfilmentNotice) =>
+  n.type === "order.status" ? `order-${n.sellerOrderId}-${n.status}` : n.type === "booking.status" ? `booking-${n.bookingId}-${n.status}${n.ref ? `-${n.ref}` : ""}` : `message-${n.messageId}`;
+
+/** Tells the other side about a change. Never throws: a queue outage mustn't undo the change itself. */
+export async function enqueueNotice(notice: FulfilmentNotice): Promise<void> {
+  try {
+    await enqueueOrderEvent({ kind: "fulfilment.notice", notice });
+  } catch (err) {
+    logger.error({ err, notice }, "could not queue a notice");
+  }
 }
 
 const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue; importsQueue?: Queue };

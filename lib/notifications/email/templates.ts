@@ -197,3 +197,16 @@ export function sellerNewOrderTemplate(params: {
     text: `New order ${params.orderNumber} for ${params.businessName}:\n${params.items.map((i) => `- ${i.title}${i.when ? `: ${i.when}` : ` x ${i.qty}`}`).join("\n")}\nEarnings after commission: ${params.net}\n${params.url}\n`,
   };
 }
+
+/**
+ * A short update about an order, booking or message: a title, a few lines
+ * of plain text and one button. Used for status changes and reminders.
+ */
+export function noticeTemplate(params: { to: string; subject: string; title: string; lines: string[]; url: string; buttonLabel: string }): EmailMessage {
+  return {
+    to: params.to,
+    subject: params.subject,
+    html: layout(params.title, `${params.lines.map((l) => `<p>${escape(l)}</p>`).join("")}${button(params.url, params.buttonLabel)}`),
+    text: `${params.title}\n\n${params.lines.join("\n\n")}\n\n${params.buttonLabel}: ${params.url}\n`,
+  };
+}
