@@ -5,7 +5,8 @@
  * Seeds 36 states + FCT and their 774 LGAs, default settings, one admin and one
  * super admin, then the catalogue: categories plus six demo sellers with
  * products, services and promotions (seed-catalogue.ts), and default delivery
- * zones, rates and commission (seed-delivery.ts).
+ * zones, rates and commission (seed-delivery.ts), then demo orders, bookings
+ * and reviews (seed-orders.ts).
  */
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
@@ -15,6 +16,7 @@ import { slugify } from "../lib/slug";
 import statesData from "./data/nigeria-states-lgas.json";
 import { seedDemoCatalogue } from "./seed-catalogue";
 import { seedDeliveryAndCommission } from "./seed-delivery";
+import { seedDemoOrders } from "./seed-orders";
 
 const url = process.env.MIGRATE_DATABASE_URL;
 if (!url) throw new Error("MIGRATE_DATABASE_URL is required to seed");
@@ -48,6 +50,9 @@ const DEFAULT_SETTINGS: { key: string; value: unknown; description: string }[] =
   { key: "fees.vat_percent", value: 7.5, description: "VAT rate (%) on TownMart's service fee." },
   { key: "fees.service_fee_percent", value: 1, description: "Service fee charged to shoppers (% of goods after discounts)." },
   { key: "fees.service_fee_cap_naira", value: 1000, description: "Maximum service fee per order (₦)." },
+  { key: "bookings.lead_minutes", value: 120, description: "How soon a booking can start (minutes from now)." },
+  { key: "bookings.days_ahead", value: 60, description: "How far ahead customers can book (days)." },
+  { key: "orders.auto_complete_days", value: 7, description: "Days after delivery before an order completes if the customer doesn't confirm." },
   { key: "auth.max_failed_logins", value: 5, description: "Failed sign-ins before a temporary lockout." },
   { key: "dsr.response_days", value: 30, description: "Deadline for data subject requests (days)." },
 ];
@@ -97,6 +102,7 @@ async function main() {
   await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN_PASSWORD");
   await seedDeliveryAndCommission(prisma);
   await seedDemoCatalogue(prisma);
+  if (!isProd || process.env.SEED_DEMO_DATA === "true") await seedDemoOrders(prisma);
 }
 
 main()

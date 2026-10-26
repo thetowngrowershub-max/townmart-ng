@@ -12,7 +12,7 @@ import { storage } from "./index";
  * Nothing a browser uploads is ever served without passing through step 3.
  */
 
-export const IMAGE_PURPOSES = ["product", "service", "logo", "banner"] as const;
+export const IMAGE_PURPOSES = ["product", "service", "logo", "banner", "review"] as const;
 export type ImagePurpose = (typeof IMAGE_PURPOSES)[number];
 
 export const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -28,6 +28,7 @@ const IMAGE_LIMITS: Record<ImagePurpose, { width: number; height: number }> = {
   service: { width: 1600, height: 1600 },
   logo: { width: 512, height: 512 },
   banner: { width: 2400, height: 800 },
+  review: { width: 1600, height: 1600 },
 };
 
 export class UploadError extends Error {}
@@ -35,7 +36,13 @@ export class UploadError extends Error {}
 export const tmpPrefix = (businessId: string) => `tmp/${businessId}/`;
 export const newTmpKey = (businessId: string) => `${tmpPrefix(businessId)}${randomUUID()}`;
 
-/** Public image keys are namespaced by business so ownership can be checked from the key alone. */
+/**
+ * Uploads by a customer (review photos) use `u-<userId>` where sellers' use
+ * their business id, so the same tmp/ and ownership checks apply.
+ */
+export const customerOwner = (userId: string) => `u-${userId}`;
+
+/** Public image keys are namespaced by business (or customer) so ownership can be checked from the key alone. */
 export const imagePrefix = (purpose: ImagePurpose, businessId: string) => `${purpose}s/${businessId}/`;
 
 async function takeTmp(businessId: string, tmpKey: string, maxBytes: number): Promise<Buffer> {

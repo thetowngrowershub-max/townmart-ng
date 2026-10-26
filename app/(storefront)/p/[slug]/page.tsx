@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ReviewList } from "@/components/reviews/review-list";
+import { WishlistButton } from "@/components/storefront/wishlist-button";
+import { isSaved } from "@/lib/wishlist";
 import { CardGrid, ProductCard } from "@/components/storefront/listing-cards";
 import { ProductPurchase, type VariantView } from "@/components/storefront/product-purchase";
 import { PolicySummary, SellerCard } from "@/components/storefront/seller-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getListingRules, getPublicProduct, getRelatedProducts } from "@/lib/catalogue/storefront";
+import { getCurrentUser } from "@/lib/auth/current-user";
+import { getListingReviews, getListingRules, getPublicProduct, getRelatedProducts } from "@/lib/catalogue/storefront";
 import { formatDateTime } from "@/lib/datetime";
 import { dealFor } from "@/lib/promotions/live";
 import { unitLabel } from "@/lib/catalogue/units";
@@ -31,7 +35,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProductPage({ params }: Props) {
   const p = await getPublicProduct((await params).slug);
   if (!p) notFound();
-  const related = await getRelatedProducts(p.id, p.categoryId);
+  const [related, reviews, viewer] = await Promise.all([getRelatedProducts(p.id, p.categoryId), getListingReviews({ productId: p.id }), getCurrentUser()]);
+  const saved = await isSaved(viewer?.id, { productId: p.id });
   const now = new Date();
   const rules = await getListingRules([p.businessId, ...related.map((r) => r.businessId)]);
   const item = { kind: "product" as const, id: p.id, businessId: p.businessId, categoryId: p.categoryId, parentCategoryId: p.category.parentId };
@@ -120,6 +125,7 @@ export default async function ProductPage({ params }: Props) {
         fractional={p.allowFractionalQty}
       >
         {p.isPerishable && <p className="text-sm">Perishable{p.shelfLifeNote ? `: ${p.shelfLifeNote}` : "."}</p>}
+        <WishlistButton target={{ productId: p.id }} saved={saved} signedIn={Boolean(viewer)} returnTo={`/p/${p.slug}`} />
         <SellerCard business={p.business} />
         <PolicySummary policy={p.business.policy} />
       </ProductPurchase>
@@ -133,6 +139,12 @@ export default async function ProductPage({ params }: Props) {
           <CardContent className="prose-tm max-w-3xl text-sm" dangerouslySetInnerHTML={{ __html: p.descriptionHtml }} />
         </Card>
       )}
+
+      <Card className="mt-10">
+        <CardContent className="pt-6">
+          <ReviewList avg={Number(p.ratingAvg)} total={reviews.total} breakdown={reviews.breakdown} reviews={reviews.reviews} signedIn={Boolean(viewer)} />
+        </CardContent>
+      </Card>
 
       {related.length > 0 && (
         <section aria-labelledby="related" className="mt-12">

@@ -15,6 +15,11 @@ export type CheckoutSettings = {
   /** Commission when no commission rule applies, in basis points. */
   defaultCommissionBps: number;
   escrowReleaseDays: number;
+  /** How soon a booking can start, and how far ahead it can be made. */
+  bookingLeadMinutes: number;
+  bookingDaysAhead: number;
+  /** Delivered orders the customer hasn't confirmed are completed after this many days. */
+  autoCompleteDays: number;
 };
 
 export const CHECKOUT_DEFAULTS: CheckoutSettings = {
@@ -25,6 +30,9 @@ export const CHECKOUT_DEFAULTS: CheckoutSettings = {
   vatBps: 750,
   defaultCommissionBps: 500,
   escrowReleaseDays: 3,
+  bookingLeadMinutes: 120,
+  bookingDaysAhead: 60,
+  autoCompleteDays: 7,
 };
 
 const KEYS = [
@@ -35,6 +43,9 @@ const KEYS = [
   "fees.vat_percent",
   "commission.default_percent",
   "escrow.release_days",
+  "bookings.lead_minutes",
+  "bookings.days_ahead",
+  "orders.auto_complete_days",
 ] as const;
 
 const num = (v: unknown, min: number, max: number): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : undefined);
@@ -53,5 +64,8 @@ export async function getCheckoutSettings(tx: Tx): Promise<CheckoutSettings> {
     vatBps: percentToBps(num(v.get("fees.vat_percent"), 0, 50), d.vatBps),
     defaultCommissionBps: percentToBps(num(v.get("commission.default_percent"), 0, 50), d.defaultCommissionBps),
     escrowReleaseDays: num(v.get("escrow.release_days"), 0, 60) ?? d.escrowReleaseDays,
+    bookingLeadMinutes: num(v.get("bookings.lead_minutes"), 0, 7 * 24 * 60) ?? d.bookingLeadMinutes,
+    bookingDaysAhead: num(v.get("bookings.days_ahead"), 1, 365) ?? d.bookingDaysAhead,
+    autoCompleteDays: num(v.get("orders.auto_complete_days"), 1, 60) ?? d.autoCompleteDays,
   };
 }

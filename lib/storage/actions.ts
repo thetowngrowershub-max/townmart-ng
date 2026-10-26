@@ -4,6 +4,7 @@ import { z } from "zod";
 import { can } from "@/lib/authz";
 import { logger } from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSellerContext } from "@/lib/seller/context";
 import type { ActionResult } from "@/lib/validation/form-result";
 import { storage, type UploadTarget } from "./index";
@@ -11,16 +12,18 @@ import {
   ACCEPTED_CSV_TYPES,
   ACCEPTED_DOCUMENT_TYPES,
   ACCEPTED_IMAGE_TYPES,
+  customerOwner,
   finaliseImage,
-  IMAGE_PURPOSES,
   MAX_CSV_BYTES,
   MAX_DOCUMENT_BYTES,
   MAX_IMAGE_BYTES,
   newTmpKey,
   UploadError,
+  type ImagePurpose,
 } from "./uploads";
 
-const UPLOAD_KINDS = [...IMAGE_PURPOSES, "kyc", "csv"] as const;
+// Seller uploads. Review photos have their own actions below (customers, not sellers).
+const UPLOAD_KINDS = ["product", "service", "logo", "banner", "kyc", "csv"] as const;
 type UploadKind = (typeof UPLOAD_KINDS)[number];
 
 const RULES: Record<UploadKind, { types: readonly string[]; maxBytes: number; permission: "listing.write" | "store.manage" | "import.manage" }> = {
@@ -60,7 +63,8 @@ export async function requestUploadAction(input: z.input<typeof requestSchema>):
   return { ok: true, data: { tmpKey, target } };
 }
 
-const finaliseSchema = z.object({ tmpKey: z.string().max(200), purpose: z.enum(IMAGE_PURPOSES) });
+const SELLER_IMAGE_PURPOSES = ["product", "service", "logo", "banner"] as const satisfies readonly ImagePurpose[];
+const finaliseSchema = z.object({ tmpKey: z.string().max(200), purpose: z.enum(SELLER_IMAGE_PURPOSES) });
 
 /** Step 2 for images: re-encode to WebP (stripping EXIF/GPS) into the public bucket. */
 export async function finaliseImageAction(
@@ -78,6 +82,37 @@ export async function finaliseImageAction(
   } catch (err) {
     if (err instanceof UploadError) return { ok: false, error: err.message };
     logger.error({ err }, "image finalise failed");
+    return { ok: false, error: "We couldn't process that image. Please try another." };
+  }
+}
+
+const reviewRequestSchema = z.object({ contentType: z.string().max(100), size: z.number().int().positive() });
+
+/** Review photos: any signed-in customer may upload; the review action checks the purchase and the key's owner. */
+export async function requestReviewUploadAction(input: z.input<typeof reviewRequestSchema>): Promise<ActionResult<{ tmpKey: string; target: UploadTarget }>> {
+  const parsed = reviewRequestSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid upload request." };
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Please sign in to add photos." };
+  if (!(ACCEPTED_IMAGE_TYPES as readonly string[]).includes(parsed.data.contentType)) return { ok: false, error: "That file type isn't supported." };
+  if (parsed.data.size > MAX_IMAGE_BYTES) return { ok: false, error: `File is too large (max ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB).` };
+  if (!(await rateLimit(`upload:${user.id}`, 20, 600)).allowed) return { ok: false, error: "Too many uploads. Please wait a few minutes." };
+  const tmpKey = newTmpKey(customerOwner(user.id));
+  const target = await storage().createUploadUrl({ bucket: "private", key: tmpKey, contentType: parsed.data.contentType, expiresInSeconds: 300 });
+  return { ok: true, data: { tmpKey, target } };
+}
+
+export async function finaliseReviewImageAction(input: { tmpKey: string }): Promise<ActionResult<{ key: string; width: number; height: number; url: string }>> {
+  const tmpKey = z.string().max(200).safeParse(input.tmpKey);
+  if (!tmpKey.success) return { ok: false, error: "Invalid upload." };
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Please sign in to add photos." };
+  try {
+    const img = await finaliseImage(customerOwner(user.id), tmpKey.data, "review");
+    return { ok: true, data: { ...img, url: storage().publicUrl(img.key) } };
+  } catch (err) {
+    if (err instanceof UploadError) return { ok: false, error: err.message };
+    logger.error({ err }, "review image finalise failed");
     return { ok: false, error: "We couldn't process that image. Please try another." };
   }
 }

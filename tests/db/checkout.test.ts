@@ -381,8 +381,8 @@ describe("RLS: orders and money", () => {
     const o = await owner.order.findFirstOrThrow({ where: { userId: buyer.id } });
     const updated = await withRls({ userId: buyer.id }, (tx) => tx.order.updateMany({ where: { id: o.id }, data: { paymentStatus: "paid" } }));
     expect(updated.count).toBe(0);
-    const so = await withRls(as(a), (tx) => tx.sellerOrder.updateMany({ where: { businessId: a.businessId }, data: { sellerNetKobo: 999_999_999n } }));
-    expect(so.count).toBe(0);
+    // Sellers may update their own orders' status columns only: money columns aren't granted.
+    await expect(withRls(as(a), (tx) => tx.sellerOrder.updateMany({ where: { businessId: a.businessId }, data: { sellerNetKobo: 999_999_999n } }))).rejects.toThrow(/permission denied/);
     await expect(withRls(as(a), (tx) => tx.payment.create({ data: { orderId: o.id, provider: "fake", providerReference: `x-${randomUUID()}`, amountKobo: 1n } }))).rejects.toThrow();
   });
 

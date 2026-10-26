@@ -6,7 +6,7 @@ import { PaymentStatus } from "@/components/orders/payment-status";
 import { Alert } from "@/components/ui/alert";
 import { requirePermission } from "@/lib/auth/current-user";
 import { withRls } from "@/lib/db";
-import { loadOrderDetail } from "@/lib/orders/view";
+import { loadOrderConversations, loadOrderDetail } from "@/lib/orders/view";
 
 export const metadata: Metadata = { title: "Order details" };
 
@@ -14,8 +14,12 @@ export default async function OrderPage({ params }: { params: Promise<{ orderNum
   const { orderNumber } = await params;
   const user = await requirePermission("account.access", `/account/orders/${orderNumber}`);
   // Read as the shopper: RLS hides other people's orders, so they 404.
-  const order = await withRls({ userId: user.id }, (tx) => loadOrderDetail(tx, { orderNumber }));
-  if (!order) notFound();
+  const data = await withRls({ userId: user.id }, async (tx) => {
+    const order = await loadOrderDetail(tx, { orderNumber });
+    return order ? { order, conversations: await loadOrderConversations(tx, order) } : null;
+  });
+  if (!data) notFound();
+  const { order, conversations } = data;
 
   return (
     <>
@@ -29,7 +33,7 @@ export default async function OrderPage({ params }: { params: Promise<{ orderNum
         )}
         {order.status === "cancelled" && <Alert variant="info">This order was cancelled. {order.cancelReason}</Alert>}
       </div>
-      <OrderDetail order={order} />
+      <OrderDetail order={order} conversations={conversations} />
     </>
   );
 }

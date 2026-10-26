@@ -2,12 +2,15 @@ import { ImageOff, MapPin, Store } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { formatDuration, servicePriceLabel } from "@/lib/catalogue/format";
 import { formatDateTime } from "@/lib/datetime";
 import { formatPrice } from "@/lib/money";
 import type { ListingDeal } from "@/lib/pricing";
 import type { ProductHit, ServiceHit, StoreHit } from "@/lib/search";
 import { publicImageUrl } from "@/lib/storage";
 import { Rating } from "./rating";
+
+export { formatDuration, servicePriceLabel };
 
 const IMAGE_SIZES = "(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw";
 
@@ -78,20 +81,6 @@ export function ProductCard({ p }: { p: ProductHit }) {
       <Rating avg={p.ratingAvg} count={p.ratingCount} />
     </article>
   );
-}
-
-export function servicePriceLabel(model: string, kobo: bigint) {
-  if (model === "hourly") return `${formatPrice(kobo)}/hr`;
-  if (model === "from" || model === "packages") return `From ${formatPrice(kobo)}`;
-  return formatPrice(kobo);
-}
-
-export function formatDuration(minutes: number) {
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h >= 24 && m === 0 && h % 24 === 0) return `${h / 24} day${h === 24 ? "" : "s"}`;
-  return m ? `${h} hr ${m} min` : `${h} hr`;
 }
 
 export function ServiceCard({ s }: { s: ServiceHit }) {

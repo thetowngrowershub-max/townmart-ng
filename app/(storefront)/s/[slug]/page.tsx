@@ -8,12 +8,17 @@ import {
   formatDuration,
   servicePriceLabel,
 } from "@/components/storefront/listing-cards";
+import { ReviewList } from "@/components/reviews/review-list";
+import { WishlistButton } from "@/components/storefront/wishlist-button";
+import { isSaved } from "@/lib/wishlist";
+import { BookService } from "@/components/storefront/book-service";
 import { SellerCard } from "@/components/storefront/seller-card";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import {
   getLgaNames,
+  getListingReviews,
   getListingRules,
   getPublicService,
 } from "@/lib/catalogue/storefront";
@@ -59,7 +64,8 @@ const LOCATION_TEXT = {
 export default async function ServicePage({ params }: Props) {
   const s = await getPublicService((await params).slug);
   if (!s) notFound();
-  const lgas = await getLgaNames(s.serviceLgaIds);
+  const [lgas, reviews, viewer] = await Promise.all([getLgaNames(s.serviceLgaIds), getListingReviews({ serviceId: s.id }), getCurrentUser()]);
+  const saved = await isSaved(viewer?.id, { serviceId: s.id });
   const now = new Date();
   const rules = await getListingRules([s.businessId]);
   const item = {
@@ -112,7 +118,10 @@ export default async function ServicePage({ params }: Props) {
       </nav>
       <div className="grid gap-8 lg:grid-cols-[3fr_2fr]">
         <div className="flex flex-col gap-6">
-          <h1 className="text-2xl font-bold sm:text-3xl">{s.title}</h1>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-2xl font-bold sm:text-3xl">{s.title}</h1>
+            <WishlistButton target={{ serviceId: s.id }} saved={saved} signedIn={Boolean(viewer)} returnTo={`/s/${s.slug}`} />
+          </div>
           {cover && (
             <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-muted">
               <Image
@@ -194,8 +203,8 @@ export default async function ServicePage({ params }: Props) {
               </p>
               {s.depositPercent > 0 && (
                 <p className="text-sm">
-                  {s.depositPercent}% deposit when you book; the rest after the
-                  job.
+                  {s.depositPercent}% deposit when you book; you pay the rest
+                  to the provider on the day.
                 </p>
               )}
               <p className="text-sm text-muted-foreground">
@@ -203,10 +212,20 @@ export default async function ServicePage({ params }: Props) {
                   ? "The provider confirms each booking."
                   : "Bookings are confirmed instantly when a slot is free."}
               </p>
-              <Alert variant="info">
-                Online booking opens soon. Check the schedule below and save
-                this page.
-              </Alert>
+              <BookService
+                serviceId={s.id}
+                locationMode={s.locationMode}
+                requiresPackage={s.pricingModel === "packages" && s.packages.length > 0}
+                packages={s.packages.map((pkg) => {
+                  const pkgDeal = dealFor(item, pkg.priceKobo, rules, now);
+                  return {
+                    id: pkg.id,
+                    name: pkg.name,
+                    price: formatPrice(pkgDeal ? pkgDeal.finalKobo : pkg.priceKobo),
+                    duration: formatDuration(pkg.durationMinutes),
+                  };
+                })}
+              />
             </CardContent>
           </Card>
           <SellerCard business={s.business} label="Provided by" />
@@ -326,6 +345,11 @@ export default async function ServicePage({ params }: Props) {
           </Card>
         </div>
       </div>
+      <Card className="mt-10">
+        <CardContent className="pt-6">
+          <ReviewList avg={Number(s.ratingAvg)} total={reviews.total} breakdown={reviews.breakdown} reviews={reviews.reviews} signedIn={Boolean(viewer)} />
+        </CardContent>
+      </Card>
     </main>
   );
 }

@@ -66,9 +66,23 @@ export async function mergeGuestCart(userId: string): Promise<void> {
     if (!guest || guest.userId) return;
     const mine = await tx.cart.upsert({ where: { userId }, update: {}, create: { userId, expiresAt: expiry() }, include: { items: true } });
     for (const item of guest.items) {
-      const existing = mine.items.find((i) => i.variantId === item.variantId);
+      const existing = item.variantId
+        ? mine.items.find((i) => i.variantId === item.variantId)
+        : mine.items.find((i) => i.serviceId === item.serviceId && i.bookingStartsAt?.getTime() === item.bookingStartsAt?.getTime());
       if (!existing) {
-        await tx.cartItem.create({ data: { cartId: mine.id, variantId: item.variantId, businessId: item.businessId, qty: item.qty, savedForLater: item.savedForLater } });
+        await tx.cartItem.create({
+          data: {
+            cartId: mine.id,
+            variantId: item.variantId,
+            serviceId: item.serviceId,
+            packageId: item.packageId,
+            bookingStartsAt: item.bookingStartsAt,
+            atProvider: item.atProvider,
+            businessId: item.businessId,
+            qty: item.qty,
+            savedForLater: item.savedForLater,
+          },
+        });
       } else if (item.qty.greaterThan(existing.qty)) {
         await tx.cartItem.update({ where: { id: existing.id }, data: { qty: item.qty } });
       }

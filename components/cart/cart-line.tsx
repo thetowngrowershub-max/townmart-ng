@@ -32,9 +32,24 @@ export function CartLine({ line, saved = false, readOnly = false }: { line: Line
               {line.title}
             </Link>
             {line.options && <p className="text-sm text-muted-foreground">{line.options}</p>}
-            <p className="text-sm text-muted-foreground">
-              {line.unitPrice} per {line.perUnit}
-            </p>
+            {line.booking ? (
+              <p className="text-sm">
+                <span className="font-medium">{line.booking.when}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {line.booking.duration} · {line.booking.where}
+                </span>
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {line.unitPrice} per {line.perUnit}
+              </p>
+            )}
+            {line.booking?.payLater && !saved && (
+              <p className="text-xs text-muted-foreground">
+                Deposit {line.booking.deposit} now, {line.booking.payLater} to the provider on the day
+              </p>
+            )}
           </div>
           {!saved && (
             <div className="text-right">
@@ -55,7 +70,7 @@ export function CartLine({ line, saved = false, readOnly = false }: { line: Line
         )}
         {!readOnly && (
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-            {!saved && (
+            {!saved && !line.booking && (
               <form
                 className="flex items-center gap-2"
                 onSubmit={(e) => {

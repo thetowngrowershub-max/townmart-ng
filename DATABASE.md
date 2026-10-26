@@ -100,6 +100,21 @@ Money tables carry check constraints: an order's total must equal subtotal − d
 
 `tests/db/checkout.test.ts` proves: a two-seller checkout splits correctly and holds stock; a changed total is refused; 50 concurrent buyers for 10 units produce exactly 10 orders; a payment is applied once (replayed webhooks are stored once and processed once), a wrong amount is not accepted; the ledger balances and rejects unbalanced or edited entries; expiry puts stock back; a seller sees only its own part of a shared order and its own ledger; shoppers see only their own orders and payments; guest carts are kept apart.
 
+Phase 4 policies:
+
+| Table | Read | Write |
+|---|---|---|
+| `bookings` | the provider, the customer (by `customer_user_id` or through their order) | insert/delete admin/system (checkout). The provider may update `status`, `cancel_reason` and reminder columns only (column grants); `guard_booking_status` allows requested → confirmed → in progress → completed and confirmed → no-show; `guard_booking_time` rejects a change of time or place outside admin/system |
+| `booking_status_history` | the provider, or whoever can read the booking | the provider for its own bookings, admin/system; append-only |
+| `seller_orders` (Phase 4 additions) | as Phase 3 | the seller may update status, tracking and fulfilment dates only (column grants); `guard_seller_order_status` allows paid → processing → shipped/ready for pickup → delivered |
+| `messages` | the seller, the customer through their order | the seller as `seller` for its own orders, the customer as `customer` on their own order; append-only apart from `read_at` |
+| `reviews` | published and reported reviews publicly; hidden ones to the author, the seller and admin/system | insert/delete admin/system (after the verified-purchase check). The seller may update its reply only (column grants); `guard_review_update` keeps status and report fields to TownMart |
+| `wishlist_items` | the owner | the owner |
+
+`refresh_ratings(business, product, service)` recomputes ratings from reviews that aren't hidden; rating columns stay writable only by TownMart (Phase 1 trigger).
+
+`tests/db/fulfilment.test.ts` proves: 8 shoppers racing for a 2-place slot produce exactly 2 bookings, and the exclusion constraint rejects an overlapping place even without the app's checks; a seller can only take its forward steps on an order and a provider on a booking, can't move a booking's time or change its price, and can't touch another seller's order; bookings and conversations are visible only to their provider/seller and customer, and nobody can post into someone else's conversation, as someone else, or edit messages; only the buyer can review, only after delivery, once, with their own photos; the seller can reply but not change the rating or status; hidden reviews are hidden from guests and strangers; wishlists are private.
+
 Tables without RLS: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data (states, LGAs, categories), `settings`, `job_runs`.
 
 RLS is defence in depth. The application `authz` check always runs first.

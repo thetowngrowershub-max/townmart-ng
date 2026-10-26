@@ -37,7 +37,7 @@ export function CartPage({ view, signedIn }: { view: CheckoutView; signedIn: boo
                 <p className="text-sm text-muted-foreground">{s.location}</p>
               </div>
               <p className="text-sm text-muted-foreground">
-                {s.offersDelivery && s.offersPickup ? "Delivery or pickup" : s.offersPickup ? "Pickup only" : "Delivery"}
+                {!s.hasGoods ? "Booking" : s.offersDelivery && s.offersPickup ? "Delivery or pickup" : s.offersPickup ? "Pickup only" : "Delivery"}
               </p>
             </CardHeader>
             <CardContent>

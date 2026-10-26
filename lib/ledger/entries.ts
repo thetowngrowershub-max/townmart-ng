@@ -32,13 +32,19 @@ export type PaidOrder = {
   totalKobo: bigint;
   serviceFeeKobo: bigint;
   vatKobo: bigint;
-  sellers: { businessId: string; platformDiscountKobo: bigint; commissionKobo: bigint; sellerNetKobo: bigint }[];
+  sellers: { businessId: string; platformDiscountKobo: bigint; commissionKobo: bigint; sellerNetKobo: bigint; payLaterKobo?: bigint }[];
 };
 
 /**
  * A captured online payment. The money sits with the payment provider
  * (clearing) until it settles to TownMart; each seller's share is held in
  * escrow until the order is delivered (released in Phase 5).
+ *
+ * A booking balance the customer pays the provider directly on the day
+ * (payLaterKobo) is money the seller already has, so it comes off their
+ * escrow credit. If it's more than their net share (a small deposit and a
+ * large commission), the seller owes TownMart the difference: their escrow
+ * is debited.
  *
  *   Dr provider clearing     total paid
  *   Dr platform promotions   discounts TownMart pays for
@@ -51,7 +57,11 @@ export function paymentCapturedPostings(o: PaidOrder): Posting[] {
   const postings: Posting[] = [
     ...dr({ ownerType: "provider_clearing", provider: o.provider, type: "clearing" }, o.totalKobo),
     ...dr({ ownerType: "platform", type: "promotions" }, o.sellers.reduce((a, s) => a + s.platformDiscountKobo, 0n)),
-    ...o.sellers.flatMap((s) => cr({ ownerType: "business", businessId: s.businessId, type: "escrow" }, s.sellerNetKobo)),
+    ...o.sellers.flatMap((s) => {
+      const escrow = s.sellerNetKobo - (s.payLaterKobo ?? 0n);
+      const account = { ownerType: "business", businessId: s.businessId, type: "escrow" } as const;
+      return escrow >= 0n ? cr(account, escrow) : dr(account, -escrow);
+    }),
     ...cr({ ownerType: "platform", type: "commission" }, o.sellers.reduce((a, s) => a + s.commissionKobo, 0n)),
     ...cr({ ownerType: "platform", type: "fees" }, o.serviceFeeKobo),
     ...cr({ ownerType: "platform", type: "tax" }, o.vatKobo),

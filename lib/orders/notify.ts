@@ -1,5 +1,5 @@
 import { decrypt } from "@/lib/crypto";
-import { formatDateTime } from "@/lib/datetime";
+import { formatBookingTime, formatDateTime } from "@/lib/datetime";
 import { withSystemContext } from "@/lib/db";
 import { env } from "@/lib/env";
 import { formatPrice } from "@/lib/money";
@@ -10,6 +10,7 @@ import { orderAccessToken, type ShippingSnapshot } from "./place";
 
 const qtyLabel = (q: { toString(): string }) => q.toString();
 const optionsLabel = (o: unknown) => Object.values((o ?? {}) as Record<string, string>).join(", ");
+const bookingWhen = (b: { startsAt: Date; atProvider: boolean } | null) => (b ? `${formatBookingTime(b.startsAt)}, ${b.atProvider ? "at the provider's place" : "at your address"}` : null);
 
 /** Where a shopper opens their order: their account, or the guest link. */
 export function orderUrl(order: { id: string; orderNumber: string; isGuest: boolean }): string {
@@ -33,7 +34,7 @@ export async function sendOrderConfirmed(orderId: string): Promise<boolean> {
         sellerOrders: {
           orderBy: { createdAt: "asc" },
           include: {
-            items: { orderBy: { createdAt: "asc" } },
+            items: { orderBy: { createdAt: "asc" }, include: { booking: { select: { startsAt: true, atProvider: true } } } },
             business: { select: { id: true, name: true, email: true, city: true, ownerUserId: true, policy: { select: { returnWindowDays: true } } } },
           },
         },
@@ -52,7 +53,7 @@ export async function sendOrderConfirmed(orderId: string): Promise<boolean> {
     returnWindowDays: so.business.policy?.returnWindowDays ?? 7,
     items: so.items.map((i) => {
       const snap = i.snapshot as { title: string; options: unknown };
-      return { title: snap.title, options: optionsLabel(snap.options), qty: qtyLabel(i.qty), total: formatPrice(i.lineTotalKobo), discount: i.discountKobo > 0n ? formatPrice(i.discountKobo) : null };
+      return { title: snap.title, options: optionsLabel(snap.options), qty: qtyLabel(i.qty), total: formatPrice(i.lineTotalKobo), discount: i.discountKobo > 0n ? formatPrice(i.discountKobo) : null, when: bookingWhen(i.booking) };
     }),
     subtotal: formatPrice(so.subtotalKobo - so.discountKobo),
     delivery: so.deliveryMethod === "pickup" ? "Pickup" : so.deliveryKobo === 0n ? "Free" : formatPrice(so.deliveryKobo),
@@ -73,6 +74,7 @@ export async function sendOrderConfirmed(orderId: string): Promise<boolean> {
         delivery: order.deliveryKobo === 0n ? "Free" : formatPrice(order.deliveryKobo),
         serviceFee: formatPrice(order.serviceFeeKobo),
         vat: formatPrice(order.vatKobo),
+        payLater: order.payLaterKobo > 0n ? formatPrice(order.payLaterKobo) : null,
         total: formatPrice(order.totalKobo),
       },
       address: `${a.city}, ${a.lgaName}, ${a.stateName}`,
@@ -95,9 +97,9 @@ export async function sendOrderConfirmed(orderId: string): Promise<boolean> {
         orderNumber: order.orderNumber,
         payOnDelivery: pod,
         method: so.deliveryMethod,
-        items: so.items.map((i) => ({ title: (i.snapshot as { title: string }).title, options: optionsLabel((i.snapshot as { options: unknown }).options), qty: qtyLabel(i.qty) })),
+        items: so.items.map((i) => ({ title: (i.snapshot as { title: string }).title, options: optionsLabel((i.snapshot as { options: unknown }).options), qty: qtyLabel(i.qty), when: bookingWhen(i.booking) })),
         net: formatPrice(so.sellerNetKobo),
-        url: `${env().APP_URL}/dashboard`,
+        url: `${env().APP_URL}/dashboard/orders/${so.id}`,
       }),
     );
   }
@@ -111,7 +113,7 @@ export async function sendOrderConfirmed(orderId: string): Promise<boolean> {
         type: "order.new",
         title: `New order ${order.orderNumber}`,
         body: `${so.items.length} item${so.items.length === 1 ? "" : "s"} for ${so.business.name}${pod ? " (pay on delivery)" : ""}.`,
-        link: "/dashboard",
+        link: `/dashboard/orders/${so.id}`,
       })),
     ];
     for (const n of notes) {
