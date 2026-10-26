@@ -26,11 +26,13 @@ import {
   businessDetailsSchema,
   kycSchema,
   payoutAccountSchema,
+  storeSettingsSchema,
   verifyPhoneSchema,
   type BrandingInput,
   type BusinessDetailsInput,
   type KycInput,
   type PayoutAccountInput,
+  type StoreSettingsInput,
 } from "@/lib/validation/seller";
 import { EDITABLE_STATUSES, getOnboardingState } from "./onboarding";
 
@@ -340,4 +342,30 @@ export async function submitApplicationAction(input: { acceptSellerAgreement: bo
   }
   revalidatePath("/sell/onboarding");
   return { ok: true };
+}
+
+// ─── Store settings (any time after onboarding) ─────────────────────────────
+
+export async function saveStoreSettingsAction(input: StoreSettingsInput): Promise<ActionResult> {
+  const parsed = storeSettingsSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  const d = parsed.data;
+  if (!d.offersDelivery && !d.offersPickup) return { ok: false, error: "Offer delivery, pickup or both.", fieldErrors: { offersDelivery: ["Choose at least one"] } };
+  if (d.offersPickup && !d.pickupAddress) return { ok: false, error: "Add the pickup address.", fieldErrors: { pickupAddress: ["Required for pickup"] } };
+  try {
+    await withOwnBusiness(async ({ tx, business, userId }) => {
+      const data = {
+        returnWindowDays: d.returnWindowDays,
+        acceptsPayOnDelivery: d.acceptsPayOnDelivery,
+        deliveryOptions: { delivery: d.offersDelivery, pickup: d.offersPickup, notes: d.deliveryNotes ?? "" },
+        pickupAddressEncrypted: d.offersPickup && d.pickupAddress ? encrypt(d.pickupAddress) : null,
+      };
+      await tx.storePolicy.upsert({ where: { businessId: business.id }, create: { ...data, businessId: business.id }, update: data });
+      await writeAudit(tx, { actorUserId: userId, action: "store_policy.updated", entityType: "business", entityId: business.id, after: { ...data, pickupAddressEncrypted: undefined } });
+    });
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/dashboard/settings");
+  return { ok: true, message: "Store policies saved." };
 }

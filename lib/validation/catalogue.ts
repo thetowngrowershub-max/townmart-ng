@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { lagosLocalToDate } from "@/lib/datetime";
 import { commaList, nairaAmount, optionalNairaAmount, quantity, signedQuantity, uuid } from "./common";
 
 const units = ["piece", "kg", "litre", "crate", "bag", "pack"] as const;
@@ -139,6 +140,13 @@ export const bulkStatusSchema = z.object({
 
 // ─── Services ───────────────────────────────────────────────────────────────
 
+/** `datetime-local` input, interpreted as Lagos time. */
+const lagosDateTime = (message: string) =>
+  z
+    .string({ error: message })
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/, message)
+    .transform(lagosLocalToDate);
+
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, "Use HH:MM");
 
 export const availabilityInput = z
@@ -154,8 +162,8 @@ export const availabilityInput = z
 
 export const blackoutInput = z
   .object({
-    startsAt: z.coerce.date({ error: "Choose a start date" }),
-    endsAt: z.coerce.date({ error: "Choose an end date" }),
+    startsAt: lagosDateTime("Choose a start date and time"),
+    endsAt: lagosDateTime("Choose an end date and time"),
     reason: z.string().trim().max(120).optional(),
   })
   .refine((b) => b.endsAt > b.startsAt, { path: ["endsAt"], message: "Must be after the start" });

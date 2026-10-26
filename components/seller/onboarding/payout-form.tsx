@@ -13,7 +13,15 @@ import type { Bank } from "@/lib/payments/banks";
 import { resolveBankAccountAction, savePayoutAccountAction } from "@/lib/seller/actions";
 import { payoutAccountSchema } from "@/lib/validation/seller";
 
-export function PayoutForm({ banks, current }: { banks: Bank[]; current: { bankName: string; accountName: string; last4: string } | null }) {
+export function PayoutForm({
+  banks,
+  current,
+  next = "/sell/onboarding",
+}: {
+  banks: Bank[];
+  current: { bankName: string; accountName: string; last4: string } | null;
+  next?: string;
+}) {
   const router = useRouter();
   const [resolved, setResolved] = useState<string | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -22,7 +30,10 @@ export function PayoutForm({ banks, current }: { banks: Bank[]; current: { bankN
     payoutAccountSchema,
     async (values) => {
       const res = await savePayoutAccountAction(values);
-      if (res.ok) router.push("/sell/onboarding");
+      if (res.ok) {
+        router.push(next);
+        router.refresh();
+      }
       return res;
     },
     { bankCode: "", accountNumber: "" },

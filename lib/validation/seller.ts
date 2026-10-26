@@ -60,7 +60,6 @@ export const agreementsSchema = z.object({
 });
 
 export const storeSettingsSchema = z.object({
-  description: z.string().trim().max(1000).optional(),
   returnWindowDays: z.coerce.number().int().min(0).max(90),
   acceptsPayOnDelivery: z.boolean(),
   offersDelivery: z.boolean(),

@@ -1,9 +1,9 @@
 import "server-only";
 import type { Business, BusinessStatus } from "@prisma/client";
-import { redirect } from "next/navigation";
+import { forbidden, redirect } from "next/navigation";
 import { cache } from "react";
 import { getCurrentUser, type CurrentUser } from "@/lib/auth/current-user";
-import type { BusinessMembership } from "@/lib/authz";
+import { can, type BusinessMembership } from "@/lib/authz";
 import { withRls, type Tx } from "@/lib/db";
 
 export type SellerBusiness = Pick<
@@ -68,6 +68,16 @@ export async function requireSellerContext(nextPath: string): Promise<SellerCont
   if (!user) redirect(`/auth/sign-in?next=${encodeURIComponent(nextPath)}`);
   const ctx = await getSellerContext();
   if (!ctx) redirect("/sell/onboarding");
+  return ctx;
+}
+
+/** For seller pages that need a business permission: 403 for staff without it. */
+export async function requireSellerPage(
+  nextPath: string,
+  permission: "listing.read" | "listing.write" | "import.manage" | "store.manage",
+): Promise<SellerContext> {
+  const ctx = await requireSellerContext(nextPath);
+  if (!can(ctx.user, permission, { businessId: ctx.business.id })) forbidden();
   return ctx;
 }
 

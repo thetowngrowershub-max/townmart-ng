@@ -40,7 +40,7 @@ export function BrandingForm({
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-5">
-      {result?.ok && next === "" && <Alert variant="success">Saved.</Alert>}
+      {result?.ok && <Alert variant="success">Saved.</Alert>}
       {result && !result.ok && <Alert variant="danger">{result.error}</Alert>}
       <SingleImageInput
         label="Logo"

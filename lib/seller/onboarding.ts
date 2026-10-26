@@ -52,7 +52,6 @@ export async function getOnboardingState(userId: string): Promise<OnboardingStat
   const b = await withRls({ userId }, (tx) =>
     tx.business.findFirst({
       where: { ownerUserId: userId },
-      include: { kyc: true, payoutAccount: true },
     }),
   );
   if (!b) {
@@ -64,12 +63,10 @@ export async function getOnboardingState(userId: string): Promise<OnboardingStat
     };
   }
   // KYC rows and payout accounts are tenant-scoped, so re-read them with the business context.
-  const [kyc, payout] = await withRls({ userId, businessId: b.id }, (tx) =>
-    Promise.all([
-      tx.businessKyc.findUnique({ where: { businessId: b.id } }),
-      tx.payoutAccount.findUnique({ where: { businessId: b.id } }),
-    ]),
-  );
+  const [kyc, payout] = await withRls({ userId, businessId: b.id }, async (tx) => [
+    await tx.businessKyc.findUnique({ where: { businessId: b.id } }),
+    await tx.payoutAccount.findUnique({ where: { businessId: b.id } }),
+  ] as const);
   const phone = decrypt(b.phoneEncrypted);
   const kycSubmitted = !!kyc && kyc.verificationStatus !== "not_submitted" && kyc.verificationStatus !== "failed";
   return {
