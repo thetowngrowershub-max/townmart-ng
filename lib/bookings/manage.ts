@@ -1,7 +1,8 @@
-import type { Booking, BookingStatus } from "@prisma/client";
+import type { Booking, BookingStatus, Refund } from "@prisma/client";
 import { formatBookingTime } from "@/lib/datetime";
 import type { Tx } from "@/lib/db";
 import { settleBookingOrder } from "@/lib/fulfilment/orders";
+import { refundCancelledBooking } from "@/lib/refunds/cancel";
 import { getCheckoutSettings } from "@/lib/settings";
 import { claimSlot, SlotTakenError } from "./schedule";
 import { moveBooking, recordBookingStatus } from "./status";
@@ -57,11 +58,11 @@ export async function afterBookingEnded(tx: Tx, sellerOrderId: string): Promise<
 
 /**
  * Cancels a booking (system scope). Sellers can decline a request or cancel a
- * confirmed booking; customers can cancel before the start time. Money owed
- * back follows the refund policy and is paid through Phase 5 refunds; the
- * history note records who cancelled and when, which decides the refund.
+ * confirmed booking; customers can cancel before the start time. What was
+ * paid online is refunded under the Refund Policy (lib/refunds/cancel.ts);
+ * the history note records who cancelled and when, which decides the refund.
  */
-export async function cancelBooking(tx: Tx, p: { bookingId: string; by: "seller" | "customer"; businessId?: string; customerUserId?: string | null; orderId?: string; actorUserId: string | null; reason: string; now?: Date }): Promise<Booking> {
+export async function cancelBooking(tx: Tx, p: { bookingId: string; by: "seller" | "customer"; businessId?: string; customerUserId?: string | null; orderId?: string; actorUserId: string | null; reason: string; now?: Date }): Promise<Booking & { refund: Refund | null }> {
   const now = p.now ?? new Date();
   const b = await lockBooking(tx, p.bookingId, p.businessId);
   if (p.orderId && b.orderId !== p.orderId) throw new BookingError("Booking not found.");
@@ -70,8 +71,10 @@ export async function cancelBooking(tx: Tx, p: { bookingId: string; by: "seller"
   const hoursBefore = Math.floor((b.startsAt.getTime() - now.getTime()) / 3_600_000);
   const who = p.by === "seller" ? (b.status === "requested" ? "Declined by the provider" : "Cancelled by the provider") : "Cancelled by the customer";
   await moveBooking(tx, b, "cancelled", `${who}, ${hoursBefore} hours before the start`, p.actorUserId, { cancelReason: p.reason });
+  const settings = await getCheckoutSettings(tx);
+  const refund = await refundCancelledBooking(tx, { booking: b, by: p.by, hoursBefore, actorUserId: p.actorUserId, lateCancelPercent: settings.lateCancelRefundPercent });
   await afterBookingEnded(tx, b.sellerOrderId);
-  return { ...b, status: "cancelled" };
+  return { ...b, status: "cancelled", refund };
 }
 
 /**

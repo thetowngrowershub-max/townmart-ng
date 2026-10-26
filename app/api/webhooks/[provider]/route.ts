@@ -58,6 +58,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
   // A repeat delivery: acknowledged, nothing more to do.
   if (!stored) return NextResponse.json({ ok: true, duplicate: true });
 
-  if (event.isChargeSuccess || event.reference) await enqueueOrderEvent({ kind: "payment.event", eventId: stored });
+  if (event.isChargeSuccess || event.reference || event.transferReference) await enqueueOrderEvent({ kind: "payment.event", eventId: stored });
   return NextResponse.json({ ok: true });
 }

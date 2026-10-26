@@ -10,8 +10,8 @@ import { Label } from "@/components/ui/label";
 import { advanceOrderAction, cancelSellerOrderAction, markCashCollectedAction } from "@/lib/fulfilment/actions";
 import type { SellerOrderDetail } from "@/lib/fulfilment/seller-view";
 
-/** The seller's next step on an order, plus cash collected and cancel for pay on delivery. */
-export function SellerOrderActions({ order }: { order: Pick<SellerOrderDetail, "id" | "steps" | "canCancel" | "canMarkCash"> }) {
+/** The seller's next step on an order, plus cash collected and cancelling (with a full refund when paid online). */
+export function SellerOrderActions({ order }: { order: Pick<SellerOrderDetail, "id" | "steps" | "canCancel" | "canMarkCash" | "payOnDelivery"> }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -78,10 +78,10 @@ export function SellerOrderActions({ order }: { order: Pick<SellerOrderDetail, "
           >
             <Label htmlFor="cancel-reason">Why are you cancelling?</Label>
             <Input id="cancel-reason" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Out of stock after all" />
-            <p className="text-xs text-muted-foreground">The customer is told, and the items go back on sale.</p>
+            <p className="text-xs text-muted-foreground">{order.payOnDelivery ? "The customer is told, and the items go back on sale." : "The customer gets a full refund and is told. The items go back on sale, and nothing from this order is paid out to you."}</p>
             <div className="flex gap-2">
               <Button type="submit" variant="danger" size="sm" disabled={pending}>
-                Cancel order
+                {order.payOnDelivery ? "Cancel order" : "Cancel and refund"}
               </Button>
               <Button type="button" variant="ghost" size="sm" onClick={() => setCancelling(false)}>
                 Keep it

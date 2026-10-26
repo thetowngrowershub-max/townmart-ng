@@ -38,7 +38,8 @@ type BusinessPermission =
   | "order.read"
   | "order.manage"
   | "booking.manage"
-  | "review.manage";
+  | "review.manage"
+  | "payout.manage";
 
 export type GlobalPermission =
   | "account.access"
@@ -51,7 +52,9 @@ export type GlobalPermission =
   | "system_health.view"
   | "seller.onboard"
   | "seller.review"
-  | "kyc.document.view";
+  | "kyc.document.view"
+  | "finance.manage"
+  | "dispute.manage";
 
 type AnyPermission = `${OwnedPermission | BusinessPermission}:any`;
 
@@ -76,6 +79,8 @@ const ADMIN: Grant[] = [
   "session.revoke:any",
   "listing.read:any",
   "order.read:any",
+  "finance.manage",
+  "dispute.manage",
 ];
 
 export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {
@@ -98,6 +103,7 @@ const BUSINESS: ReadonlySet<string> = new Set<BusinessPermission>([
   "order.manage",
   "booking.manage",
   "review.manage",
+  "payout.manage",
 ]);
 
 /** Which staff permission flag unlocks each business permission. `null` = owner only. */
@@ -112,6 +118,8 @@ const STAFF_FLAG: Record<BusinessPermission, string | null> = {
   "order.manage": "orders",
   "booking.manage": "bookings",
   "review.manage": "reviews",
+  // Balances, payouts and statements: owner only.
+  "payout.manage": null,
 };
 
 function hasGrant(actor: NonNullable<Actor>, grant: Grant): boolean {

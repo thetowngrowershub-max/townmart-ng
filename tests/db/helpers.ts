@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { type Prisma, PrismaClient } from "@prisma/client";
 
 /**
  * DB tests run against a migrated database (pnpm db:deploy) with two clients:
@@ -62,4 +62,26 @@ export async function createBareOrder(userId: string | null) {
       accessTokenHash: "test",
     },
   });
+}
+
+/**
+ * Removes the money trail of test sellers and orders: ledger transactions
+ * touching them (or their refunds and payouts), then disputes, refunds and
+ * payouts. Run inside the owner's system-scope transaction, before deleting
+ * payments, orders and businesses.
+ */
+export async function deleteMoneyTrail(tx: Prisma.TransactionClient, p: { businessIds: string[]; orderIds: string[] }) {
+  const refunds = await tx.refund.findMany({ where: { OR: [{ orderId: { in: p.orderIds } }, { businessId: { in: p.businessIds } }] }, select: { id: true } });
+  const payouts = await tx.payout.findMany({ where: { businessId: { in: p.businessIds } }, select: { id: true } });
+  const sellerOrders = await tx.sellerOrder.findMany({ where: { OR: [{ orderId: { in: p.orderIds } }, { businessId: { in: p.businessIds } }] }, select: { id: true } });
+  const refs = [...p.orderIds, ...refunds.map((r) => r.id), ...payouts.map((x) => x.id), ...sellerOrders.map((s) => s.id)];
+  const byRef = await tx.ledgerTransaction.findMany({ where: { referenceId: { in: refs } }, select: { id: true } });
+  const byBusiness = await tx.ledgerEntry.findMany({ where: { businessId: { in: p.businessIds } }, select: { transactionId: true } });
+  const txIds = [...new Set([...byRef.map((t) => t.id), ...byBusiness.map((e) => e.transactionId)])];
+  await tx.ledgerEntry.deleteMany({ where: { transactionId: { in: txIds } } });
+  await tx.ledgerTransaction.deleteMany({ where: { id: { in: txIds } } });
+  await tx.ledgerAccount.deleteMany({ where: { ownerId: { in: p.businessIds } } });
+  await tx.dispute.deleteMany({ where: { OR: [{ orderId: { in: p.orderIds } }, { businessId: { in: p.businessIds } }] } });
+  await tx.refund.deleteMany({ where: { id: { in: refunds.map((r) => r.id) } } });
+  await tx.payout.deleteMany({ where: { businessId: { in: p.businessIds } } });
 }

@@ -34,7 +34,28 @@ export type WebhookEvent = {
   reference: string | null;
   /** True when the event says a charge succeeded (still verified with the API before use). */
   isChargeSuccess: boolean;
+  /** Refund and transfer events are also only hints: the refund or payout is checked with the API. */
+  kind: "charge" | "refund" | "transfer" | "other";
+  /** For transfer events: our payout reference. */
+  transferReference?: string | null;
   payload: unknown;
+};
+
+export type StartRefund = {
+  /** The charge's reference (our payment reference). */
+  paymentReference: string;
+  amountKobo: bigint;
+  /** Our refund number, for the provider's records. */
+  refundNumber: string;
+  /** The provider's verification response for the charge (Flutterwave refunds by its transaction id). */
+  verification: unknown;
+};
+
+export type ProviderRefund = {
+  providerRefundReference: string | null;
+  status: "processing" | "completed" | "failed";
+  message?: string;
+  raw: unknown;
 };
 
 export interface PaymentProvider {
@@ -44,6 +65,9 @@ export interface PaymentProvider {
   /** Checks the webhook signature over the raw body. Never throws on bad input. */
   verifyWebhook(rawBody: string, headers: Headers): boolean;
   parseWebhook(rawBody: string): WebhookEvent;
+  /** Refunds (part of) a successful charge back to the customer's original payment method. */
+  refund(p: StartRefund): Promise<ProviderRefund>;
+  refundStatus(providerRefundReference: string): Promise<ProviderRefund>;
 }
 
 export class PaymentProviderError extends Error {}

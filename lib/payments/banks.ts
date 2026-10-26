@@ -3,9 +3,9 @@ import { env } from "@/lib/env";
 export type Bank = { code: string; name: string };
 
 /**
- * Verifies seller bank accounts and creates payout subaccounts. Paystack is the
- * primary provider; the full PaymentProvider (charges, refunds, transfers)
- * arrives with checkout in Phase 3.
+ * Verifies seller bank accounts and registers them with Paystack: a
+ * subaccount (for split settlement) and a transfer recipient (for payouts,
+ * lib/payments/transfers.ts). TownMart keeps only the last 4 digits.
  */
 export interface BankVerifier {
   readonly name: string;
@@ -17,6 +17,7 @@ export interface BankVerifier {
     accountNumber: string;
     percentageCharge: number;
   }): Promise<{ subaccountCode: string }>;
+  createTransferRecipient(params: { accountName: string; bankCode: string; accountNumber: string }): Promise<{ recipientCode: string }>;
 }
 
 type PaystackResponse<T> = { status: boolean; message: string; data: T };
@@ -66,6 +67,15 @@ class PaystackBankVerifier implements BankVerifier {
     if (!res.status) throw new Error(`Paystack subaccount: ${res.message}`);
     return { subaccountCode: res.data.subaccount_code };
   }
+
+  async createTransferRecipient(params: { accountName: string; bankCode: string; accountNumber: string }) {
+    const res = await this.call<{ recipient_code: string }>("/transferrecipient", {
+      method: "POST",
+      body: JSON.stringify({ type: "nuban", name: params.accountName, account_number: params.accountNumber, bank_code: params.bankCode, currency: "NGN" }),
+    });
+    if (!res.status) throw new Error(`Paystack transfer recipient: ${res.message}`);
+    return { recipientCode: res.data.recipient_code };
+  }
 }
 
 /** Development only (refused in production): any 10-digit account resolves to a test name. */
@@ -91,6 +101,9 @@ class FakeBankVerifier implements BankVerifier {
   }
   async createSubaccount(params: { accountNumber: string }) {
     return { subaccountCode: `ACCT_test_${params.accountNumber.slice(-4)}` };
+  }
+  async createTransferRecipient(params: { accountNumber: string }) {
+    return { recipientCode: `RCP_test_${params.accountNumber.slice(-4)}` };
   }
 }
 

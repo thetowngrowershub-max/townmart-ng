@@ -49,9 +49,9 @@ What the spec asks for that is **not** in the current build, and the phase that 
 |---|---|---|
 | Services and bookings in the cart | Built in Phase 4 | Done |
 | Seller order management (accept, pack, dispatch, delivered, tracking) | Built in Phase 4 | Done |
-| Refunds for payments that can't be applied (wrong amount, duplicate, paid after the stock sold) | Detected and logged as needing attention; the order is never marked paid. Provider refunds and ledger reversals arrive with refunds | Phase 5 |
-| Releasing escrow to sellers and payouts | Seller nets are held in escrow accounts in the ledger | Phase 5 |
-| Settling provider clearing against payouts from Paystack/Flutterwave | Needs settlement reports from the providers | Phase 5 |
+| Refunds for payments that can't be applied (wrong amount, duplicate, paid after the stock sold) | Built in Phase 5: refunded automatically through the provider | Done |
+| Releasing escrow to sellers and payouts | Built in Phase 5 | Done |
+| Reconciling provider clearing against Paystack/Flutterwave settlement reports | The ledger tracks what each provider holds for us (shown on `/admin/payouts`); matching it to the providers' settlement files needs their report formats and live accounts | Phase 8 |
 | Per-customer coupon limits for guests | Coupons with a per-customer limit ask the shopper to sign in | Not planned |
 | Admin screens for delivery zones, default rates and commission rules | Seeded (6 zones, 4 weight bands each, 5% global commission) and stored in tables; edited in the database for now | Phase 7 |
 | Seller screen for its own delivery rates | Built in Phase 4 | Done |
@@ -64,16 +64,28 @@ What the spec asks for that is **not** in the current build, and the phase that 
 
 | Item | Why deferred | Lands in |
 |---|---|---|
-| Refunds when a paid booking is cancelled, or a paid order goes wrong | Cancelling records who cancelled and how many hours before the start, which decides the refund under the policy; the money goes back through Phase 5 refunds. Sellers can only cancel pay-on-delivery orders until then | Phase 5 |
-| Customers cancelling or returning goods | Customers message the seller; cancellation and returns come with the refund flow | Phase 5 |
-| Commission on pay-on-delivery orders | The seller collects the cash, so there is no payment to post; the commission owed is shown on the seller's order page and will be settled against payouts | Phase 5 |
-| Releasing escrow after completion | Completion sets `escrow_release_at`; the release and payout run with payouts | Phase 5 |
+| Refunds when a paid booking is cancelled, or a paid order goes wrong | Built in Phase 5 | Done |
+| Customers cancelling or returning goods | Built in Phase 5 | Done |
+| Commission on pay-on-delivery orders | Built in Phase 5: taken from the seller's balance once the cash is collected and the hold period ends | Done |
+| Releasing escrow after completion | Built in Phase 5 | Done |
 | PDF invoices | Sellers print the packing slip page (browser print or save as PDF); customers have the emailed receipt and order page | Phase 8, if wanted |
 | Review moderation queue | Reported reviews are marked `reported` and stay visible; hiding is admin/system only, with no admin screen yet | Phase 7 |
 | Notification preferences (opt out of SMS or email per type) | All order and booking notices are sent; marketing stays opt-in | Phase 6 |
 | Week or month calendar grid for providers | `/dashboard/bookings` is a day-by-day diary with filters, which works on phones | Not planned unless asked |
 | Real-time messages | The conversation updates on page load and after sending; the other side is told by email and in-app notice | Phase 8, if wanted |
 | Seller replies to a review more than once, or a conversation under it | One public reply, which the seller can edit | Not planned |
+
+## From Phase 5 (Refunds, disputes and payouts)
+
+| Item | Why deferred | Lands in |
+|---|---|---|
+| Statement PDF file | Statements are a print-friendly page (print or save as PDF from the browser) plus a CSV download | Phase 8, if wanted |
+| Payouts through Flutterwave | Payouts use Paystack transfers, the provider seller bank accounts are verified and registered with; card payments through Flutterwave still refund through Flutterwave | When a second payout provider is needed |
+| Refunds for pay-on-delivery orders through TownMart | The customer paid the seller in cash, so TownMart can't send money back; disputes can still be opened, and TownMart's decision tells the seller what to do | Not planned |
+| Collecting money from a seller whose balance goes negative | A refund after payout can leave a negative available balance; it is netted against later sales before the next payout. Recovering it otherwise (invoice, card on file) is not built | Phase 7 |
+| Return shipping labels and pickup booking | The customer and seller agree how the item comes back in messages; the seller chooses what goes back on sale when approving | Not planned |
+| Refunds to a store credit or wallet | Every refund goes back to the original payment method | Not planned |
+| Admin settings screen for refund deadlines, the late-cancellation share and the payout minimum | Stored as settings (`refunds.seller_response_hours`, `refunds.late_cancel_percent`, `payouts.minimum_naira`) with defaults of 48 hours, 50% and ₦1,000; edited in the database for now | Phase 7 |
 
 ## Links that point at later phases
 

@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { env } from "@/lib/env";
 import { redis } from "@/lib/redis";
-import type { PaymentProvider, StartPayment, VerifiedPayment, WebhookEvent } from "./provider";
+import type { PaymentProvider, ProviderRefund, StartPayment, StartRefund, VerifiedPayment, WebhookEvent } from "./provider";
 
 /**
  * Development stand-in for a hosted payment page (refused in production by
@@ -52,6 +52,31 @@ export class FakePaymentProvider implements PaymentProvider {
 
   parseWebhook(rawBody: string): WebhookEvent {
     const body = JSON.parse(rawBody) as { id?: string; event?: string; reference?: string };
-    return { eventId: body.id ?? "none", eventType: body.event ?? "unknown", reference: body.reference ?? null, isChargeSuccess: body.event === "charge.success", payload: body };
+    const eventType = body.event ?? "unknown";
+    const kind = eventType.startsWith("charge.") ? "charge" : eventType.startsWith("refund.") ? "refund" : eventType.startsWith("transfer.") ? "transfer" : "other";
+    return { eventId: body.id ?? "none", eventType, reference: kind === "transfer" ? null : (body.reference ?? null), isChargeSuccess: eventType === "charge.success", kind, transferReference: kind === "transfer" ? (body.reference ?? null) : null, payload: body };
+  }
+
+  /** Tests set this to make the next refund fail, as a provider might. */
+  static failNextRefund = false;
+
+  /** Refunds complete at once, up to what was paid; more than that is refused, like a real provider. */
+  async refund(p: StartRefund): Promise<ProviderRefund> {
+    if (FakePaymentProvider.failNextRefund) {
+      FakePaymentProvider.failNextRefund = false;
+      return { providerRefundReference: null, status: "failed", message: "Refund declined (test)", raw: null };
+    }
+    const key = `fakepay:${p.paymentReference}:refunded`;
+    const paid = await redis.get(`fakepay:${p.paymentReference}`);
+    const total = paid ? BigInt((JSON.parse(paid) as { amountKobo: string }).amountKobo) : null;
+    const done = BigInt((await redis.get(key)) ?? "0");
+    // The demo seed and tests settle payments without the fake page; then there's no record to check against.
+    if (total !== null && done + p.amountKobo > total) return { providerRefundReference: null, status: "failed", message: "Refund is more than the payment", raw: null };
+    await redis.set(key, (done + p.amountKobo).toString(), "EX", 30 * 86_400);
+    return { providerRefundReference: `fake-rf-${p.refundNumber}`, status: "completed", raw: { amount: p.amountKobo.toString() } };
+  }
+
+  async refundStatus(providerRefundReference: string): Promise<ProviderRefund> {
+    return { providerRefundReference, status: "completed", raw: null };
   }
 }

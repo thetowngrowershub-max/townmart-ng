@@ -115,6 +115,20 @@ Phase 4 policies:
 
 `tests/db/fulfilment.test.ts` proves: 8 shoppers racing for a 2-place slot produce exactly 2 bookings, and the exclusion constraint rejects an overlapping place even without the app's checks; a seller can only take its forward steps on an order and a provider on a booking, can't move a booking's time or change its price, and can't touch another seller's order; bookings and conversations are visible only to their provider/seller and customer, and nobody can post into someone else's conversation, as someone else, or edit messages; only the buyer can review, only after delivery, once, with their own photos; the seller can reply but not change the rating or status; hidden reviews are hidden from guests and strangers; wishlists are private.
 
+Phase 5 policies:
+
+| Table | Read | Write |
+|---|---|---|
+| `refunds`, `refund_items` | the seller for its own rows, the customer through their order, admin/system | admin/system only (decisions run in the system scope after the authz check). Check constraints keep the split consistent: an approved refund's seller debit = amount + returned TownMart discount − returned commission, and amounts are never negative |
+| `disputes` | the seller, the customer through their order, admin/system | admin/system only |
+| `dispute_messages` | whoever can read the dispute | the seller as `seller` and the customer as `customer`, on an open dispute about their own order; admin/system. Append-only (`UPDATE`/`DELETE` revoked and blocked by trigger) |
+| `payouts` | the seller for its own payouts, admin/system | admin/system only |
+| `seller_orders` (Phase 5 addition) | as before | `escrow_released_at` can only be set by TownMart (`guard_seller_order_money`) |
+
+Unique partial indexes allow one open refund request and one open dispute per seller order, and one payout in flight per business. `refund_number_seq` numbers refunds `RF-YYYY-NNNNNN`.
+
+`tests/db/payouts.test.ts` proves: cancelling refunds everything, restocks and empties the seller's escrow; partial returns split the money in proportion, escrow is released once and later refunds come from the available balance, with the ledger balanced throughout; a declined refund escalates to a dispute that TownMart decides; booking cancellations refund by the policy; pay-on-delivery orders settle commission and fees from the seller's balance; a payout pays the balance once and a failed transfer puts it back; an unusable payment is refunded once; a declined provider refund can be retried; and seller A can't read B's refunds, disputes or payouts, can't write refunds, payouts or escrow release at all, and can't post into B's dispute, someone else's as a customer, or as TownMart, nor edit messages.
+
 Tables without RLS: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data (states, LGAs, categories), `settings`, `job_runs`.
 
 RLS is defence in depth. The application `authz` check always runs first.

@@ -1,4 +1,4 @@
-import { CalendarCheck, Store, Truck } from "lucide-react";
+import { CalendarCheck, LifeBuoy, Store, Truck } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { OrderSummary } from "@/components/cart/order-summary";
@@ -99,6 +99,22 @@ export function OrderDetail({ order, token = null, conversations = {} }: { order
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary-soft p-3 text-sm">
                   <p>Has it arrived in good condition?</p>
                   <ConfirmReceived orderNumber={order.orderNumber} token={token} sellerOrderId={s.id} />
+                </div>
+              )}
+              {(live || s.refunds.refunded) && s.statusKey !== "pending_payment" && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm">
+                  <p className="text-muted-foreground">
+                    {s.refunds.disputeOpen
+                      ? "TownMart is looking into this part of your order."
+                      : s.refunds.waiting
+                        ? "Your refund request is with the seller."
+                        : s.refunds.refunded
+                          ? `${s.refunds.refunded} refunded.`
+                          : "Something not right?"}
+                  </p>
+                  <Link href={`/orders/${order.orderNumber}/help/${s.id}${token ? `?t=${encodeURIComponent(token)}` : ""}`} className="inline-flex items-center gap-1 font-medium text-primary underline">
+                    <LifeBuoy className="size-4" aria-hidden /> {s.refunds.waiting || s.refunds.disputeOpen ? "See details" : "Cancel, return or get help"}
+                  </Link>
                 </div>
               )}
               {live && s.timeline.length > 0 && (

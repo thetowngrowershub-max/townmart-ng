@@ -5,9 +5,8 @@ import { computeCheckout } from "@/lib/checkout/compute";
 import { prisma, withRls, withSystemContext } from "@/lib/db";
 import { advanceSellerOrder } from "@/lib/fulfilment/orders";
 import { OrderError, placeOrder, type PlacedOrder } from "@/lib/orders/place";
-import { redis } from "@/lib/redis";
 import { findReviewable, writeReview } from "@/lib/reviews/reviews";
-import { createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createUser, deleteMoneyTrail, deleteUsers, lagosIkeja, owner } from "./helpers";
 
 /**
  * Phase 4 at the database layer: a booking slot is never oversold under
@@ -165,10 +164,7 @@ afterAll(async () => {
   const businessIds = [shop.businessId, provider.businessId];
   const orderIds = (await owner.sellerOrder.findMany({ where: { businessId: { in: businessIds } }, select: { orderId: true } })).map((o) => o.orderId);
   await asSystem(async (tx) => {
-    const txIds = (await tx.ledgerEntry.findMany({ where: { businessId: { in: businessIds } }, select: { transactionId: true } })).map((e) => e.transactionId);
-    await tx.ledgerEntry.deleteMany({ where: { transactionId: { in: txIds } } });
-    await tx.ledgerTransaction.deleteMany({ where: { id: { in: txIds } } });
-    await tx.ledgerAccount.deleteMany({ where: { ownerId: { in: businessIds } } });
+    await deleteMoneyTrail(tx, { businessIds, orderIds });
     await tx.review.deleteMany({ where: { businessId: { in: businessIds } } });
     await tx.payment.deleteMany({ where: { orderId: { in: orderIds } } });
     await tx.order.deleteMany({ where: { id: { in: orderIds } } });
@@ -181,7 +177,6 @@ afterAll(async () => {
   await deleteUsers(...users);
   await owner.$disconnect();
   await prisma.$disconnect();
-  redis.disconnect();
 });
 
 describe("booking a slot", () => {

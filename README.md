@@ -4,7 +4,7 @@
 
 TownMart owns its whole data layer: PostgreSQL 16, Redis 7 and S3-compatible storage, all self-hosted. There is no Backend-as-a-Service.
 
-> **Status:** Phases 0 (Foundations) and 1 (Sellers, catalogue and search) of the build plan in `TOWNMART_BUILD_PROMPT.md`. See [DEFERRED.md](DEFERRED.md) for what each later phase adds.
+> **Status:** Phases 0 to 5 of the build plan in `TOWNMART_BUILD_PROMPT.md` (foundations; sellers, catalogue and search; promotions; cart, checkout and payments; fulfilment, bookings and reviews; refunds, disputes and payouts). See [DEFERRED.md](DEFERRED.md) for what later phases add.
 
 ## Quick start
 
@@ -39,7 +39,7 @@ It also seeds the category tree and six approved demo sellers in Lagos, Ogun and
 
 Demo promotions start at the hour the seed runs: flash deals on rice (Ikeja Fresh Mart) and tomatoes (Ogun Harvest Farms) that end within two days, money off selected gadgets and plumbing services, and coupon codes `IKEJAFRESH10` and `YABA15`. A store that already has promotions is skipped, so to refresh expired demo deals, delete that store's promotions and seed again.
 
-It also creates a demo shopper (`bola@demo.townmart.ng`, password printed once) with orders through the real checkout: a delivered and reviewed grocery order, a pay-on-delivery order waiting to be sent, a plumbing request waiting for the provider to confirm, an upcoming tailoring booking, and a completed, reviewed one. Skipped if the shopper already exists.
+It also creates a demo shopper (`bola@demo.townmart.ng`, password printed once) with orders through the real checkout: a delivered and reviewed grocery order, a pay-on-delivery order waiting to be sent, a plumbing request waiting for the provider to confirm, an upcoming tailoring booking, and a completed, reviewed one. Skipped if the shopper already exists. With the fake payment and transfer providers it then adds a returned Yaba Threads item (refunded after the money reached Yaba Threads, which is then paid out), a cancelled and refunded phone case, and a declined power-bank refund now in an open dispute for TownMart to decide.
 
 Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DIR`, no MinIO needed), `SMS_PROVIDER=console` (codes appear in the worker log) and `BANK_VERIFIER=fake` (any 10-digit account resolves to `TEST ACCOUNT nnnn`) and `PAYMENT_PROVIDER=fake` (checkout goes to a local test payment page with Pay and Decline buttons; set `paystack` with test keys to use Paystack's sandbox). `next start` refuses to run with any of these.
 
@@ -51,7 +51,7 @@ Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DI
 | `pnpm worker` | BullMQ worker (`worker/`) |
 | `pnpm lint` / `pnpm typecheck` | ESLint, `tsc --noEmit` (strict) |
 | `pnpm test` | Unit tests (no database needed) |
-| `pnpm test:db` | Database tests: RLS and cross-seller isolation, order and booking status guards, overselling and double booking, verified reviews, stock, search, append-only logs, conventions. Needs a migrated, seeded DB |
+| `pnpm test:db` | Database tests: RLS and cross-seller isolation, order and booking status guards, overselling and double booking, verified reviews, refunds, disputes, escrow and payouts, stock, search, append-only logs, conventions. Needs a migrated, seeded DB |
 | `pnpm db:bootstrap` | Creates roles and the database on an existing server (superuser) |
 | `pnpm db:migrate` / `pnpm db:deploy` | `prisma migrate dev` / `deploy` |
 | `pnpm db:seed` | Idempotent seed |

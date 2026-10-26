@@ -245,6 +245,7 @@ export async function savePayoutAccountAction(input: PayoutAccountInput): Promis
     if (!bank) throw new SellerError("Choose your bank from the list.");
     // Commission is set per split at checkout (Phase 3), so the subaccount's default charge is 0.
     const sub = await verifier.createSubaccount({ businessName: own.business.name, bankCode, accountNumber, percentageCharge: 0 });
+    const recipient = await verifier.createTransferRecipient({ accountName: resolved.accountName, bankCode, accountNumber });
     // Only the last 4 digits are stored; the full number lives with the payment provider.
     const data = {
       bankCode,
@@ -252,6 +253,7 @@ export async function savePayoutAccountAction(input: PayoutAccountInput): Promis
       accountNumberLast4: accountNumber.slice(-4),
       accountName: resolved.accountName,
       providerSubaccountCode: sub.subaccountCode,
+      providerRecipientCode: recipient.recipientCode,
       verifiedAt: new Date(),
     };
     await withOwnBusiness(async ({ tx, business, userId }) => {
