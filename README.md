@@ -4,7 +4,7 @@
 
 TownMart owns its whole data layer: PostgreSQL 16, Redis 7 and S3-compatible storage, all self-hosted. There is no Backend-as-a-Service.
 
-> **Status:** Phase 0 (Foundations) of the build plan in `TOWNMART_BUILD_PROMPT.md`. See [DEFERRED.md](DEFERRED.md) for what each later phase adds.
+> **Status:** Phases 0 (Foundations) and 1 (Sellers, catalogue and search) of the build plan in `TOWNMART_BUILD_PROMPT.md`. See [DEFERRED.md](DEFERRED.md) for what each later phase adds.
 
 ## Quick start
 
@@ -15,7 +15,7 @@ cp .env.example .env          # then replace the three "replace-me" secrets (ope
 docker compose up -d          # Postgres, Redis, MinIO, Mailpit — creates DB roles on first start
 pnpm install
 pnpm db:migrate               # applies migrations as townmart_migrator
-pnpm db:seed                  # states + LGAs, settings, admin accounts (passwords printed in dev)
+pnpm db:seed                  # states + LGAs, settings, categories, admin accounts and demo sellers (passwords printed in dev)
 pnpm dev                      # http://localhost:3000
 pnpm worker                   # in a second terminal: emails and scheduled jobs
 ```
@@ -35,6 +35,10 @@ Without Docker (an existing Postgres 16 server): set the `POSTGRES_*` superuser 
 
 `pnpm db:seed` creates `admin@townmart.local` and `superadmin@townmart.local` and prints random passwords once. Set `SEED_ADMIN_PASSWORD` / `SEED_SUPER_ADMIN_PASSWORD` to choose them. In production these variables are required and passwords are never printed.
 
+It also seeds the category tree and six approved demo sellers in Lagos, Ogun and Oyo (59 products with variants and stock, 10 services, generated placeholder images), and prints each owner's email and password once. Demo data is skipped in production unless `SEED_DEMO_DATA=true`.
+
+Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DIR`, no MinIO needed), `SMS_PROVIDER=console` (codes appear in the worker log) and `BANK_VERIFIER=fake` (any 10-digit account resolves to `TEST ACCOUNT nnnn`). `next start` refuses to run with any of these.
+
 ## Scripts
 
 | Command | What it does |
@@ -43,7 +47,7 @@ Without Docker (an existing Postgres 16 server): set the `POSTGRES_*` superuser 
 | `pnpm worker` | BullMQ worker (`worker/`) |
 | `pnpm lint` / `pnpm typecheck` | ESLint, `tsc --noEmit` (strict) |
 | `pnpm test` | Unit tests (no database needed) |
-| `pnpm test:db` | Database tests: RLS isolation, roles, append-only audit log, conventions. Needs a migrated, seeded DB |
+| `pnpm test:db` | Database tests: RLS and cross-seller isolation, status guards, stock, search, append-only logs, conventions. Needs a migrated, seeded DB |
 | `pnpm db:bootstrap` | Creates roles and the database on an existing server (superuser) |
 | `pnpm db:migrate` / `pnpm db:deploy` | `prisma migrate dev` / `deploy` |
 | `pnpm db:seed` | Idempotent seed |
@@ -52,18 +56,24 @@ Without Docker (an existing Postgres 16 server): set the `POSTGRES_*` superuser 
 
 ```
 app/
-  (storefront)/   home, auth pages        (account)/account/*   customer area
-  (dashboard)/    seller dashboard        (admin)/admin/*, /design-system
-  api/            Auth.js handlers, /api/health
-components/       ui/ (shadcn-style primitives), layout/, auth/, account/
+  (storefront)/   home, auth, /search, /c/*, /p/*, /s/*, /store/*, /sell (onboarding), /legal/*
+  (account)/      customer area           (dashboard)/dashboard/*   seller dashboard
+  (admin)/        admin console, seller approvals, /design-system
+  api/            Auth.js, health, storage upload/read, KYC document links, product CSV export
+components/       ui/, layout/, auth/, account/, seller/, admin/, storefront/, uploads/, editor/
 lib/
   db/             Prisma client + withRls() RLS context helper
   authz/          central permission policy: can(), assertCan()
   auth/           Auth.js config, password sign-in, sessions, Server Actions
   crypto/         AES-256-GCM column encryption, keyed lookup hashes
-  notifications/  EmailProvider (SMTP/Mailpit, Resend) + templates
+  notifications/  EmailProvider (SMTP/Mailpit, Resend), SmsProvider (Termii, console) + templates
+  catalogue/      products, services, stock, CSV import/export, storefront queries
+  search/         SearchProvider interface + Postgres full-text/trigram implementation
+  seller/         onboarding state and actions, seller context    admin/  seller review
+  storage/        StorageProvider (S3/MinIO, local), presigned uploads, image processing
+  payments/       bank account verification (Paystack, fake)
   queue/ redis.ts rate-limit.ts audit.ts money.ts datetime.ts env.ts
-prisma/           schema.prisma, migrations/, seed.ts, data/ (states + LGAs)
+prisma/           schema.prisma, migrations/, seed.ts, seed-catalogue.ts, data/ (states + LGAs, demo catalogue)
 sql/bootstrap/    cluster bootstrap run once as superuser (roles, database)
 worker/           BullMQ worker and jobs
 tests/            unit/ and db/
@@ -74,7 +84,7 @@ More detail: [ARCHITECTURE.md](ARCHITECTURE.md) and [DATABASE.md](DATABASE.md).
 
 ## Conventions
 
-- Money is integer kobo (`BigInt`), formatted with `formatNaira()` as `₦12,500.00`.
-- Timestamps are `timestamptz` (UTC) and displayed in `Africa/Lagos`.
+- Money is integer kobo (`BigInt`), formatted with `formatNaira()` as `₦12,500.00` (or `formatPrice()` on price tags: `₦12,500`).
+- Timestamps are `timestamptz` (UTC) and displayed in `Africa/Lagos`; `datetime-local` form values are read as Lagos time (`lagosLocalToDate`).
 - Every Server Action: Zod validation → `authz` check → DB transaction via `withRls()`.
 - Secrets only come from environment variables; `.env.example` lists them all.
