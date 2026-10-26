@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, type-check, unit tests, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          for k in AUTH_SECRET DATA_ENCRYPTION_KEY DATA_HASH_KEY; do
+            sed -i "s|^$k=.*|$k=$(openssl rand -base64 32)|" .env
+          done
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  database:
+    name: Migrations, seed and database tests
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres-ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres-ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=postgres-ci|" .env
+          for k in AUTH_SECRET DATA_ENCRYPTION_KEY DATA_HASH_KEY; do
+            sed -i "s|^$k=.*|$k=$(openssl rand -base64 32)|" .env
+          done
+      - name: Create roles and database (as the superuser)
+        run: pnpm db:bootstrap
+      - name: Apply migrations to a fresh database (as townmart_migrator)
+        run: pnpm db:deploy
+      - name: Check schema.prisma and migrations agree
+        run: |
+          PGPASSWORD=migrator-dev-only createdb -h localhost -U townmart_migrator townmart_shadow
+          pnpm prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "postgresql://townmart_migrator:migrator-dev-only@localhost:5432/townmart_shadow" \
+            --exit-code
+      - name: Seed
+        run: pnpm db:seed
+      - name: Seed is idempotent
+        run: pnpm db:seed
+      - name: Database tests (RLS, roles, append-only audit log, conventions)
+        run: pnpm test:db
