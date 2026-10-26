@@ -126,7 +126,7 @@ export function OrderDetail({ order, token = null, conversations = {} }: { order
           <CardHeader>
             <CardTitle>Payment</CardTitle>
             <CardDescription>
-              {order.paymentStatus} · {order.paymentMethod}
+              {order.paymentStatus === order.paymentMethod ? order.paymentStatus : `${order.paymentStatus} · ${order.paymentMethod}`}
             </CardDescription>
           </CardHeader>
           <CardContent>

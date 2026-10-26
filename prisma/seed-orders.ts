@@ -98,7 +98,7 @@ export async function seedDemoOrders(prisma: PrismaClient) {
     phone: "08031234599",
     line1: "14 Toyin Street",
     line2: "",
-    landmark: "Opposite the filling station",
+    landmark: "the Mobil filling station",
     city: "Ikeja",
     stateId: state.id,
     lgaId: lga.id,

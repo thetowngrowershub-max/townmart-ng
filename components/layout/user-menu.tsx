@@ -47,7 +47,8 @@ export async function UserMenu() {
       <Button asChild variant="ghost" size="sm">
         <Link href="/account">
           <User aria-hidden />
-          <span className="max-w-32 truncate">{user.name ?? "Account"}</span>
+          <span className="hidden max-w-32 truncate sm:inline">{user.name ?? "Account"}</span>
+          <span className="sr-only sm:hidden">Account</span>
         </Link>
       </Button>
       <form action={signOutAction}>
