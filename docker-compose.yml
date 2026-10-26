@@ -1,0 +1,146 @@
+# TownMart local development.
+#
+#   docker compose up -d                 # Postgres, Redis, MinIO, Mailpit
+#   docker compose --profile app up -d   # …plus the web app and worker in containers
+#
+# Every service binds to 127.0.0.1 only; nothing is exposed to your network.
+name: townmart
+
+x-app-env: &app-env
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://townmart_app:${TOWNMART_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-townmart}?schema=public
+    MIGRATE_DATABASE_URL: postgresql://townmart_migrator:${TOWNMART_MIGRATOR_PASSWORD}@postgres:5432/${POSTGRES_DB:-townmart}?schema=public
+    REDIS_URL: redis://redis:6379
+    S3_ENDPOINT: http://minio:9000
+    SMTP_HOST: mailpit
+    SMTP_PORT: "1025"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: postgres
+      TOWNMART_DB: ${POSTGRES_DB:-townmart}
+      TOWNMART_MIGRATOR_PASSWORD: ${TOWNMART_MIGRATOR_PASSWORD:?}
+      TOWNMART_APP_PASSWORD: ${TOWNMART_APP_PASSWORD:?}
+      TOWNMART_READONLY_PASSWORD: ${TOWNMART_READONLY_PASSWORD:?}
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_min_duration_statement=500
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sh:/docker-entrypoint-initdb.d/10-townmart.sh:ro
+      - ./sql:/sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${TOWNMART_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-townmart}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Creates the public (images) and private (KYC, exports) buckets once MinIO is up.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-townmart}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+      S3_PUBLIC_BUCKET: ${S3_PUBLIC_BUCKET:-townmart-public}
+      S3_PRIVATE_BUCKET: ${S3_PRIVATE_BUCKET:-townmart-private}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb --ignore-existing local/$$S3_PUBLIC_BUCKET &&
+      mc mb --ignore-existing local/$$S3_PRIVATE_BUCKET &&
+      mc anonymous set download local/$$S3_PUBLIC_BUCKET &&
+      mc anonymous set none local/$$S3_PRIVATE_BUCKET &&
+      mc encrypt set sse-s3 local/$$S3_PRIVATE_BUCKET || true"
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      target: dev
+    <<: *app-env
+    command: ["sh", "-c", "pnpm db:deploy && pnpm dev --hostname 0.0.0.0"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      target: dev
+    <<: *app-env
+    command: ["pnpm", "worker:dev"]
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
