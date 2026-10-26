@@ -37,6 +37,8 @@ Without Docker (an existing Postgres 16 server): set the `POSTGRES_*` superuser 
 
 It also seeds the category tree and six approved demo sellers in Lagos, Ogun and Oyo (59 products with variants and stock, 10 services, generated placeholder images), and prints each owner's email and password once. Demo data is skipped in production unless `SEED_DEMO_DATA=true`.
 
+Demo promotions start at the hour the seed runs: flash deals on rice (Ikeja Fresh Mart) and tomatoes (Ogun Harvest Farms) that end within two days, money off selected gadgets and plumbing services, and coupon codes `IKEJAFRESH10` and `YABA15`. A store that already has promotions is skipped, so to refresh expired demo deals, delete that store's promotions and seed again.
+
 Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DIR`, no MinIO needed), `SMS_PROVIDER=console` (codes appear in the worker log) and `BANK_VERIFIER=fake` (any 10-digit account resolves to `TEST ACCOUNT nnnn`). `next start` refuses to run with any of these.
 
 ## Scripts

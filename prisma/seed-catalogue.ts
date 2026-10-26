@@ -4,7 +4,11 @@
  * availability). Listings go through the same validation and save functions as
  * the seller dashboard, so the demo data obeys every app rule.
  *
- * Idempotent: categories are upserted; a seller whose store already exists is skipped.
+ * Demo promotions are added per store, relative to the time the seed runs,
+ * so flash deals are live straight after seeding and end within two days.
+ *
+ * Idempotent: categories are upserted; a seller whose store already exists is
+ * skipped, and so is a store that already has promotions.
  */
 import { randomBytes } from "node:crypto";
 import type { PrismaClient, Role } from "@prisma/client";
@@ -13,11 +17,14 @@ import { hashPassword } from "../lib/auth/password";
 import { saveProduct } from "../lib/catalogue/products";
 import { saveService } from "../lib/catalogue/services";
 import { encrypt, phoneHash } from "../lib/crypto";
+import { dateToLagosLocal } from "../lib/datetime";
 import { DPA_VERSION, SELLER_AGREEMENT_VERSION } from "../lib/legal";
 import { normaliseNigerianPhone } from "../lib/phone";
+import { savePromotion } from "../lib/promotions/promotions";
 import { storage } from "../lib/storage";
 import { productInputSchema, serviceInputSchema, type ProductInput, type ServiceInput } from "../lib/validation/catalogue";
-import { CATEGORIES, SELLERS, type DemoProduct, type DemoSeller, type DemoService } from "./data/demo-catalogue";
+import { promotionInputSchema, type PromotionInput } from "../lib/validation/promotions";
+import { CATEGORIES, PROMOTIONS, SELLERS, type DemoProduct, type DemoSeller, type DemoService } from "./data/demo-catalogue";
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -253,4 +260,49 @@ export async function seedDemoCatalogue(prisma: PrismaClient) {
   }
   const categoryIds = new Map((await prisma.category.findMany({ select: { slug: true, id: true } })).map((c) => [c.slug, c.id]));
   for (const seller of SELLERS) await seedSeller(prisma, seller, categoryIds);
+  await seedDemoPromotions(prisma, categoryIds);
 }
+
+async function seedDemoPromotions(prisma: PrismaClient, categoryIds: Map<string, string>) {
+  const hour = 3_600_000;
+  const start = new Date(Math.floor(Date.now() / hour) * hour);
+  for (const [slug, promos] of Object.entries(PROMOTIONS)) {
+    const business = await prisma.business.findUnique({ where: { slug }, select: { id: true, name: true, ownerUserId: true, _count: { select: { promotions: true } } } });
+    if (!business || business._count.promotions > 0) continue;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_scope', 'system', true)`;
+      const listingIds = async (model: "product" | "service", titles: string[] = []) => {
+        const rows =
+          model === "product"
+            ? await tx.product.findMany({ where: { businessId: business.id, title: { in: titles } }, select: { id: true } })
+            : await tx.service.findMany({ where: { businessId: business.id, title: { in: titles } }, select: { id: true } });
+        if (rows.length !== titles.length) throw new Error(`Demo promotion for ${slug} names a listing that doesn't exist`);
+        return rows.map((r) => r.id);
+      };
+      for (const p of promos) {
+        const input: PromotionInput = {
+          name: p.name,
+          description: p.description ?? "",
+          discountType: p.type,
+          discountValue: p.value,
+          scope: p.scope,
+          productIds: await listingIds("product", p.products),
+          serviceIds: await listingIds("service", p.services),
+          categoryIds: (p.categories ?? []).map((c) => categoryIds.get(c) ?? ""),
+          startsAt: dateToLagosLocal(start),
+          endsAt: dateToLagosLocal(new Date(start.getTime() + p.hours * hour)),
+          usageLimit: p.usageLimit ?? "",
+          perCustomerLimit: p.perCustomerLimit ?? "",
+          minOrder: p.minOrder ?? "",
+          isFlashDeal: !!p.flash,
+          isActive: true,
+          couponCode: p.coupon ?? "",
+          allowsStacking: false,
+        };
+        await savePromotion(tx, { businessId: business.id, actorUserId: business.ownerUserId, data: promotionInputSchema.parse(input) });
+      }
+    });
+    console.log(`✓ ${business.name}: ${promos.length} promotion${promos.length === 1 ? "" : "s"}`);
+  }
+}
+

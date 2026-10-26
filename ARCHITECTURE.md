@@ -142,6 +142,30 @@ Pages call `searchProvider().search(query)` only (`lib/search/provider.ts`), so 
 
 `/search`, `/c/[category]`, `/c/[category]/[sub]`, `/p/[slug]` (with Product JSON-LD), `/s/[slug]`, `/store/[slug]`, `/legal/[slug]` and a dynamic `sitemap.xml`. Add to cart and booking buttons say they arrive in the next releases.
 
+## Phase 2: promotions and pricing
+
+### Promotions
+
+A seller creates promotions at `/dashboard/promotions` (permission `promotion.manage`, staff flag `promotions`). Each has a discount (whole percent 1 to 100, or naira off each item), a scope (whole store, one product, selected products, categories, or selected services), a start and end in Lagos time, optional total and per-customer limits, an optional minimum order, and an optional coupon code. Flash deals run for at most 72 hours and appear on the home page and `/deals`. Sellers can pause, resume or end a promotion, and delete one that nobody has used. The edit page shows orders, total discount given, unique customers and what it covers.
+
+Platform-wide promotions (`business_id` NULL) are supported by the schema and pricing engine and are writable only with admin/system scope; their admin screens arrive with the admin console in Phase 7.
+
+### Pricing engine
+
+`lib/pricing` is pure (no database, no clock: `now` is passed in) and is the only place discounts are worked out. All amounts are BigInt kobo.
+
+- **One discount per line.** Each item gets the single best automatic promotion it qualifies for. Ties go to the bigger discount, then the earliest end, then the id, so results are stable.
+- **Coupons** replace the automatic discount if they are better, or, if the seller allowed stacking, come off the already-discounted price.
+- **Minimum order** is checked against that seller's own items in the cart before discounts (the whole cart for platform promotions).
+- Percentages round half-up to the kobo; a fixed amount is taken off each unit; no price goes below ₦0.
+- `listingPrice()` is what cards and listing pages show: automatic promotions only (no coupon, no minimum order). `priceCart()` is what checkout will use in Phase 3, returning per-line discounts, coupon status and the redemptions to record.
+
+`lib/promotions/live.ts` loads the live rules for the businesses on a page (as a guest, under RLS) and turns them into a `ListingDeal` for each card. The search "On promotion" filter and the flash-deals section use an SQL predicate (`onPromotionSql`) that mirrors the same rules. Search price filters and sorting still use the undiscounted price.
+
+### Honest pricing
+
+Listings show the real end date of every deal and never a fake countdown. Product JSON-LD uses the price a shopper actually pays today. The rules are written up for shoppers in the draft Promotions & Coupon Terms (`/legal/promotions`).
+
 ## Design system
 
 Tokens live in `app/globals.css` as CSS variables (light and dark via `prefers-color-scheme`) and are exposed to Tailwind v4 through `@theme`. Components in `components/ui` use semantic tokens only (`bg-primary`, `text-muted-foreground`). Admins can see everything at `/design-system`.

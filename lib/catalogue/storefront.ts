@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { withRls } from "@/lib/db";
+import { loadListingRules } from "@/lib/promotions/live";
 
 /** Public reads run as a guest so the storefront shows exactly what anyone can see. */
 const asGuest = <T,>(fn: Parameters<typeof withRls<T>>[1]) => withRls({ userId: null }, fn);
@@ -15,7 +16,7 @@ export const getPublicProduct = cache((slug: string) =>
         images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }] },
         options: { orderBy: { position: "asc" } },
         variants: { orderBy: { position: "asc" } },
-        category: { select: { name: true, slug: true, parent: { select: { name: true, slug: true } } } },
+        category: { select: { name: true, slug: true, parentId: true, parent: { select: { name: true, slug: true } } } },
         business: {
           select: {
             id: true,
@@ -45,6 +46,9 @@ export const getRelatedProducts = (productId: string, categoryId: string) =>
         id: true,
         slug: true,
         title: true,
+        businessId: true,
+        categoryId: true,
+        category: { select: { parentId: true } },
         basePriceKobo: true,
         compareAtPriceKobo: true,
         unit: true,
@@ -68,7 +72,7 @@ export const getPublicService = cache((slug: string) =>
         packages: { orderBy: { position: "asc" } },
         availability: { orderBy: [{ weekday: "asc" }, { startMinute: "asc" }] },
         blackouts: { where: { endsAt: { gt: new Date() } }, orderBy: { startsAt: "asc" }, take: 10 },
-        category: { select: { name: true, slug: true, parent: { select: { name: true, slug: true } } } },
+        category: { select: { name: true, slug: true, parentId: true, parent: { select: { name: true, slug: true } } } },
         business: {
           select: {
             name: true,
@@ -87,6 +91,9 @@ export const getPublicService = cache((slug: string) =>
     }),
   ),
 );
+
+/** Live automatic promotions for these sellers (and platform-wide), as a guest sees them. */
+export const getListingRules = (businessIds: string[]) => asGuest((tx) => loadListingRules(tx, businessIds));
 
 export const getLgaNames = (ids: number[]) =>
   ids.length

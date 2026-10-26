@@ -6,7 +6,9 @@ import { ProductPurchase, type VariantView } from "@/components/storefront/produ
 import { PolicySummary, SellerCard } from "@/components/storefront/seller-card";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getPublicProduct, getRelatedProducts } from "@/lib/catalogue/storefront";
+import { getListingRules, getPublicProduct, getRelatedProducts } from "@/lib/catalogue/storefront";
+import { formatDateTime } from "@/lib/datetime";
+import { dealFor } from "@/lib/promotions/live";
 import { unitLabel } from "@/lib/catalogue/units";
 import { env } from "@/lib/env";
 import { koboToNairaString } from "@/lib/money";
@@ -31,6 +33,9 @@ export default async function ProductPage({ params }: Props) {
   const p = await getPublicProduct((await params).slug);
   if (!p) notFound();
   const related = await getRelatedProducts(p.id, p.categoryId);
+  const now = new Date();
+  const rules = await getListingRules([p.businessId, ...related.map((r) => r.businessId)]);
+  const item = { kind: "product" as const, id: p.id, businessId: p.businessId, categoryId: p.categoryId, parentCategoryId: p.category.parentId };
 
   const images = p.images.map((i) => ({ url: publicImageUrl(i.storageKey), alt: i.altText, width: i.width, height: i.height }));
   const variants: VariantView[] = p.variants.map((v) => {
@@ -45,10 +50,20 @@ export default async function ProductPage({ params }: Props) {
           ? "low"
           : "in";
     const imgIdx = p.images.findIndex((i) => i.variantId === v.id);
+    const deal = dealFor(item, v.priceKobo, rules, now);
     return {
       id: v.id,
       optionValues: (v.optionValues ?? {}) as Record<string, string>,
-      priceKobo: v.priceKobo.toString(),
+      priceKobo: (deal?.finalKobo ?? v.priceKobo).toString(),
+      deal: deal
+        ? {
+            originalKobo: deal.originalKobo.toString(),
+            percentOff: deal.percentOff,
+            name: deal.promotionName,
+            isFlashDeal: deal.isFlashDeal,
+            endsLabel: formatDateTime(deal.endsAt),
+          }
+        : null,
       compareAtPriceKobo: v.compareAtPriceKobo?.toString() ?? null,
       stock: { state, qty: state === "low" ? qty.toString() : undefined },
       imageIndex: imgIdx >= 0 ? imgIdx : null,
@@ -66,8 +81,9 @@ export default async function ProductPage({ params }: Props) {
     offers: {
       "@type": "AggregateOffer",
       priceCurrency: "NGN",
-      lowPrice: koboToNairaString(p.variants.reduce((m, v) => (v.priceKobo < m ? v.priceKobo : m), p.basePriceKobo)),
-      highPrice: koboToNairaString(p.variants.reduce((m, v) => (v.priceKobo > m ? v.priceKobo : m), p.basePriceKobo)),
+      // The prices a shopper actually pays today, promotions included.
+      lowPrice: koboToNairaString(variants.reduce((m, v) => (BigInt(v.priceKobo) < m ? BigInt(v.priceKobo) : m), BigInt(variants[0]?.priceKobo ?? p.basePriceKobo))),
+      highPrice: koboToNairaString(variants.reduce((m, v) => (BigInt(v.priceKobo) > m ? BigInt(v.priceKobo) : m), BigInt(variants[0]?.priceKobo ?? p.basePriceKobo))),
       availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
       seller: { "@type": "Organization", name: p.business.name },
     },
@@ -140,6 +156,7 @@ export default async function ProductPage({ params }: Props) {
                   ratingAvg: Number(r.ratingAvg),
                   ratingCount: r.ratingCount,
                   inStock: !r.trackInventory || r.allowBackorder || r.variants.some((v) => v.stockQty.gt(0)),
+                  deal: dealFor({ kind: "product", id: r.id, businessId: r.businessId, categoryId: r.categoryId, parentCategoryId: r.category.parentId }, r.basePriceKobo, rules, now),
                   business: { name: r.business.name, slug: r.business.slug, city: r.business.city, stateName: r.business.state.name },
                 }}
               />

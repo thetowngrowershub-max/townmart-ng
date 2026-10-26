@@ -22,7 +22,7 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Add to cart, checkout, delivery fees and delivery estimates | Product pages say ordering arrives next; needs cart, orders and Paystack payments | Phase 3 |
 | Booking a service | Service pages show availability; booking needs the bookings engine | Phase 4 |
 | Reviews, ratings and Q&A | Rating columns exist (and only TownMart can write them); the review flow needs completed orders and bookings | Phase 4 |
-| Promotions, coupons and sale scheduling | Compare-at prices work now; scheduled promotions are their own feature | Phase 2 |
+| Promotions, coupons and sale scheduling | Built in Phase 2 | Done |
 | Staff invitations and management UI | `business_staff` and the staff permission flags are enforced in `authz` and RLS; the invite screens are not built | Phase 7 |
 | Category and category-attribute management in the admin console | Categories are seeded; attribute values per category are stored on products but not yet edited in the product form | Phase 7 |
 | Listing moderation queue (flag, take down) | Listings of approved sellers go live directly; admins can suspend a seller | Phase 7 |
@@ -31,6 +31,16 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Cleaning up abandoned uploads in `tmp/` | Best handled by an S3 lifecycle rule (expire `tmp/` after 1 day), configured with production storage | Phase 8 |
 | Final legal texts (Seller Agreement, DPA, Prohibited Items) | Sellers accept versioned drafts (`2026-10-draft`); final texts need legal review and the versioned `legal_documents` table | Phase 6 |
 | Dedicated search engine (Meilisearch/Typesense) | Postgres full-text plus trigram covers launch scale; callers use the `SearchProvider` interface only | When search load needs it |
+
+## From Phase 2 (Promotions and pricing)
+
+| Item | Why deferred | Lands in |
+|---|---|---|
+| Entering a coupon code, and recording redemptions | `priceCart()` handles codes, limits and stacking and returns the redemptions to write; there is no cart or checkout yet. The `promotion_redemptions.order_id` foreign key is added with the `orders` table | Phase 3 |
+| Cart-level promotions shown on listings | Promotions with a minimum order or a coupon apply in the cart only, so cards and product pages don't show them | Phase 3 (cart) |
+| Admin screens for platform-wide promotions | Schema, RLS and pricing support them; only admin/system scope can write them | Phase 7 |
+| Price filter and sort on the discounted price | Search filters and sorts on the listed price; cards show the discounted price | When search moves to a dedicated engine |
+| Final Promotions & Coupon Terms | Draft at `/legal/promotions`; needs legal review | Phase 6 |
 
 ## Links that point at later phases
 

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { withRls, type Tx } from "@/lib/db";
+import { dealFor, loadListingRules, onPromotionSql } from "@/lib/promotions/live";
 import type { Page, ProductHit, SearchProvider, SearchQuery, SearchResults, ServiceHit, StoreHit } from "./provider";
 
 const empty = <T>(): Page<T> => ({ items: [], total: 0 });
@@ -17,10 +18,21 @@ export class PostgresSearchProvider implements SearchProvider {
     const want = (k: SearchQuery["kind"]) => (query.kind === "all" && !(k === "stores" && query.businessId)) || query.kind === k;
     return withRls({ userId: null }, async (tx) => {
       // Sequential: one transaction is one connection.
-      const products = want("products") ? await searchProducts(tx, query, q) : empty<ProductHit>();
-      const services = want("services") ? await searchServices(tx, query, q) : empty<ServiceHit>();
+      const products = want("products") ? await searchProducts(tx, query, q) : empty<RawProductHit>();
+      const services = want("services") ? await searchServices(tx, query, q) : empty<RawServiceHit>();
       const stores = want("stores") ? await searchStores(tx, query, q) : empty<StoreHit>();
-      return { products, services, stores };
+      // Discounts are worked out by lib/pricing, the same engine checkout uses.
+      const now = new Date();
+      const rules = await loadListingRules(tx, [...products.items, ...services.items].map((h) => h.businessId), now);
+      const finish = <H extends Pricing & { id: string; priceKobo: bigint }>({ kind, businessId, categoryId, parentCategoryId, ...hit }: H) => ({
+        ...hit,
+        deal: dealFor({ kind, id: hit.id, businessId, categoryId, parentCategoryId }, hit.priceKobo, rules, now),
+      });
+      return {
+        products: { total: products.total, items: products.items.map(finish) },
+        services: { total: services.total, items: services.items.map(finish) },
+        stores,
+      };
     });
   }
 }
@@ -63,8 +75,11 @@ function orderBy(alias: string, query: SearchQuery, hasQ: boolean, priceCol = "b
 const offset = (query: SearchQuery) => (Math.max(1, query.page) - 1) * query.pageSize;
 
 type Row = { total: bigint };
+type Pricing = { kind: "product" | "service"; businessId: string; categoryId: string; parentCategoryId: string | null };
+type RawProductHit = Omit<ProductHit, "deal"> & Pricing;
+type RawServiceHit = Omit<ServiceHit, "deal"> & Pricing;
 
-async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined): Promise<Page<ProductHit>> {
+async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined): Promise<Page<RawProductHit>> {
   const match = q ? Prisma.sql`AND (p.search_vector @@ ${tsq(q)} OR p.title % ${q})` : Prisma.empty;
   const rank = q ? Prisma.sql`ts_rank_cd(p.search_vector, ${tsq(q)}) + similarity(p.title, ${q})` : Prisma.sql`0`;
   const inStockExpr = Prisma.sql`(NOT p.track_inventory OR p.allow_backorder OR EXISTS (
@@ -75,9 +90,11 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
       id: string; slug: string; title: string; base_price_kobo: bigint; compare_at_price_kobo: bigint | null; unit: string;
       cover_key: string | null; cover_alt: string | null; rating_avg: Prisma.Decimal; rating_count: number; in_stock: boolean;
       b_name: string; b_slug: string; b_city: string; state_name: string;
+      business_id: string; category_id: string; parent_category_id: string | null;
     })[]
   >`
     SELECT p.id, p.slug, p.title, p.base_price_kobo, p.compare_at_price_kobo, p.unit::text AS unit,
+           p.business_id, p.category_id, cat.parent_id AS parent_category_id,
            p.rating_avg, p.rating_count, ${inStockExpr} AS in_stock, ${rank} AS rank,
            img.storage_key AS cover_key, img.alt_text AS cover_alt,
            b.name AS b_name, b.slug AS b_slug, b.city AS b_city, s.name AS state_name,
@@ -85,6 +102,7 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
       FROM products p
       JOIN businesses b ON b.id = p.business_id AND b.status = 'approved'
       JOIN states s ON s.id = b.state_id
+      JOIN categories cat ON cat.id = p.category_id
       LEFT JOIN LATERAL (
         SELECT storage_key, alt_text FROM product_images i
          WHERE i.product_id = p.id ORDER BY i.is_cover DESC, i.sort_order LIMIT 1
@@ -97,6 +115,7 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
        ${query.stateId ? Prisma.sql`AND b.state_id = ${query.stateId}` : Prisma.empty}
        ${query.lgaId ? Prisma.sql`AND b.lga_id = ${query.lgaId}` : Prisma.empty}
        ${query.inStock ? Prisma.sql`AND ${inStockExpr}` : Prisma.empty}
+       ${query.promotion ? Prisma.sql`AND ${onPromotionSql("product", "p", query.promotion === "flash")}` : Prisma.empty}
        ${query.businessId ? Prisma.sql`AND p.business_id = ${query.businessId}::uuid` : Prisma.empty}
      ORDER BY ${orderBy("p", query, !!q)}
      LIMIT ${query.pageSize} OFFSET ${offset(query)}`;
@@ -115,12 +134,16 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
       ratingAvg: Number(r.rating_avg),
       ratingCount: r.rating_count,
       inStock: r.in_stock,
+      kind: "product" as const,
+      businessId: r.business_id,
+      categoryId: r.category_id,
+      parentCategoryId: r.parent_category_id,
       business: { name: r.b_name, slug: r.b_slug, city: r.b_city, stateName: r.state_name },
     })),
   };
 }
 
-async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined): Promise<Page<ServiceHit>> {
+async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined): Promise<Page<RawServiceHit>> {
   const match = q ? Prisma.sql`AND (sv.search_vector @@ ${tsq(q)} OR sv.title % ${q})` : Prisma.empty;
   const rank = q ? Prisma.sql`ts_rank_cd(sv.search_vector, ${tsq(q)}) + similarity(sv.title, ${q})` : Prisma.sql`0`;
   // A provider "serves" a place if they're based there or list it as a covered LGA.
@@ -135,9 +158,11 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
       id: string; slug: string; title: string; pricing_model: string; base_price_kobo: bigint; duration_minutes: number;
       cover_key: string | null; cover_alt: string | null; rating_avg: Prisma.Decimal; rating_count: number;
       b_name: string; b_slug: string; b_city: string; state_name: string;
+      business_id: string; category_id: string; parent_category_id: string | null;
     })[]
   >`
     SELECT sv.id, sv.slug, sv.title, sv.pricing_model::text AS pricing_model, sv.base_price_kobo, sv.duration_minutes,
+           sv.business_id, sv.category_id, cat.parent_id AS parent_category_id,
            sv.rating_avg, sv.rating_count, ${rank} AS rank,
            img.storage_key AS cover_key, img.alt_text AS cover_alt,
            b.name AS b_name, b.slug AS b_slug, b.city AS b_city, s.name AS state_name,
@@ -145,6 +170,7 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
       FROM services sv
       JOIN businesses b ON b.id = sv.business_id AND b.status = 'approved'
       JOIN states s ON s.id = b.state_id
+      JOIN categories cat ON cat.id = sv.category_id
       LEFT JOIN LATERAL (
         SELECT storage_key, alt_text FROM service_images i WHERE i.service_id = sv.id ORDER BY i.sort_order LIMIT 1
       ) img ON true
@@ -156,6 +182,7 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
        ${stateFilter}
        ${lgaFilter}
        ${query.businessId ? Prisma.sql`AND sv.business_id = ${query.businessId}::uuid` : Prisma.empty}
+       ${query.promotion ? Prisma.sql`AND ${onPromotionSql("service", "sv", query.promotion === "flash")}` : Prisma.empty}
      ORDER BY ${orderBy("sv", query, !!q)}
      LIMIT ${query.pageSize} OFFSET ${offset(query)}`;
 
@@ -172,6 +199,10 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
       coverAlt: r.cover_alt,
       ratingAvg: Number(r.rating_avg),
       ratingCount: r.rating_count,
+      kind: "service" as const,
+      businessId: r.business_id,
+      categoryId: r.category_id,
+      parentCategoryId: r.parent_category_id,
       business: { name: r.b_name, slug: r.b_slug, city: r.b_city, stateName: r.state_name },
     })),
   };

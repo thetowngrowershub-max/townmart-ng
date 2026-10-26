@@ -77,8 +77,9 @@ model User {
   otpCodes  OtpCode[]
   addresses Address[]
 
-  ownedBusinesses Business[]      @relation("BusinessOwner")
-  staffOf         BusinessStaff[]
+  ownedBusinesses      Business[]            @relation("BusinessOwner")
+  promotionRedemptions PromotionRedemption[]
+  staffOf              BusinessStaff[]
 
   @@index([status])
   @@map("users")
@@ -376,6 +377,7 @@ model Business {
   products      Product[]
   services      Service[]
   importJobs    ImportJob[]
+  promotions    Promotion[]
 
   @@index([ownerUserId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "businesses_name_trgm")
@@ -542,6 +544,8 @@ model Category {
   products   Product[]
   services   Service[]
 
+  promotionTargets PromotionTarget[]
+
   @@index([parentId, sortOrder])
   @@index([kind, isActive])
   @@map("categories")
@@ -619,6 +623,8 @@ model Product {
   images   ProductImage[]
   options  ProductOption[]
   variants ProductVariant[]
+
+  promotionTargets PromotionTarget[]
 
   @@unique([id, businessId], map: "products_id_business_key")
   @@index([searchVector], type: Gin, map: "products_search_vector_gin")
@@ -748,6 +754,8 @@ model Service {
   availability ServiceAvailability[]
   blackouts    ServiceBlackout[]
 
+  promotionTargets PromotionTarget[]
+
   @@unique([id, businessId], map: "services_id_business_key")
   @@index([searchVector], type: Gin, map: "services_search_vector_gin")
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "services_title_trgm")
@@ -865,4 +873,121 @@ model ImportJob {
 
   @@index([businessId, createdAt])
   @@map("import_jobs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Promotions (Phase 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum DiscountType {
+  percentage
+  fixed
+
+  @@map("discount_type")
+}
+
+enum PromotionScope {
+  product
+  products
+  category
+  store
+  service
+
+  @@map("promotion_scope")
+}
+
+/// A discount rule. business_id NULL = platform-wide (admin only).
+/// percentage: discount_value is whole percent (1-100); fixed: kobo off each unit.
+model Promotion {
+  id               String         @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  businessId       String?        @map("business_id") @db.Uuid
+  name             String
+  description      String?
+  discountType     DiscountType   @map("discount_type")
+  discountValue    BigInt         @map("discount_value")
+  scope            PromotionScope
+  startsAt         DateTime       @map("starts_at") @db.Timestamptz(6)
+  endsAt           DateTime       @map("ends_at") @db.Timestamptz(6)
+  usageLimit       Int?           @map("usage_limit")
+  perCustomerLimit Int?           @map("per_customer_limit")
+  minOrderKobo     BigInt         @default(0) @map("min_order_kobo")
+  isFlashDeal      Boolean        @default(false) @map("is_flash_deal")
+  isActive         Boolean        @default(true) @map("is_active")
+  // Maintained by triggers: whether a coupon code is required, and how many times it has been used.
+  hasCoupon        Boolean        @default(false) @map("has_coupon")
+  redemptionCount  Int            @default(0) @map("redemption_count")
+  createdBy        String?        @map("created_by") @db.Uuid
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  business    Business?             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  targets     PromotionTarget[]
+  coupon      Coupon?
+  redemptions PromotionRedemption[]
+
+  @@index([businessId, endsAt])
+  @@index([startsAt, endsAt], map: "promotions_live_idx")
+  @@map("promotions")
+}
+
+/// What a product/products/category/service promotion covers: exactly one of the three ids.
+model PromotionTarget {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  promotionId String   @map("promotion_id") @db.Uuid
+  businessId  String?  @map("business_id") @db.Uuid
+  productId   String?  @map("product_id") @db.Uuid
+  serviceId   String?  @map("service_id") @db.Uuid
+  categoryId  String?  @map("category_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId, businessId], references: [id, businessId], onDelete: Cascade, map: "promotion_targets_product_same_business")
+  service   Service?  @relation(fields: [serviceId, businessId], references: [id, businessId], onDelete: Cascade, map: "promotion_targets_service_same_business")
+  category  Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([promotionId])
+  @@index([productId, businessId])
+  @@index([serviceId, businessId])
+  @@index([categoryId])
+  @@map("promotion_targets")
+}
+
+/// An optional code that unlocks a promotion. The code is private to the seller and TownMart.
+model Coupon {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  promotionId    String   @unique @map("promotion_id") @db.Uuid
+  businessId     String?  @map("business_id") @db.Uuid
+  code           String   @unique @db.Citext
+  allowsStacking Boolean  @default(false) @map("allows_stacking")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  promotion   Promotion             @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  redemptions PromotionRedemption[]
+
+  @@index([businessId])
+  @@map("coupons")
+}
+
+/// One row per order that used a promotion. Written by checkout (Phase 3); append-only.
+model PromotionRedemption {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  promotionId  String   @map("promotion_id") @db.Uuid
+  couponId     String?  @map("coupon_id") @db.Uuid
+  businessId   String?  @map("business_id") @db.Uuid
+  // The orders table arrives in Phase 3, which adds the foreign key.
+  orderId      String   @map("order_id") @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
+  discountKobo BigInt   @map("discount_kobo")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  coupon    Coupon?   @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([promotionId, orderId])
+  @@index([couponId])
+  @@index([userId, promotionId])
+  @@index([businessId, createdAt])
+  @@map("promotion_redemptions")
 }

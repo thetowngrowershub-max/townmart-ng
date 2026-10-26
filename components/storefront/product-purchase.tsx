@@ -9,8 +9,10 @@ import { ImageGallery, type GalleryItem } from "./image-gallery";
 export type VariantView = {
   id: string;
   optionValues: Record<string, string>;
+  /** What the shopper pays per unit today, promotion included. */
   priceKobo: string;
   compareAtPriceKobo: string | null;
+  deal: { originalKobo: string; percentOff: number; name: string; isFlashDeal: boolean; endsLabel: string } | null;
   stock: { state: "in" | "low" | "out" | "backorder"; qty?: string };
   imageIndex: number | null;
 };
@@ -42,7 +44,9 @@ export function ProductPurchase({
   const available = (name: string, value: string) => variants.some((v) => v.optionValues[name] === value && options.every((o) => o.name === name || v.optionValues[o.name] === selected[o.name]));
 
   const price = variant ? BigInt(variant.priceKobo) : null;
-  const compare = variant?.compareAtPriceKobo ? BigInt(variant.compareAtPriceKobo) : null;
+  const deal = variant?.deal ?? null;
+  // A live promotion is struck through against the normal price; otherwise the seller's compare-at price.
+  const compare = deal ? BigInt(deal.originalKobo) : variant?.compareAtPriceKobo ? BigInt(variant.compareAtPriceKobo) : null;
   const saving = price !== null && compare !== null && compare > price ? compare - price : null;
 
   return (
@@ -58,12 +62,20 @@ export function ProductPurchase({
               {saving !== null && compare !== null && (
                 <>
                   <s className="text-muted-foreground">{formatPrice(compare)}</s>
-                  <Badge variant="accent">Save {formatPrice(saving)}</Badge>
+                  <Badge variant={deal?.isFlashDeal ? "danger" : "accent"}>
+                    {deal?.isFlashDeal ? "Flash deal: " : ""}Save {formatPrice(saving)}
+                    {deal && deal.percentOff >= 1 ? ` (${deal.percentOff}%)` : ""}
+                  </Badge>
                 </>
               )}
             </p>
           ) : (
             <p className="font-semibold text-muted-foreground">This combination isn&apos;t available.</p>
+          )}
+          {deal && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {deal.name} · ends {deal.endsLabel}
+            </p>
           )}
           {variant && (
             <p className="mt-2 text-sm">

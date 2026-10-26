@@ -1,11 +1,15 @@
 import { BadgeCheck, ShieldCheck, Truck } from "lucide-react";
 import Link from "next/link";
 import { SearchForm } from "@/components/layout/search-form";
+import { FlashDeals } from "@/components/storefront/flash-deals";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { storefrontCategories } from "@/lib/navigation";
 
-export default function HomePage() {
+// Flash deals change by the minute, so the home page renders per request.
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
   return (
     <main id="main">
       <section className="bg-primary text-primary-foreground dark:bg-primary-soft dark:text-foreground">
@@ -19,6 +23,10 @@ export default function HomePage() {
           <SearchForm id="q-hero" size="lg" className="max-w-2xl text-foreground" />
         </div>
       </section>
+
+      <div className="mx-auto max-w-7xl px-4 pt-12 empty:hidden">
+        <FlashDeals />
+      </div>
 
       <section aria-labelledby="categories" className="mx-auto max-w-7xl px-4 py-12">
         <h2 id="categories" className="mb-6 text-2xl font-bold">

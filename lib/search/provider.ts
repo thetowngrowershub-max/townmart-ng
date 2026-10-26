@@ -7,6 +7,8 @@
 export const SEARCH_KINDS = ["all", "products", "services", "stores"] as const;
 export type SearchKind = (typeof SEARCH_KINDS)[number];
 
+import type { ListingDeal } from "@/lib/pricing";
+
 export const SEARCH_SORTS = ["relevance", "newest", "price_asc", "price_desc", "rating"] as const;
 export type SearchSort = (typeof SEARCH_SORTS)[number];
 
@@ -25,6 +27,8 @@ export type SearchQuery = {
   businessId?: string;
   /** Products only: in stock, untracked or backorderable. */
   inStock?: boolean;
+  /** Only listings with a live automatic promotion ("flash": a live flash deal). */
+  promotion?: "any" | "flash";
   sort: SearchSort;
   page: number;
   pageSize: number;
@@ -42,6 +46,8 @@ export type ProductHit = {
   ratingAvg: number;
   ratingCount: number;
   inStock: boolean;
+  /** The best live automatic promotion, if any. priceKobo stays the undiscounted price. */
+  deal: ListingDeal | null;
   business: { name: string; slug: string; city: string; stateName: string };
 };
 
@@ -56,6 +62,7 @@ export type ServiceHit = {
   coverAlt: string | null;
   ratingAvg: number;
   ratingCount: number;
+  deal: ListingDeal | null;
   business: { name: string; slug: string; city: string; stateName: string };
 };
 

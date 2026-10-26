@@ -64,6 +64,17 @@ Phase 1 policies (tenant isolation on `business_id = app_current_business_id()`)
 
 Categories and category attributes are public reference data, written by admins.
 
+Phase 2 policies:
+
+| Table | Read | Write |
+|---|---|---|
+| `promotions` | active, not ended, from an approved store or platform-wide; or the current business | current business. Platform-wide (`business_id` NULL) needs admin/system. `has_coupon` and `redemption_count` are kept by triggers; a direct change is rejected (`guard_promotion_counters`) |
+| `promotion_targets` | when the promotion is readable | current business. `business_id` is copied from the promotion by a trigger, and composite foreign keys `(product_id, business_id)` / `(service_id, business_id)` stop a target pointing at another seller's listing |
+| `coupons` | current business only (codes are never public) | current business. Codes are `citext`, unique across TownMart |
+| `promotion_redemptions` | the store, the customer, or admin/system | insert admin/system only (checkout, Phase 3); `UPDATE`/`DELETE` revoked from `townmart_app`. Inserting one bumps the promotion's `redemption_count` |
+
+`tests/db/promotions-rls.test.ts` proves these: seller A can't see B's paused promotions or any of B's coupons; can't update, delete or create B's promotions, create platform-wide ones, attach targets to B's promotion or put B's product in its own; can't set its own counters; and can't write, edit or delete redemptions.
+
 `tests/db/catalogue-rls.test.ts` proves these: seller A can't read B's drafts, KYC, payout account or import jobs; can't update, delete or insert B's listings, variants or payouts; can't adjust B's stock; can't approve itself, start a business as approved, verify its own KYC or set its rating; and guests and search see only live listings of approved sellers.
 
 Tables without RLS: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data (states, LGAs, categories), `settings`, `job_runs`.

@@ -27,6 +27,7 @@ const searchParamsSchema = z.object({
   state: optionalInt.catch(undefined),
   lga: optionalInt.catch(undefined),
   instock: z.literal("1").optional().catch(undefined),
+  promo: z.literal("1").optional().catch(undefined),
 });
 
 export type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -50,5 +51,6 @@ export function parseSearchParams(
     stateId: p.state,
     lgaId: p.lga,
     inStock: p.instock === "1",
+    promotion: p.promo === "1" ? "any" : undefined,
   };
 }
