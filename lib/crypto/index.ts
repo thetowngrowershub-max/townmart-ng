@@ -68,16 +68,7 @@ export function lookupHash(value: string, purpose: string): string {
     .digest("hex");
 }
 
-/** Normalises a Nigerian phone number to E.164 (+234…). Returns null if invalid. */
-export function normaliseNigerianPhone(input: string): string | null {
-  const digits = input.replace(/[^\d+]/g, "");
-  let national: string;
-  if (digits.startsWith("+234")) national = digits.slice(4);
-  else if (digits.startsWith("234")) national = digits.slice(3);
-  else if (digits.startsWith("0")) national = digits.slice(1);
-  else national = digits;
-  return /^[789][01]\d{8}$/.test(national) ? `+234${national}` : null;
-}
+export { normaliseNigerianPhone } from "@/lib/phone";
 
 export const phoneHash = (e164: string) => lookupHash(e164, "phone");
 export const ipHash = (ip: string) => lookupHash(ip, "ip");

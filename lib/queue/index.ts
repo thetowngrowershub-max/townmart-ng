@@ -1,16 +1,19 @@
 import { Queue } from "bullmq";
 import type { EmailMessage } from "@/lib/notifications/email";
+import type { SmsMessage } from "@/lib/notifications/sms";
 import { redis } from "@/lib/redis";
 
 /** Queue names shared by producers (web app) and consumers (worker/). */
 export const QUEUES = {
   notifications: "notifications",
   maintenance: "maintenance",
+  imports: "imports",
 } as const;
 
-export type NotificationJobs = { "email.send": EmailMessage };
+export type NotificationJobs = { "email.send": EmailMessage; "sms.send": SmsMessage };
+export type ImportJobs = { "products.csv": { importJobId: string; businessId: string } };
 
-const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue };
+const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue; importsQueue?: Queue };
 
 function notificationsQueue(): Queue {
   globalForQueues.notificationsQueue ??= new Queue(QUEUES.notifications, {
@@ -28,4 +31,24 @@ function notificationsQueue(): Queue {
 
 export async function enqueueEmail(message: EmailMessage): Promise<void> {
   await notificationsQueue().add("email.send", message satisfies NotificationJobs["email.send"]);
+}
+
+export async function enqueueSms(message: SmsMessage): Promise<void> {
+  // OTPs go stale quickly: retry fast and give up after a few minutes.
+  await notificationsQueue().add("sms.send", message satisfies NotificationJobs["sms.send"], {
+    attempts: 3,
+    backoff: { type: "fixed", delay: 5_000 },
+  });
+}
+
+function importsQueue(): Queue {
+  globalForQueues.importsQueue ??= new Queue(QUEUES.imports, {
+    connection: redis,
+    defaultJobOptions: { attempts: 1, removeOnComplete: 100, removeOnFail: 500 },
+  });
+  return globalForQueues.importsQueue;
+}
+
+export async function enqueueProductImport(data: ImportJobs["products.csv"]): Promise<void> {
+  await importsQueue().add("products.csv", data, { jobId: data.importJobId });
 }
