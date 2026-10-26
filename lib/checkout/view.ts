@@ -1,4 +1,6 @@
 import { unitLabel } from "@/lib/catalogue/units";
+import { formatDuration } from "@/lib/catalogue/format";
+import { formatBookingTime } from "@/lib/datetime";
 import { formatPrice } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
 import type { UnitOfMeasure } from "@prisma/client";
@@ -23,6 +25,8 @@ export type LineView = {
   total: string;
   promotions: string[];
   problem: string | null;
+  /** Service lines: when and where, and what's paid now and on the day. */
+  booking: { when: string; duration: string; where: string; deposit: string | null; payLater: string | null } | null;
 };
 
 export type SellerView = {
@@ -35,7 +39,9 @@ export type SellerView = {
   offersDelivery: boolean;
   offersPickup: boolean;
   deliveryNotes: string;
-  method: "delivery" | "pickup" | null;
+  method: "delivery" | "pickup" | "none" | null;
+  /** The seller has goods to deliver or collect (not just bookings). */
+  hasGoods: boolean;
   delivery: { fee: string; free: boolean; eta: string; zone: string; freeOver: string | null } | null;
   returnWindowDays: number;
 };
@@ -44,7 +50,7 @@ export type CheckoutView = {
   sellers: SellerView[];
   saved: LineView[];
   coupon: { code: string | null; state: "none" | "applied" | "invalid" | "not_applicable"; message: string | null; saving: string | null };
-  totals: { subtotal: string; discount: string | null; delivery: string | null; serviceFee: string; vat: string; total: string; totalKobo: string };
+  totals: { subtotal: string; discount: string | null; delivery: string | null; serviceFee: string; vat: string; payLater: string | null; total: string; totalKobo: string };
   payOnDeliveryAvailable: boolean;
   holdMinutes: number;
   blockers: string[];
@@ -64,6 +70,10 @@ function problemText(p: LineProblem | null, unit: string): string | null {
       return `The minimum order is ${p.minimum} ${unit}.`;
     case "fraction_not_allowed":
       return "This item is sold in whole units.";
+    case "slot_unavailable":
+      return "This time is no longer available. Remove it and book another time.";
+    case "outside_area":
+      return "The provider doesn't come to this address. Choose another address or remove it.";
   }
 }
 
@@ -72,10 +82,11 @@ export function toCheckoutView(c: CheckoutComputation): CheckoutView {
   const line = (l: ComputedLine): LineView => {
     const p = priced.get(l.cartItemId);
     const unit = unitLabel(l.unit as UnitOfMeasure, l.qty.toNumber());
+    const b = l.booking;
     return {
       id: l.cartItemId,
       title: l.title,
-      href: `/p/${l.slug}`,
+      href: b ? `/s/${l.slug}` : `/p/${l.slug}`,
       options: Object.values(l.optionValues).join(", "),
       imageUrl: l.imageKey ? publicImageUrl(l.imageKey) : null,
       imageAlt: l.imageAlt ?? l.title,
@@ -90,6 +101,15 @@ export function toCheckoutView(c: CheckoutComputation): CheckoutView {
       total: formatPrice(p?.totalKobo ?? 0n),
       promotions: p?.promotions.map((x) => x.name) ?? [],
       problem: problemText(l.problem, unit),
+      booking: b
+        ? {
+            when: formatBookingTime(b.startsAt),
+            duration: formatDuration(b.durationMinutes),
+            where: b.atProvider ? "At the provider's place" : "At your address",
+            deposit: l.payLaterKobo > 0n && p ? formatPrice(p.totalKobo - l.payLaterKobo) : null,
+            payLater: l.payLaterKobo > 0n ? formatPrice(l.payLaterKobo) : null,
+          }
+        : null,
     };
   };
   const quoteBy = new Map(c.quote.sellers.map((s) => [s.businessId, s]));
@@ -111,6 +131,7 @@ export function toCheckoutView(c: CheckoutComputation): CheckoutView {
       offersPickup: s?.offersPickup ?? false,
       deliveryNotes: s?.deliveryNotes ?? "",
       method: s?.method ?? null,
+      hasGoods: c.lines.some((l) => l.businessId === businessId && l.kind === "product"),
       delivery: s?.delivery
         ? {
             fee: s.delivery.free ? "Free" : formatPrice(s.delivery.feeKobo),
@@ -137,9 +158,10 @@ export function toCheckoutView(c: CheckoutComputation): CheckoutView {
     totals: {
       subtotal: formatPrice(c.quote.subtotalKobo),
       discount: c.quote.discountKobo > 0n ? formatPrice(c.quote.discountKobo) : null,
-      delivery: hasAddress ? (c.quote.deliveryKobo === 0n ? "Free" : formatPrice(c.quote.deliveryKobo)) : null,
+      delivery: !c.lines.some((l) => l.kind === "product") ? "Not needed" : hasAddress ? (c.quote.deliveryKobo === 0n ? "Free" : formatPrice(c.quote.deliveryKobo)) : null,
       serviceFee: formatPrice(c.quote.serviceFeeKobo),
       vat: formatPrice(c.quote.vatKobo),
+      payLater: c.quote.payLaterKobo > 0n ? formatPrice(c.quote.payLaterKobo) : null,
       total: formatPrice(c.quote.totalKobo),
       totalKobo: c.quote.totalKobo.toString(),
     },

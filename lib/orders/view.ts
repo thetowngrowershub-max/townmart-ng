@@ -1,6 +1,7 @@
-import type { OrderPaymentStatus, OrderStatus, PaymentProviderName, Prisma } from "@prisma/client";
+import type { BookingStatus, OrderPaymentStatus, OrderStatus, PaymentProviderName, Prisma } from "@prisma/client";
+import { BOOKING_STATUS_LABELS } from "@/lib/bookings/status";
 import { decrypt } from "@/lib/crypto";
-import { formatDateTime } from "@/lib/datetime";
+import { formatBookingTime, formatDateTime } from "@/lib/datetime";
 import type { Tx } from "@/lib/db";
 import { formatPrice } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
@@ -40,8 +41,16 @@ const detailInclude = {
   sellerOrders: {
     orderBy: { createdAt: "asc" },
     include: {
-      items: { orderBy: { createdAt: "asc" } },
+      items: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          booking: { select: { id: true, startsAt: true, endsAt: true, status: true, atProvider: true, depositKobo: true, balanceKobo: true, rescheduledTo: { select: { id: true } } } },
+          review: { select: { id: true, rating: true } },
+        },
+      },
       business: { select: { name: true, slug: true, city: true } },
+      statusHistory: { orderBy: { createdAt: "asc" }, select: { toStatus: true, note: true, createdAt: true } },
+      _count: { select: { messages: true } },
     },
   },
   payments: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true, provider: true, channel: true } },
@@ -60,16 +69,37 @@ export type OrderDetailView = {
   contactEmail: string;
   address: { recipientName: string; lines: string[] };
   sellers: {
+    id: string;
     name: string;
     href: string;
     status: string;
-    method: "delivery" | "pickup";
+    statusKey: OrderStatus;
+    method: "delivery" | "pickup" | "none";
     eta: string | null;
-    items: { title: string; href: string; options: string; qty: string; unitPrice: string; discount: string | null; total: string; imageUrl: string | null }[];
+    tracking: { carrier: string | null; number: string } | null;
+    /** Delivered and waiting for the customer to say it arrived. */
+    canConfirmReceived: boolean;
+    timeline: { label: string; note: string | null; at: string }[];
+    messageCount: number;
+    items: {
+      id: string;
+      title: string;
+      href: string;
+      options: string;
+      qty: string;
+      unitPrice: string;
+      discount: string | null;
+      total: string;
+      imageUrl: string | null;
+      booking: { id: string; when: string; where: string; status: string; statusKey: BookingStatus; payLater: string | null; canChange: boolean } | null;
+      /** Completed and not yet reviewed. */
+      canReview: boolean;
+      reviewRating: number | null;
+    }[];
     subtotal: string;
     delivery: string;
   }[];
-  totals: { subtotal: string; discount: string | null; delivery: string | null; serviceFee: string; vat: string; total: string; totalKobo: string };
+  totals: { subtotal: string; discount: string | null; delivery: string | null; serviceFee: string; vat: string; payLater: string | null; total: string; totalKobo: string };
 };
 
 /** Loads one order for its shopper. The caller has already checked they may see it. */
@@ -100,33 +130,56 @@ export async function loadOrderDetail(tx: Tx, where: { id: string } | { orderNum
       ].filter((x): x is string => Boolean(x)),
     },
     sellers: o.sellerOrders.map((so) => ({
+      id: so.id,
       name: so.business.name,
       href: `/store/${so.business.slug}`,
-      status: ORDER_STATUS_LABELS[so.status],
+      status: so.deliveryMethod === "none" && so.status === "processing" ? "Booked" : ORDER_STATUS_LABELS[so.status],
+      statusKey: so.status,
       method: so.deliveryMethod,
       eta: so.etaDaysMin !== null && so.etaDaysMax !== null ? `${so.etaDaysMin}–${so.etaDaysMax} working days` : null,
+      tracking: so.trackingNumber ? { carrier: so.carrier, number: so.trackingNumber } : null,
+      canConfirmReceived: so.status === "delivered",
+      timeline: so.statusHistory.map((h) => ({ label: ORDER_STATUS_LABELS[h.toStatus], note: h.note, at: formatDateTime(h.createdAt) })),
+      messageCount: so._count.messages,
       items: so.items.map((i) => {
-        const s = i.snapshot as { title: string; slug: string; options: Record<string, string>; imageKey: string | null };
+        const s = i.snapshot as { kind?: "product" | "service"; title: string; slug: string; options: Record<string, string>; imageKey: string | null };
+        const b = i.booking;
+        const done = b ? b.status === "completed" : so.status === "completed" || so.status === "delivered";
         return {
+          id: i.id,
           title: s.title,
-          href: `/p/${s.slug}`,
+          href: s.kind === "service" ? `/s/${s.slug}` : `/p/${s.slug}`,
           options: Object.values(s.options ?? {}).join(", "),
           qty: i.qty.toString(),
           unitPrice: formatPrice(i.unitPriceKobo),
           discount: i.discountKobo > 0n ? formatPrice(i.discountKobo) : null,
           total: formatPrice(i.lineTotalKobo),
           imageUrl: s.imageKey ? publicImageUrl(s.imageKey) : null,
+          booking: b
+            ? {
+                id: b.id,
+                when: formatBookingTime(b.startsAt),
+                where: b.atProvider ? "At the provider's place" : "At your address",
+                status: BOOKING_STATUS_LABELS[b.status],
+                statusKey: b.status,
+                payLater: b.balanceKobo > 0n ? formatPrice(b.balanceKobo) : null,
+                canChange: (b.status === "requested" || b.status === "confirmed") && b.startsAt > now,
+              }
+            : null,
+          canReview: done && !i.review && o.paymentStatus !== "unpaid" && !o.cancelledAt,
+          reviewRating: i.review?.rating ?? null,
         };
       }),
       subtotal: formatPrice(so.subtotalKobo - so.discountKobo),
-      delivery: so.deliveryMethod === "pickup" ? "Pickup" : so.deliveryKobo === 0n ? "Free" : formatPrice(so.deliveryKobo),
+      delivery: so.deliveryMethod === "none" ? "Not needed" : so.deliveryMethod === "pickup" ? "Pickup" : so.deliveryKobo === 0n ? "Free" : formatPrice(so.deliveryKobo),
     })),
     totals: {
       subtotal: formatPrice(o.subtotalKobo),
       discount: o.discountKobo > 0n ? formatPrice(o.discountKobo) : null,
-      delivery: o.deliveryKobo === 0n ? "Free" : formatPrice(o.deliveryKobo),
+      delivery: o.sellerOrders.every((so) => so.deliveryMethod === "none") ? "Not needed" : o.deliveryKobo === 0n ? "Free" : formatPrice(o.deliveryKobo),
       serviceFee: formatPrice(o.serviceFeeKobo),
       vat: formatPrice(o.vatKobo),
+      payLater: o.payLaterKobo > 0n ? formatPrice(o.payLaterKobo) : null,
       total: formatPrice(o.totalKobo),
       totalKobo: o.totalKobo.toString(),
     },

@@ -120,10 +120,11 @@ export function importFinishedTemplate(params: { to: string; fileName: string; s
 export type ReceiptSeller = {
   name: string;
   city: string;
-  method: "delivery" | "pickup";
+  method: "delivery" | "pickup" | "none";
   eta: string | null;
   returnWindowDays: number;
-  items: { title: string; options: string; qty: string; total: string; discount: string | null }[];
+  /** `when` is set on bookings: the appointment time and place. */
+  items: { title: string; options: string; qty: string; total: string; discount: string | null; when?: string | null }[];
   subtotal: string;
   delivery: string;
 };
@@ -136,7 +137,7 @@ export function orderReceiptTemplate(params: {
   placedAt: string;
   payOnDelivery: boolean;
   sellers: ReceiptSeller[];
-  totals: { subtotal: string; discount: string | null; delivery: string; serviceFee: string; vat: string; total: string };
+  totals: { subtotal: string; discount: string | null; delivery: string; serviceFee: string; vat: string; payLater?: string | null; total: string };
   address: string;
   orderUrl: string;
   refundPolicyUrl: string;
@@ -145,19 +146,19 @@ export function orderReceiptTemplate(params: {
   const sellerBlocks = params.sellers
     .map(
       (s) => `<h2 style="font-size:16px;margin:24px 0 4px">${escape(s.name)}</h2>
-<p style="margin:0 0 8px;font-size:13px;color:#475569">${escape(s.city)} · ${s.method === "pickup" ? "Pickup from the seller" : `Delivery${s.eta ? `, ${escape(s.eta)}` : ""}`} · Returns within ${s.returnWindowDays} days</p>
+<p style="margin:0 0 8px;font-size:13px;color:#475569">${escape(s.city)} · ${s.method === "none" ? "Bookings" : `${s.method === "pickup" ? "Pickup from the seller" : `Delivery${s.eta ? `, ${escape(s.eta)}` : ""}`} · Returns within ${s.returnWindowDays} days`}</p>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${s.items
         .map(
           (i) =>
-            `<tr><td style="${cell}">${escape(i.title)}${i.options ? ` <span style="color:#64748b">(${escape(i.options)})</span>` : ""} × ${escape(i.qty)}${i.discount ? `<br><span style="color:#0F6B3E;font-size:12px">You saved ${escape(i.discount)}</span>` : ""}</td><td align="right" style="${cell}">${escape(i.total)}</td></tr>`,
+            `<tr><td style="${cell}">${escape(i.title)}${i.options ? ` <span style="color:#64748b">(${escape(i.options)})</span>` : ""}${i.when ? `<br><span style="font-size:13px">${escape(i.when)}</span>` : ` × ${escape(i.qty)}`}${i.discount ? `<br><span style="color:#0F6B3E;font-size:12px">You saved ${escape(i.discount)}</span>` : ""}</td><td align="right" style="${cell}">${escape(i.total)}</td></tr>`,
         )
-        .join("")}<tr><td style="${cell}">Delivery</td><td align="right" style="${cell}">${escape(s.delivery)}</td></tr></table>`,
+        .join("")}${s.method === "none" ? "" : `<tr><td style="${cell}">Delivery</td><td align="right" style="${cell}">${escape(s.delivery)}</td></tr>`}</table>`,
     )
     .join("");
   const t = params.totals;
   const row = (label: string, value: string, strong = false) =>
     `<tr><td style="padding:4px 0;font-size:14px${strong ? ";font-weight:700" : ""}">${escape(label)}</td><td align="right" style="padding:4px 0;font-size:14px${strong ? ";font-weight:700" : ""}">${escape(value)}</td></tr>`;
-  const totals = `<table role="presentation" width="100%" style="margin-top:16px">${row("Items", t.subtotal)}${t.discount ? row("Discounts", `−${t.discount}`) : ""}${row("Delivery", t.delivery)}${row("Service fee", t.serviceFee)}${row("VAT on service fee", t.vat)}${row(params.payOnDelivery ? "To pay on delivery" : "Total paid", t.total, true)}</table>`;
+  const totals = `<table role="presentation" width="100%" style="margin-top:16px">${row("Items", t.subtotal)}${t.discount ? row("Discounts", `−${t.discount}`) : ""}${row("Delivery", t.delivery)}${row("Service fee", t.serviceFee)}${row("VAT on service fee", t.vat)}${t.payLater ? row("Booking balance, paid to the provider on the day", `−${t.payLater}`) : ""}${row(params.payOnDelivery ? "To pay on delivery" : "Total paid", t.total, true)}</table>`;
   const intro = params.payOnDelivery
     ? `Thanks for your order, ${escape(params.name)}. You'll pay ${escape(t.total)} when it arrives.`
     : `Thanks for your order, ${escape(params.name)}. We've received your payment of ${escape(t.total)}.`;
@@ -179,19 +180,20 @@ export function sellerNewOrderTemplate(params: {
   businessName: string;
   orderNumber: string;
   payOnDelivery: boolean;
-  method: "delivery" | "pickup";
-  items: { title: string; options: string; qty: string }[];
+  method: "delivery" | "pickup" | "none";
+  items: { title: string; options: string; qty: string; when?: string | null }[];
   net: string;
   url: string;
 }): EmailMessage {
-  const list = params.items.map((i) => `<li>${escape(i.title)}${i.options ? ` (${escape(i.options)})` : ""} × ${escape(i.qty)}</li>`).join("");
+  const list = params.items.map((i) => `<li>${escape(i.title)}${i.options ? ` (${escape(i.options)})` : ""}${i.when ? `: ${escape(i.when)}` : ` × ${escape(i.qty)}`}</li>`).join("");
+  const kind = params.method === "none" ? "booking" : params.method === "pickup" ? "pickup" : "delivery";
   return {
     to: params.to,
     subject: `New order ${params.orderNumber}`,
     html: layout(
       `New order for ${params.businessName}`,
-      `<p>You have a new ${params.method === "pickup" ? "pickup" : "delivery"} order${params.payOnDelivery ? " (pay on delivery: collect payment on handover)" : ", already paid"}.</p><ul>${list}</ul><p>Your earnings after commission: <strong>${escape(params.net)}</strong>, paid out after delivery.</p>${button(params.url, "Open your dashboard")}`,
+      `<p>You have a new ${kind} order${params.payOnDelivery ? " (pay on delivery: collect payment on handover)" : ", already paid"}.</p><ul>${list}</ul><p>Your earnings after commission: <strong>${escape(params.net)}</strong>, paid out after it's delivered or done.</p>${button(params.url, "Open the order")}`,
     ),
-    text: `New order ${params.orderNumber} for ${params.businessName}:\n${params.items.map((i) => `- ${i.title} x ${i.qty}`).join("\n")}\nEarnings after commission: ${params.net}\n${params.url}\n`,
+    text: `New order ${params.orderNumber} for ${params.businessName}:\n${params.items.map((i) => `- ${i.title}${i.when ? `: ${i.when}` : ` x ${i.qty}`}`).join("\n")}\nEarnings after commission: ${params.net}\n${params.url}\n`,
   };
 }

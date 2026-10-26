@@ -8,8 +8,8 @@ import {
   formatDuration,
   servicePriceLabel,
 } from "@/components/storefront/listing-cards";
+import { BookService } from "@/components/storefront/book-service";
 import { SellerCard } from "@/components/storefront/seller-card";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -194,8 +194,8 @@ export default async function ServicePage({ params }: Props) {
               </p>
               {s.depositPercent > 0 && (
                 <p className="text-sm">
-                  {s.depositPercent}% deposit when you book; the rest after the
-                  job.
+                  {s.depositPercent}% deposit when you book; you pay the rest
+                  to the provider on the day.
                 </p>
               )}
               <p className="text-sm text-muted-foreground">
@@ -203,10 +203,20 @@ export default async function ServicePage({ params }: Props) {
                   ? "The provider confirms each booking."
                   : "Bookings are confirmed instantly when a slot is free."}
               </p>
-              <Alert variant="info">
-                Online booking opens soon. Check the schedule below and save
-                this page.
-              </Alert>
+              <BookService
+                serviceId={s.id}
+                locationMode={s.locationMode}
+                requiresPackage={s.pricingModel === "packages" && s.packages.length > 0}
+                packages={s.packages.map((pkg) => {
+                  const pkgDeal = dealFor(item, pkg.priceKobo, rules, now);
+                  return {
+                    id: pkg.id,
+                    name: pkg.name,
+                    price: formatPrice(pkgDeal ? pkgDeal.finalKobo : pkg.priceKobo),
+                    duration: formatDuration(pkg.durationMinutes),
+                  };
+                })}
+              />
             </CardContent>
           </Card>
           <SellerCard business={s.business} label="Provided by" />

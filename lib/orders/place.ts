@@ -1,3 +1,5 @@
+import { claimSlot, SlotTakenError } from "@/lib/bookings/schedule";
+import { recordBookingStatus, startingStatus } from "@/lib/bookings/status";
 import { adjustStock, CatalogueError } from "@/lib/catalogue/products";
 import { computeCheckout, type CheckoutComputation } from "@/lib/checkout/compute";
 import { decrypt, encrypt, lookupHash, sha256 } from "@/lib/crypto";
@@ -10,7 +12,7 @@ import { recordStatus } from "./status";
 export class OrderError extends Error {
   constructor(
     message: string,
-    readonly code: "invalid" | "price_changed" | "out_of_stock" | "promotion_used_up" = "invalid",
+    readonly code: "invalid" | "price_changed" | "out_of_stock" | "slot_taken" | "promotion_used_up" = "invalid",
   ) {
     super(message);
   }
@@ -28,6 +30,23 @@ export type ShippingSnapshot = {
   lgaId: number;
   lgaName: string;
 };
+
+/**
+ * What a seller sees of the customer (data minimisation): the recipient's
+ * name and phone, and the address only when the seller delivers there or
+ * works there. Phone and street lines stay encrypted; the phone is hidden
+ * 30 days after the order is completed.
+ */
+export type FulfilmentContact = {
+  name: string;
+  phoneEncrypted: string;
+  address: { line1Encrypted: string; line2Encrypted: string | null; landmark: string | null; city: string; lgaName: string; stateName: string } | null;
+};
+
+/** Where a booking happens. */
+export type BookingLocation =
+  | { kind: "provider"; businessName: string; city: string }
+  | { kind: "customer"; city: string; lgaId: number; lgaName: string; stateName: string };
 
 export type PlacedOrder = {
   orderId: string;
@@ -100,7 +119,9 @@ async function resolveAddress(tx: Tx, data: CheckoutData, userId: string | null)
  * Stock is taken off each variant now (a "reservation" movement). Row locks
  * on the variants serialise concurrent checkouts, so stock can't be oversold.
  * For online payment the hold lasts `stockHoldMinutes`; lib/orders/payment.ts
- * releases it if payment doesn't arrive.
+ * releases it if payment doesn't arrive. Booking times are claimed the same
+ * way (a "held" booking), under a per-service advisory lock and the
+ * bookings_no_overlap exclusion constraint.
  */
 export async function placeOrder(
   tx: Tx,
@@ -119,7 +140,8 @@ export async function placeOrder(
   });
   if (c.blockers.length) {
     const soldOut = c.lines.some((l) => l.problem?.kind === "out_of_stock" || l.problem?.kind === "not_enough");
-    throw new OrderError(c.blockers[0]!, soldOut ? "out_of_stock" : "invalid");
+    const slotGone = c.lines.some((l) => l.problem?.kind === "slot_unavailable");
+    throw new OrderError(c.blockers[0]!, soldOut ? "out_of_stock" : slotGone ? "slot_taken" : "invalid");
   }
   if (c.quote.totalKobo.toString() !== data.expectedTotalKobo) {
     throw new OrderError(`Prices or delivery fees changed since you opened checkout. The new total is ${formatPrice(c.quote.totalKobo)}; please check it and try again.`, "price_changed");
@@ -153,6 +175,7 @@ export async function placeOrder(
       deliveryKobo: q.deliveryKobo,
       serviceFeeKobo: q.serviceFeeKobo,
       vatKobo: q.vatKobo,
+      payLaterKobo: q.payLaterKobo,
       totalKobo: q.totalKobo,
       paymentStatus: pod ? "pay_on_delivery" : "unpaid",
       paymentMethod: pod ? "pay_on_delivery" : "paystack",
@@ -174,12 +197,21 @@ export async function placeOrder(
 
   const pricedByKey = new Map(c.priced.lines.map((l) => [l.key, l]));
   const sellerById = new Map(c.sellers.map((s) => [s.businessId, s]));
-  // Lock variants in a fixed order so two checkouts can't deadlock.
-  const lines = [...c.lines].sort((a, b) => a.variantId.localeCompare(b.variantId));
+  // Lock variants, then services, in a fixed order so two checkouts can't deadlock.
+  const sortKey = (l: (typeof c.lines)[number]) => (l.kind === "product" ? `0${l.variantId}` : `1${l.booking!.serviceId}${l.booking!.startsAt.toISOString()}`);
+  const lines = [...c.lines].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
   const sellerOrderIds = new Map<string, string>();
 
   for (const sq of q.sellers) {
     const s = sellerById.get(sq.businessId)!;
+    const own = c.lines.filter((l) => l.businessId === sq.businessId);
+    const needsAddress = s.method === "delivery" || own.some((l) => l.booking && !l.booking.atProvider);
+    const a = address.snapshot;
+    const contact: FulfilmentContact = {
+      name: address.recipientName,
+      phoneEncrypted: a.phoneEncrypted,
+      address: needsAddress ? { line1Encrypted: a.line1Encrypted, line2Encrypted: a.line2Encrypted, landmark: a.landmark, city: a.city, lgaName: a.lgaName, stateName: a.stateName } : null,
+    };
     const so = await tx.sellerOrder.create({
       data: {
         orderId: order.id,
@@ -193,7 +225,9 @@ export async function placeOrder(
         deliveryKobo: sq.deliveryKobo,
         commissionKobo: sq.commissionKobo,
         sellerNetKobo: sq.sellerNetKobo,
+        payLaterKobo: sq.payLaterKobo,
         deliveryMethod: s.method!,
+        fulfilmentContact: contact,
         etaDaysMin: s.method === "delivery" ? (s.delivery?.etaDaysMin ?? null) : null,
         etaDaysMax: s.method === "delivery" ? (s.delivery?.etaDaysMax ?? null) : null,
       },
@@ -205,13 +239,25 @@ export async function placeOrder(
   for (const l of lines) {
     const p = pricedByKey.get(l.cartItemId)!;
     const sellerOrderId = sellerOrderIds.get(l.businessId)!;
-    await tx.orderItem.create({
+    const item = await tx.orderItem.create({
       data: {
         sellerOrderId,
         businessId: l.businessId,
         variantId: l.variantId,
         productId: l.productId,
-        snapshot: { title: l.title, slug: l.slug, sku: l.sku, options: l.optionValues, imageKey: l.imageKey, unit: l.unit, promotions: p.promotions.map((x) => x.name) },
+        serviceId: l.booking?.serviceId ?? null,
+        packageId: l.booking?.packageId ?? null,
+        snapshot: {
+          kind: l.kind,
+          title: l.title,
+          slug: l.slug,
+          sku: l.sku,
+          options: l.optionValues,
+          imageKey: l.imageKey,
+          unit: l.unit,
+          promotions: p.promotions.map((x) => x.name),
+          ...(l.booking ? { startsAt: l.booking.startsAt.toISOString(), durationMinutes: l.booking.durationMinutes, atProvider: l.booking.atProvider } : {}),
+        },
         unitPriceKobo: l.unitPriceKobo,
         qty: l.qty,
         subtotalKobo: p.subtotalKobo,
@@ -219,11 +265,53 @@ export async function placeOrder(
         lineTotalKobo: p.totalKobo,
       },
     });
+
+    if (l.booking) {
+      const b = l.booking;
+      let place: Awaited<ReturnType<typeof claimSlot>>;
+      try {
+        place = await claimSlot(tx, { serviceId: b.serviceId, startsAt: b.startsAt, durationMinutes: b.durationMinutes, leadMinutes: c.settings.bookingLeadMinutes, now });
+      } catch (err) {
+        if (err instanceof SlotTakenError) throw new OrderError(`Sorry, the time you chose for “${l.title}” has just been booked. Please pick another time.`, "slot_taken");
+        throw err;
+      }
+      const seller = sellerById.get(l.businessId)!;
+      const location: BookingLocation = b.atProvider
+        ? { kind: "provider", businessName: seller.name, city: `${seller.city}, ${seller.stateName}` }
+        : { kind: "customer", city: address.snapshot.city, lgaId: address.snapshot.lgaId, lgaName: address.snapshot.lgaName, stateName: address.snapshot.stateName };
+      const status = pod ? startingStatus(b.requiresConfirmation) : "held";
+      const booking = await tx.booking.create({
+        data: {
+          orderId: order.id,
+          sellerOrderId,
+          orderItemId: item.id,
+          businessId: l.businessId,
+          serviceId: b.serviceId,
+          packageId: b.packageId,
+          customerUserId: userId,
+          startsAt: b.startsAt,
+          endsAt: place.endsAt,
+          slotNo: place.slotNo,
+          capacity: place.capacity,
+          status,
+          atProvider: b.atProvider,
+          locationSnapshot: location,
+          priceKobo: p.totalKobo,
+          depositKobo: p.totalKobo - l.payLaterKobo,
+          balanceKobo: l.payLaterKobo,
+          holdExpiresAt: pod ? null : order.paymentDueAt,
+        },
+      });
+      await recordBookingStatus(tx, { bookingId: booking.id, businessId: l.businessId, from: null, to: status, actorUserId: userId, note: pod ? "Booked (pay on the day)" : "Booked, awaiting payment" });
+      continue;
+    }
+
     if (!l.trackInventory) continue;
+    const variantId = l.variantId!;
     try {
       await adjustStock(tx, {
         businessId: l.businessId,
-        variantId: l.variantId,
+        variantId,
         change: l.qty.negated(),
         reason: "reservation",
         referenceType: "order",
@@ -237,7 +325,7 @@ export async function placeOrder(
     }
     await tx.stockReservation.create({
       data: {
-        variantId: l.variantId,
+        variantId,
         businessId: l.businessId,
         orderId: order.id,
         sellerOrderId,

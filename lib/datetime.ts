@@ -18,6 +18,19 @@ export function formatDate(date: Date): string {
   return dateFormatter.format(date);
 }
 
+const bookingFormatter = new Intl.DateTimeFormat(LOCALE, { timeZone: TIME_ZONE, weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+const timeFormatter = new Intl.DateTimeFormat(LOCALE, { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit" });
+
+/** A booking time, with the weekday: "Sat, 1 Nov 2026, 9:30 am". */
+export function formatBookingTime(date: Date): string {
+  return bookingFormatter.format(date);
+}
+
+/** Just the clock time: "9:30 am". */
+export function formatTime(date: Date): string {
+  return timeFormatter.format(date);
+}
+
 /** Lagos has no daylight saving: it is always UTC+01:00. */
 export const LAGOS_OFFSET = "+01:00";
 

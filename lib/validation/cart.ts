@@ -18,3 +18,18 @@ export const couponCodeSchema = z.object({
     .toUpperCase()
     .regex(/^[A-Z0-9-]{4,24}$/, "Codes are 4 to 24 letters, numbers or dashes"),
 });
+
+/** A booking to add to the cart: a service, an optional package and a start time (an ISO instant from the slot list). */
+export const addBookingSchema = z.object({
+  serviceId: uuid,
+  packageId: uuid.nullable().optional(),
+  startsAt: z.iso.datetime({ offset: true, error: "Choose a time" }),
+  atProvider: z.boolean().default(false),
+});
+
+/** A week of open times, from a Lagos calendar date. */
+export const slotsQuerySchema = z.object({
+  serviceId: uuid,
+  packageId: uuid.nullable().optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
