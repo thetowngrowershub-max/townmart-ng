@@ -3,13 +3,13 @@ import type { EmailMessage } from "./provider";
 const escape = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-function layout(title: string, bodyHtml: string): string {
+function layout(title: string, bodyHtml: string, footer = "You received this email because of activity on your TownMart account. If this wasn't you, you can ignore it."): string {
   return `<!doctype html><html lang="en"><body style="margin:0;background:#FAFAF7;font-family:Inter,Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;padding:32px">
 <tr><td><p style="margin:0 0 24px;font-weight:700;font-size:20px;color:#0F6B3E">TownMart</p>
 <h1 style="margin:0 0 16px;font-size:22px">${escape(title)}</h1>${bodyHtml}
-<p style="margin:32px 0 0;font-size:12px;color:#64748b">You received this email because of activity on your TownMart account. If this wasn't you, you can ignore it.</p>
+<p style="margin:32px 0 0;font-size:12px;color:#64748b">${footer}</p>
 </td></tr></table></td></tr></table></body></html>`;
 }
 
@@ -208,5 +208,20 @@ export function noticeTemplate(params: { to: string; subject: string; title: str
     subject: params.subject,
     html: layout(params.title, `${params.lines.map((l) => `<p>${escape(l)}</p>`).join("")}${button(params.url, params.buttonLabel)}`),
     text: `${params.title}\n\n${params.lines.join("\n\n")}\n\n${params.buttonLabel}: ${params.url}\n`,
+  };
+}
+
+/**
+ * Marketing email: only for people who opted in (lib/marketing.ts), with a
+ * one-click unsubscribe link in the footer and in the List-Unsubscribe headers.
+ */
+export function marketingTemplate(params: { to: string; subject: string; title: string; lines: string[]; url: string; buttonLabel: string; unsubscribeUrl: string; oneClickUrl: string }): EmailMessage {
+  const footer = `You're getting this because you asked for offers from TownMart. <a href="${escape(params.unsubscribeUrl)}" style="color:#64748b">Unsubscribe</a> with one click.`;
+  return {
+    to: params.to,
+    subject: params.subject,
+    html: layout(params.title, `${params.lines.map((l) => `<p>${escape(l)}</p>`).join("")}${button(params.url, params.buttonLabel)}`, footer),
+    text: `${params.title}\n\n${params.lines.join("\n\n")}\n\n${params.buttonLabel}: ${params.url}\n\nUnsubscribe: ${params.unsubscribeUrl}\n`,
+    headers: { "List-Unsubscribe": `<${params.oneClickUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
   };
 }

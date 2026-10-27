@@ -6,6 +6,7 @@
  *   notifications — emails, SMS and low-stock alerts
  *   imports       — seller CSV product imports
  *   orders        — order confirmations, payment webhooks, and order/booking/message notices
+ *   privacy       — data exports for the Privacy Centre
  *   maintenance   — scheduled clean-up jobs, recorded in job_runs
  */
 import "dotenv/config";
@@ -19,7 +20,8 @@ import { smsProvider } from "@/lib/notifications/sms";
 import { sendFulfilmentNotice } from "@/lib/fulfilment/notify";
 import { sendOrderConfirmed } from "@/lib/orders/notify";
 import { processPaymentEvent } from "@/lib/orders/payment";
-import { QUEUES, type ImportJobs, type NotificationJobs, type OrderJobs } from "@/lib/queue";
+import { buildDataExport } from "@/lib/privacy/export";
+import { QUEUES, type ImportJobs, type NotificationJobs, type OrderJobs, type PrivacyJobs } from "@/lib/queue";
 import { newRedisConnection } from "@/lib/redis";
 import { maintenanceJobs } from "./jobs/maintenance";
 import { trackJobRun } from "./job-runs";
@@ -83,6 +85,14 @@ async function handleOrder(job: Job) {
   }
 }
 
+async function handlePrivacy(job: Job) {
+  if (job.name !== "privacy.export") throw new Error(`Unknown privacy job: ${job.name}`);
+  const { requestId } = job.data as PrivacyJobs["privacy.export"];
+  const result = await buildDataExport(requestId);
+  logger.info({ jobId: job.id, requestId, result }, "data export processed");
+  return result;
+}
+
 async function handleMaintenance(job: Job) {
   const def = maintenanceJobs[job.name];
   if (!def) throw new Error(`Unknown maintenance job: ${job.name}`);
@@ -105,6 +115,7 @@ async function main() {
     new Worker(QUEUES.notifications, handleNotification, { connection: newRedisConnection(), concurrency: 5 }),
     new Worker(QUEUES.imports, handleImport, { connection: newRedisConnection(), concurrency: 2 }),
     new Worker(QUEUES.orders, handleOrder, { connection: newRedisConnection(), concurrency: 5 }),
+    new Worker(QUEUES.privacy, handlePrivacy, { connection: newRedisConnection(), concurrency: 1 }),
     new Worker(QUEUES.maintenance, handleMaintenance, { connection: newRedisConnection(), concurrency: 1 }),
   ];
   for (const w of workers) {

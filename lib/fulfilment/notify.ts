@@ -22,10 +22,20 @@ async function inApp(tx: Tx, n: { userId: string; type: string; title: string; b
 /** The customer's way back to their order: their account page, or the guest link. */
 const customerLink = (o: Customer) => ({ url: orderUrl(o), path: `/account/orders/${o.orderNumber}` });
 
+/**
+ * Email, SMS and in-app, within the customer's notification settings: the
+ * optional channels (texts, emails about messages) can be switched off;
+ * guests get the defaults.
+ */
 export async function tellCustomer(tx: Tx, o: Customer, p: { type: string; title: string; lines: string[]; sms: string | null; link?: { url: string; path: string }; buttonLabel?: string }) {
   const link = p.link ?? customerLink(o);
-  await enqueueEmail(noticeTemplate({ to: o.contactEmail, subject: `${p.title} · ${o.orderNumber}`, title: p.title, lines: [`Hi ${o.customerName},`, ...p.lines], url: link.url, buttonLabel: p.buttonLabel ?? "View your order" }));
-  if (p.sms) await enqueueSms({ to: decrypt(o.contactPhoneEncrypted), body: `TownMart: ${p.sms}` });
+  const prefs = o.userId ? await tx.notificationPreference.findUnique({ where: { userId: o.userId } }) : null;
+  const emailOk = p.type !== "message.new" || (prefs?.emailMessages ?? true);
+  const smsOk = p.type.startsWith("booking.reminder") ? (prefs?.smsBookingReminders ?? true) : (prefs?.smsOrderUpdates ?? true);
+  if (emailOk) {
+    await enqueueEmail(noticeTemplate({ to: o.contactEmail, subject: `${p.title} · ${o.orderNumber}`, title: p.title, lines: [`Hi ${o.customerName},`, ...p.lines], url: link.url, buttonLabel: p.buttonLabel ?? "View your order" }));
+  }
+  if (p.sms && smsOk) await enqueueSms({ to: decrypt(o.contactPhoneEncrypted), body: `TownMart: ${p.sms}` });
   if (o.userId) await inApp(tx, { userId: o.userId, type: p.type, title: p.title, body: p.lines[0] ?? "", link: link.path });
 }
 

@@ -9,7 +9,7 @@ import { RESERVED_STORE_SLUGS } from "@/lib/catalogue/slug";
 import { decrypt, encrypt, phoneHash } from "@/lib/crypto";
 import { withRls, withSystemContext, type Tx } from "@/lib/db";
 import { env } from "@/lib/env";
-import { DPA_VERSION, SELLER_AGREEMENT_VERSION } from "@/lib/legal";
+import { ACCEPTED_AT, recordAcceptances } from "@/lib/legal/documents";
 import { logger } from "@/lib/logger";
 import { sellerSubmittedTemplate } from "@/lib/notifications/email/templates";
 import { issueOtp, verifyOtp } from "@/lib/otp";
@@ -42,14 +42,14 @@ const TOO_MANY = "Too many attempts. Please wait a few minutes and try again.";
 /** A problem the seller can fix; its message is safe to show. */
 class SellerError extends Error {}
 
-type OwnBusiness = { userId: string; business: { id: string; name: string; status: BusinessStatus; email: string } };
+type OwnBusiness = { userId: string; business: { id: string; name: string; status: BusinessStatus; email: string; sellsServices: boolean } };
 
 /** The signed-in owner's own business, after the app-layer authz check. */
 async function ownBusiness(): Promise<OwnBusiness> {
   const user = await getCurrentUser();
   assertCan(user, "seller.onboard");
   const business = await withRls({ userId: user.id }, (tx) =>
-    tx.business.findFirst({ where: { ownerUserId: user.id }, select: { id: true, name: true, status: true, email: true } }),
+    tx.business.findFirst({ where: { ownerUserId: user.id }, select: { id: true, name: true, status: true, email: true, sellsServices: true } }),
   );
   if (!business) throw new SellerError("Start with your business details.");
   assertCan({ ...user, businesses: [{ id: business.id, role: "owner" }] }, "store.manage", { businessId: business.id });
@@ -317,15 +317,17 @@ export async function submitApplicationAction(input: { acceptSellerAgreement: bo
     await withOwnBusiness(async ({ tx, business, userId }) => {
       assertEditable(business.status);
       const now = new Date();
+      const slugs = business.sellsServices ? [...ACCEPTED_AT.seller_onboarding, "service-provider-terms" as const] : ACCEPTED_AT.seller_onboarding;
+      const accepted = await recordAcceptances(tx, { context: "seller_onboarding", userId, businessId: business.id, ipHash: meta.ipHash, userAgent: meta.userAgent, slugs });
       await tx.business.update({
         where: { id: business.id },
         data: {
           status: "pending",
           submittedAt: now,
           rejectionReason: null,
-          sellerAgreementVersion: SELLER_AGREEMENT_VERSION,
+          sellerAgreementVersion: accepted["seller-agreement"],
           sellerAgreementAcceptedAt: now,
-          dpaVersion: DPA_VERSION,
+          dpaVersion: accepted.dpa,
           dpaAcceptedAt: now,
         },
       });
@@ -334,7 +336,7 @@ export async function submitApplicationAction(input: { acceptSellerAgreement: bo
         action: "business.submitted",
         entityType: "business",
         entityId: business.id,
-        after: { sellerAgreementVersion: SELLER_AGREEMENT_VERSION, dpaVersion: DPA_VERSION },
+        after: { accepted },
         ipHash: meta.ipHash,
       });
     });

@@ -2,7 +2,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import type { User as DbUser } from "@prisma/client";
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
-import { prisma, withRls } from "@/lib/db";
+import { prisma, withRls, withSystemContext } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, SESSION_UPDATE_AGE_SECONDS } from "./constants";
 
@@ -26,7 +26,8 @@ const config: NextAuthConfig = {
   callbacks: {
     signIn({ user }) {
       const status = (user as Partial<DbUser>).status;
-      return status === undefined || status === "active";
+      // Signing in during the deletion grace period cancels the deletion (events.signIn).
+      return status === undefined || status === "active" || status === "pending_deletion";
     },
     session({ session, user }) {
       session.user.id = user.id;
@@ -37,12 +38,18 @@ const config: NextAuthConfig = {
     async createUser({ user }) {
       // OAuth sign-ups become customers, like password sign-ups.
       if (!user.id) return;
-      await withRls({ userId: user.id }, (tx) =>
-        tx.userRole.create({ data: { userId: user.id!, role: "customer" } }),
-      );
+      const userId = user.id;
+      const { recordAcceptances } = await import("@/lib/legal/documents");
+      await withRls({ userId }, async (tx) => {
+        await tx.userRole.create({ data: { userId, role: "customer" } });
+        // The Google button says that continuing accepts the Terms and Privacy Policy.
+        await recordAcceptances(tx, { context: "sign_up", userId });
+      });
     },
     async signIn({ user }) {
       if (!user.id) return;
+      const { restoreAccount } = await import("@/lib/privacy/account");
+      await withSystemContext((tx) => restoreAccount(tx, user.id!));
       await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
       // Google sign-in: bring the guest cart along (imported lazily to avoid a cycle with lib/cart).
       const { mergeGuestCart } = await import("@/lib/cart");

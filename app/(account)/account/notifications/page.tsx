@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MarkReadButton } from "@/components/account/mark-read-button";
+import { NotificationPreferences } from "@/components/account/notification-preferences";
 import { PageHeader } from "@/components/layout/app-shell";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/lib/auth/current-user";
 import { formatDateTime } from "@/lib/datetime";
 import { withRls } from "@/lib/db";
@@ -12,11 +13,30 @@ export const metadata: Metadata = { title: "Notifications" };
 
 export default async function NotificationsPage() {
   const user = await requirePermission("account.access", "/account/notifications");
-  const notes = await withRls({ userId: user.id }, (tx) => tx.notification.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 100 }));
+  const { notes, prefs } = await withRls({ userId: user.id }, async (tx) => ({
+    notes: await tx.notification.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prefs: await tx.notificationPreference.findUnique({ where: { userId: user.id } }),
+  }));
   const unread = notes.some((n) => !n.readAt);
   return (
     <>
       <PageHeader title="Notifications" description="Order updates and messages from TownMart." actions={unread ? <MarkReadButton /> : undefined} />
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>What we send you</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <NotificationPreferences
+            initial={{
+              smsOrderUpdates: prefs?.smsOrderUpdates ?? true,
+              smsBookingReminders: prefs?.smsBookingReminders ?? true,
+              emailMessages: prefs?.emailMessages ?? true,
+              marketingEmail: prefs?.marketingEmail ?? false,
+              marketingSms: prefs?.marketingSms ?? false,
+            }}
+          />
+        </CardContent>
+      </Card>
       {notes.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-muted-foreground">Nothing yet. Order updates will appear here.</CardContent>

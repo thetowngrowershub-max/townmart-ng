@@ -9,7 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { submitApplicationAction } from "@/lib/seller/actions";
 import { agreementsSchema } from "@/lib/validation/seller";
 
-export function SubmitForm({ ready, agreementVersion }: { ready: boolean; agreementVersion: string }) {
+/** `versions` holds the current version of each page by slug; `services` adds the Service Provider Terms. */
+export function SubmitForm({ ready, versions, services }: { ready: boolean; versions: Record<string, string>; services: boolean }) {
   const router = useRouter();
   const { form, onSubmit, pending, result } = useActionForm(
     agreementsSchema,
@@ -33,14 +34,22 @@ export function SubmitForm({ ready, agreementVersion }: { ready: boolean; agreem
             I accept the{" "}
             <Link href="/legal/seller-agreement" target="_blank" className="text-primary underline">
               Seller Agreement
-            </Link>{" "}
+            </Link>
+            {services && (
+              <>
+                , the{" "}
+                <Link href="/legal/service-provider-terms" target="_blank" className="text-primary underline">
+                  Service Provider Terms
+                </Link>
+              </>
+            )}{" "}
             and the{" "}
             <Link href="/legal/prohibited-items" target="_blank" className="text-primary underline">
               Prohibited Items policy
             </Link>
           </>
         }
-        hint={`Version ${agreementVersion}`}
+        hint={`Version ${versions["seller-agreement"] ?? "not published"}`}
         {...form.register("acceptSellerAgreement")}
       />
       {errors.acceptSellerAgreement && <p className="text-xs font-medium text-danger">{errors.acceptSellerAgreement.message}</p>}
@@ -55,7 +64,7 @@ export function SubmitForm({ ready, agreementVersion }: { ready: boolean; agreem
             for customer data I receive through TownMart (NDPA 2023)
           </>
         }
-        hint={`Version ${agreementVersion}`}
+        hint={`Version ${versions.dpa ?? "not published"}`}
         {...form.register("acceptDpa")}
       />
       {errors.acceptDpa && <p className="text-xs font-medium text-danger">{errors.acceptDpa.message}</p>}

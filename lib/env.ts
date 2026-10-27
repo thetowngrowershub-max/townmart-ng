@@ -24,6 +24,10 @@ const schema = z.object({
   RESEND_API_KEY: z.string().optional(),
   TURNSTILE_SECRET_KEY: z.string().optional(),
 
+  // Optional analytics and advertising scripts, loaded only for visitors who allow them.
+  ANALYTICS_SCRIPT_URL: z.url().optional().or(z.literal("").transform(() => undefined)),
+  MARKETING_SCRIPT_URL: z.url().optional().or(z.literal("").transform(() => undefined)),
+
   // Object storage: "s3" (MinIO/R2/S3) or "local" (files on disk; development and tests only)
   STORAGE_DRIVER: z.enum(["s3", "local"]).default("s3"),
   LOCAL_STORAGE_DIR: z.string().default(".storage"),

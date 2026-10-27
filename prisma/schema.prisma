@@ -67,6 +67,9 @@ model User {
   failedLoginCount    Int        @default(0) @map("failed_login_count")
   lockedUntil         DateTime?  @map("locked_until") @db.Timestamptz(6)
   deletionRequestedAt DateTime?  @map("deletion_requested_at") @db.Timestamptz(6)
+  // Sign-in with a password also asks for a code sent to the verified phone.
+  twoFactorEnabledAt  DateTime?  @map("two_factor_enabled_at") @db.Timestamptz(6)
+  anonymisedAt        DateTime?  @map("anonymised_at") @db.Timestamptz(6)
   lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(6)
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -77,7 +80,7 @@ model User {
   otpCodes  OtpCode[]
   addresses Address[]
 
-  ownedBusinesses      Business[]            @relation("BusinessOwner")
+  ownedBusinesses      Business[]              @relation("BusinessOwner")
   promotionRedemptions PromotionRedemption[]
   staffOf              BusinessStaff[]
   carts                Cart[]
@@ -86,6 +89,10 @@ model User {
   bookings             Booking[]
   reviews              Review[]
   wishlistItems        WishlistItem[]
+  policyAcceptances    PolicyAcceptance[]
+  consentRecords       ConsentRecord[]
+  notificationPrefs    NotificationPreference?
+  dataRequests         DataSubjectRequest[]
 
   @@index([status])
   @@map("users")
@@ -299,6 +306,7 @@ model JobRun {
   updatedAt  DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([jobName, startedAt])
+  @@index([startedAt])
   @@map("job_runs")
 }
 
@@ -373,9 +381,9 @@ model Business {
   createdAt                 DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  owner           User             @relation("BusinessOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
-  state           State            @relation(fields: [stateId], references: [id], onDelete: Restrict)
-  lga             Lga              @relation(fields: [lgaId, stateId], references: [id, stateId], onDelete: Restrict, map: "businesses_lga_in_state")
+  owner           User               @relation("BusinessOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  state           State              @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  lga             Lga                @relation(fields: [lgaId, stateId], references: [id, stateId], onDelete: Restrict, map: "businesses_lga_in_state")
   staff           BusinessStaff[]
   kyc             BusinessKyc?
   payoutAccount   PayoutAccount?
@@ -393,6 +401,7 @@ model Business {
   refunds         Refund[]
   disputes        Dispute[]
   payouts         Payout[]
+  acceptances     PolicyAcceptance[]
 
   @@index([ownerUserId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "businesses_name_trgm")
@@ -1135,6 +1144,7 @@ model Cart {
   items CartItem[]
 
   @@index([expiresAt])
+  @@index([updatedAt])
   @@map("carts")
 }
 
@@ -1237,6 +1247,7 @@ model Order {
   reservations StockReservation[]
   redemptions  PromotionRedemption[]
   refunds      Refund[]
+  acceptances  PolicyAcceptance[]
 
   @@index([userId, placedAt])
   @@index([paymentStatus, paymentDueAt])
@@ -1518,6 +1529,7 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([createdAt])
   @@map("notifications")
 }
 
@@ -1952,4 +1964,319 @@ model Payout {
   @@index([businessId, createdAt])
   @@index([status, createdAt])
   @@map("payouts")
+}
+
+// ── Phase 6: compliance and legal ────────────────────────────────────────────
+
+/// One published version of a legal page. A new version is a new row; old
+/// versions stay so every acceptance points at the exact text accepted.
+model LegalDocument {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  slug        String
+  // "2026-10-draft", then the effective date of each new version ("2026-11-14").
+  version     String
+  title       String
+  summary     String
+  // Sanitised HTML; {{company.*}} placeholders are filled in from settings when shown.
+  bodyHtml    String   @map("body_html")
+  effectiveAt DateTime @map("effective_at") @db.Timestamptz(6)
+  // Generated or unreviewed text carries the "review with a Nigerian lawyer/DPO" notice.
+  isTemplate  Boolean  @default(true) @map("is_template")
+  changeNote  String?  @map("change_note")
+  publishedBy String?  @map("published_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  acceptances PolicyAcceptance[]
+
+  @@unique([slug, version])
+  @@index([slug, effectiveAt])
+  @@map("legal_documents")
+}
+
+enum AcceptanceContext {
+  sign_up
+  checkout
+  seller_onboarding
+
+  @@map("acceptance_context")
+}
+
+/// Proof that someone accepted a version of a legal document. Append-only.
+model PolicyAcceptance {
+  id         String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  documentId String            @map("document_id") @db.Uuid
+  context    AcceptanceContext
+  userId     String?           @map("user_id") @db.Uuid
+  orderId    String?           @map("order_id") @db.Uuid
+  businessId String?           @map("business_id") @db.Uuid
+  ipHash     String?           @map("ip_hash")
+  userAgent  String?           @map("user_agent")
+  acceptedAt DateTime          @default(now()) @map("accepted_at") @db.Timestamptz(6)
+
+  document LegalDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  user     User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order    Order?        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  business Business?     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([userId, acceptedAt])
+  @@index([orderId])
+  @@index([businessId])
+  @@index([documentId])
+  @@map("policy_acceptances")
+}
+
+/// Every cookie choice, as made. Append-only; the latest row per subject is the current choice.
+model ConsentRecord {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  // Random id kept in the consent cookie, so choices made before sign-in can be found.
+  subjectId     String   @map("subject_id") @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  // Necessary cookies are always on and not recorded as a choice.
+  functional    Boolean
+  analytics     Boolean
+  marketing     Boolean
+  policyVersion String   @map("policy_version")
+  // banner, settings (footer link) or privacy_centre
+  source        String
+  ipHash        String?  @map("ip_hash")
+  userAgent     String?  @map("user_agent")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([subjectId, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("consent_records")
+}
+
+/// What a signed-in user wants to hear about. Transactional emails (receipts,
+/// refunds, security) always go; these switch off the optional channels.
+model NotificationPreference {
+  userId              String    @id @map("user_id") @db.Uuid
+  smsOrderUpdates     Boolean   @default(true) @map("sms_order_updates")
+  smsBookingReminders Boolean   @default(true) @map("sms_booking_reminders")
+  emailMessages       Boolean   @default(true) @map("email_messages")
+  // Marketing is opt-in, separate from the terms.
+  marketingEmail      Boolean   @default(false) @map("marketing_email")
+  marketingEmailAt    DateTime? @map("marketing_email_at") @db.Timestamptz(6)
+  marketingSms        Boolean   @default(false) @map("marketing_sms")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+/// Addresses that used a one-click unsubscribe link (guests included). Never sent marketing again.
+model MarketingSuppression {
+  email     String   @id @db.Citext
+  source    String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("marketing_suppressions")
+}
+
+enum DsrType {
+  access
+  portability
+  rectification
+  erasure
+  restriction
+  objection
+  withdraw_consent
+  other
+
+  @@map("dsr_type")
+}
+
+enum DsrStatus {
+  // Public form: waiting for the requester to confirm their email.
+  unverified
+  open
+  in_progress
+  completed
+  rejected
+  cancelled
+
+  @@map("dsr_status")
+}
+
+/// A data subject request (NDPA 2023 Part VI), from the Privacy Centre or the public form.
+model DataSubjectRequest {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  // DSR-2026-000123
+  reference       String    @unique
+  type            DsrType
+  status          DsrStatus @default(open)
+  userId          String?   @map("user_id") @db.Uuid
+  email           String    @db.Citext
+  name            String?
+  details         String?
+  // privacy_centre or public_form
+  channel         String
+  verifiedAt      DateTime? @map("verified_at") @db.Timestamptz(6)
+  dueAt           DateTime? @map("due_at") @db.Timestamptz(6)
+  assignedTo      String?   @map("assigned_to") @db.Uuid
+  resolutionNote  String?   @map("resolution_note")
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6)
+  // Access/portability exports in the private bucket.
+  exportJsonKey   String?   @map("export_json_key")
+  exportPdfKey    String?   @map("export_pdf_key")
+  exportExpiresAt DateTime? @map("export_expires_at") @db.Timestamptz(6)
+  ipHash          String?   @map("ip_hash")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, dueAt])
+  @@index([userId, createdAt])
+  @@index([email])
+  @@map("data_subject_requests")
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+
+  @@map("risk_level")
+}
+
+enum BreachStatus {
+  open
+  contained
+  closed
+
+  @@map("breach_status")
+}
+
+enum SubjectNoticeStatus {
+  not_required
+  pending
+  sent
+
+  @@map("subject_notice_status")
+}
+
+/// Personal data breach register. The NDPC must be told within 72 hours of awareness.
+model BreachIncident {
+  id                 String              @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  // BR-2026-0001
+  reference          String              @unique
+  title              String
+  description        String
+  detectedAt         DateTime            @map("detected_at") @db.Timestamptz(6)
+  awareAt            DateTime            @map("aware_at") @db.Timestamptz(6)
+  dataCategories     String[]            @map("data_categories")
+  subjectsAffected   Int?                @map("subjects_affected")
+  risk               RiskLevel
+  actions            String?
+  status             BreachStatus        @default(open)
+  ndpcNotifiedAt     DateTime?           @map("ndpc_notified_at") @db.Timestamptz(6)
+  ndpcReference      String?             @map("ndpc_reference")
+  subjectNotice      SubjectNoticeStatus @default(pending) @map("subject_notice")
+  subjectsNotifiedAt DateTime?           @map("subjects_notified_at") @db.Timestamptz(6)
+  createdBy          String              @map("created_by") @db.Uuid
+  closedAt           DateTime?           @map("closed_at") @db.Timestamptz(6)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, awareAt])
+  @@map("breach_incidents")
+}
+
+enum LawfulBasis {
+  consent
+  contract
+  legal_obligation
+  vital_interests
+  public_interest
+  legitimate_interests
+
+  @@map("lawful_basis")
+}
+
+/// Record of processing activities (RoPA).
+model ProcessingActivity {
+  id             String      @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name           String
+  purpose        String
+  lawfulBasis    LawfulBasis @map("lawful_basis")
+  dataSubjects   String[]    @map("data_subjects")
+  dataCategories String[]    @map("data_categories")
+  recipients     String[]
+  transfers      String?
+  retention      String
+  security       String?
+  sortOrder      Int         @default(0) @map("sort_order")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  dpias DpiaRecord[]
+
+  @@map("processing_activities")
+}
+
+/// Third parties that process personal data for TownMart.
+model DataProcessor {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name           String    @unique
+  service        String
+  dataCategories String[]  @map("data_categories")
+  // Where the data is processed, and the safeguard for transfers out of Nigeria.
+  location       String
+  safeguards     String?
+  dpaSignedAt    DateTime? @map("dpa_signed_at") @db.Timestamptz(6)
+  website        String?
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("data_processors")
+}
+
+enum DpiaStatus {
+  draft
+  approved
+  needs_review
+
+  @@map("dpia_status")
+}
+
+/// Data protection impact assessments.
+model DpiaRecord {
+  id           String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  title        String
+  activityId   String?    @map("activity_id") @db.Uuid
+  description  String
+  risks        String
+  mitigations  String
+  residualRisk RiskLevel  @map("residual_risk")
+  status       DpiaStatus @default(draft)
+  reviewedAt   DateTime?  @map("reviewed_at") @db.Timestamptz(6)
+  nextReviewAt DateTime?  @map("next_review_at") @db.Timestamptz(6)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  activity ProcessingActivity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+
+  @@index([activityId])
+  @@map("dpia_records")
+}
+
+/// How long each kind of data is kept, in days. Read by the retention jobs; edited in the compliance centre.
+model RetentionSetting {
+  key         String   @id
+  label       String
+  description String
+  days        Int
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("retention_settings")
 }

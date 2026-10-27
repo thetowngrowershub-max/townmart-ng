@@ -1,10 +1,12 @@
 import { prisma, withSystemContext } from "@/lib/db";
 import { sendBookingReminders } from "@/lib/bookings/reminders";
+import { anonymiseDeletedAccounts, purgeAbandonedCarts, purgeOldLogs, purgeUnverifiedAccounts, purgeUnverifiedRequests } from "@/lib/compliance/retention-jobs";
 import { autoCompleteDelivered } from "@/lib/fulfilment/orders";
 import { escalateOverdueRefunds } from "@/lib/disputes/core";
 import { expireUnpaidOrders } from "@/lib/orders/payment";
 import { releaseDueEscrow } from "@/lib/payouts/escrow";
 import { runPayouts, syncPayouts } from "@/lib/payouts/payouts";
+import { purgeExpiredExports } from "@/lib/privacy/export";
 import { processRefunds } from "@/lib/refunds/core";
 import { getCheckoutSettings } from "@/lib/settings";
 
@@ -51,4 +53,11 @@ export const maintenanceJobs: Record<string, MaintenanceJob> = {
   // Daily payout run on working mornings, plus a check on transfers still in progress.
   "payouts.run": { pattern: "0 10 * * 1-5", run: () => runPayouts() },
   "payouts.sync": { pattern: "*/15 * * * *", run: () => syncPayouts() },
+  // Retention (periods from the compliance centre), overnight.
+  "retention.carts": { pattern: "10 2 * * *", run: () => purgeAbandonedCarts() },
+  "retention.unverified-accounts": { pattern: "20 2 * * *", run: () => purgeUnverifiedAccounts() },
+  "retention.logs": { pattern: "30 2 * * *", run: () => purgeOldLogs() },
+  "retention.anonymise-accounts": { pattern: "40 2 * * *", run: () => anonymiseDeletedAccounts() },
+  "retention.exports": { pattern: "50 2 * * *", run: () => purgeExpiredExports() },
+  "retention.unverified-requests": { pattern: "55 2 * * *", run: () => purgeUnverifiedRequests() },
 };

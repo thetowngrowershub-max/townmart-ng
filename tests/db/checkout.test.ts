@@ -172,6 +172,12 @@ describe("placing an order", () => {
     expect(o.paymentStatus).toBe("unpaid");
     expect(o.termsVersion).toBeTruthy();
     expect(o.refundPolicyVersion).toBeTruthy();
+    // The versions on the order come from the acceptance records written with it.
+    const accepted = await owner.policyAcceptance.findMany({ where: { orderId: o.id }, include: { document: true } });
+    expect(accepted.map((x) => [x.context, x.userId, x.document.slug, x.document.version]).sort()).toEqual([
+      ["checkout", buyer.id, "refunds", o.refundPolicyVersion],
+      ["checkout", buyer.id, "terms", o.termsVersion],
+    ]);
     expect(o.sellerOrders.map((s) => s.businessId).sort()).toEqual([a.businessId, b.businessId].sort());
     expect(o.sellerOrders.every((s) => s.status === "pending_payment" && s.orderNumber === o.orderNumber)).toBe(true);
     expect(o.subtotalKobo).toBe(900_000n);

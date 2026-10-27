@@ -2,12 +2,12 @@
  * Seeds reference data and platform accounts. Idempotent: safe to run repeatedly.
  * Runs as `townmart_migrator` (MIGRATE_DATABASE_URL), which owns the tables.
  *
- * Seeds 36 states + FCT and their 774 LGAs, default settings, one admin and one
- * super admin, then the catalogue: categories plus six demo sellers with
- * products, services and promotions (seed-catalogue.ts), and default delivery
- * zones, rates and commission (seed-delivery.ts), then demo orders, bookings
- * and reviews (seed-orders.ts), and demo refunds, a dispute and a payout
- * (seed-money.ts).
+ * Seeds 36 states + FCT and their 774 LGAs, default settings, the legal pages,
+ * retention periods and RoPA (seed-legal.ts), one admin and one super admin,
+ * then the catalogue: categories plus six demo sellers with products, services
+ * and promotions (seed-catalogue.ts), and default delivery zones, rates and
+ * commission (seed-delivery.ts), then demo orders, bookings and reviews
+ * (seed-orders.ts), and demo refunds, a dispute and a payout (seed-money.ts).
  */
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
@@ -16,6 +16,7 @@ import { hashPassword } from "../lib/auth/password";
 import { slugify } from "../lib/slug";
 import statesData from "./data/nigeria-states-lgas.json";
 import { seedDemoCatalogue } from "./seed-catalogue";
+import { seedCompliance } from "./seed-legal";
 import { seedDeliveryAndCommission } from "./seed-delivery";
 import { seedDemoMoney } from "./seed-money";
 import { seedDemoOrders } from "./seed-orders";
@@ -56,7 +57,6 @@ const DEFAULT_SETTINGS: { key: string; value: unknown; description: string }[] =
   { key: "bookings.days_ahead", value: 60, description: "How far ahead customers can book (days)." },
   { key: "orders.auto_complete_days", value: 7, description: "Days after delivery before an order completes if the customer doesn't confirm." },
   { key: "auth.max_failed_logins", value: 5, description: "Failed sign-ins before a temporary lockout." },
-  { key: "dsr.response_days", value: 30, description: "Deadline for data subject requests (days)." },
 ];
 
 async function seedSettings() {
@@ -100,6 +100,7 @@ async function seedStaffAccount(email: string, name: string, roles: Role[], envV
 async function main() {
   await seedStatesAndLgas();
   await seedSettings();
+  await seedCompliance(prisma);
   await seedStaffAccount("admin@townmart.local", "TownMart Admin", ["admin", "customer"], "SEED_ADMIN_PASSWORD");
   await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN_PASSWORD");
   await seedDeliveryAndCommission(prisma);

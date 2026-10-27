@@ -101,6 +101,8 @@ export async function removeAccountPhoneAction(): Promise<ActionResult> {
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Please sign in again." };
   const meta = await requestMeta();
+  const current = await prisma.user.findUnique({ where: { id: user.id }, select: { twoFactorEnabledAt: true } });
+  if (current?.twoFactorEnabledAt) return { ok: false, error: "Turn off two-step sign-in before removing your phone number." };
   await prisma.user.update({ where: { id: user.id }, data: { phoneEncrypted: null, phoneHash: null, phoneVerifiedAt: null } });
   await withRls({ userId: user.id }, (tx) => writeAudit(tx, { actorUserId: user.id, action: "user.phone_removed", entityType: "user", entityId: user.id, ipHash: meta.ipHash }));
   revalidatePath("/account/security");
