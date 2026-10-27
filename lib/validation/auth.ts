@@ -22,6 +22,8 @@ export const signUpSchema = z.object({
   name: z.string().trim().min(2, "Enter your name").max(80),
   email: emailSchema,
   password: passwordSchema,
+  acceptTerms: z.literal(true, { error: "Please accept the Terms of Use and Privacy Policy" }),
+  marketingEmail: z.boolean().default(false),
   turnstileToken: z.string().optional(),
 });
 export type SignUpInput = z.input<typeof signUpSchema>;

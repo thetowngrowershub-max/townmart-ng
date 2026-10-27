@@ -32,7 +32,7 @@ import {
  */
 export type NavItem = { href: string; label: string; icon: LucideIcon; phase: number };
 
-export const CURRENT_PHASE = 5;
+export const CURRENT_PHASE = 6;
 
 export const accountNav: NavItem[] = [
   { href: "/account", label: "Overview", icon: LayoutDashboard, phase: 0 },

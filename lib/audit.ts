@@ -45,3 +45,12 @@ export async function writeAudit(tx: Tx, entry: AuditEntry): Promise<void> {
     },
   });
 }
+
+/**
+ * Records that a member of staff opened a page showing someone's personal
+ * data (NDPA accountability: every admin access to personal data is logged).
+ * Listed in the compliance centre's access log.
+ */
+export async function logPersonalDataView(tx: Tx, p: { actorUserId: string; entityType: string; entityId: string; fields: string[]; ipHash?: string | null }): Promise<void> {
+  await writeAudit(tx, { actorUserId: p.actorUserId, action: "personal_data.viewed", entityType: p.entityType, entityId: p.entityId, after: { fields: p.fields }, ipHash: p.ipHash });
+}

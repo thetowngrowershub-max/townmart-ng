@@ -4,7 +4,7 @@ import { adjustStock, CatalogueError } from "@/lib/catalogue/products";
 import { computeCheckout, type CheckoutComputation } from "@/lib/checkout/compute";
 import { decrypt, encrypt, lookupHash, sha256 } from "@/lib/crypto";
 import type { Tx } from "@/lib/db";
-import { REFUND_POLICY_VERSION, TERMS_VERSION } from "@/lib/legal";
+import { recordAcceptances } from "@/lib/legal/documents";
 import { formatPrice } from "@/lib/money";
 import type { CheckoutData } from "@/lib/validation/checkout";
 import { recordStatus } from "./status";
@@ -125,7 +125,7 @@ async function resolveAddress(tx: Tx, data: CheckoutData, userId: string | null)
  */
 export async function placeOrder(
   tx: Tx,
-  params: { cartId: string; userId: string | null; accountEmail: string | null; accountName: string | null; data: CheckoutData; ipHash: string },
+  params: { cartId: string; userId: string | null; accountEmail: string | null; accountName: string | null; data: CheckoutData; ipHash: string; userAgent?: string | null },
 ): Promise<PlacedOrder> {
   const { data, userId } = params;
   const email = params.accountEmail ?? (data.email || null);
@@ -181,8 +181,9 @@ export async function placeOrder(
       paymentMethod: pod ? "pay_on_delivery" : "paystack",
       couponCode: c.priced.coupon.state === "applied" ? c.priced.coupon.code : null,
       promotionPlan: c.priced.redemptions.map((r) => ({ promotionId: r.promotionId, couponId: r.couponId, discountKobo: r.discountKobo.toString() })),
-      termsVersion: TERMS_VERSION,
-      refundPolicyVersion: REFUND_POLICY_VERSION,
+      // Filled in below, from the acceptance records.
+      termsVersion: "",
+      refundPolicyVersion: "",
       marketingConsent: data.marketingConsent,
       // Filled in below: the token is derived from the order id.
       accessTokenHash: "",
@@ -193,7 +194,12 @@ export async function placeOrder(
   });
 
   const accessToken = orderAccessToken(order.id);
-  await tx.order.update({ where: { id: order.id }, data: { accessTokenHash: sha256(accessToken) } });
+  const accepted = await recordAcceptances(tx, { context: "checkout", userId, orderId: order.id, ipHash: params.ipHash, userAgent: params.userAgent });
+  await tx.order.update({ where: { id: order.id }, data: { accessTokenHash: sha256(accessToken), termsVersion: accepted.terms!, refundPolicyVersion: accepted.refunds! } });
+  // Ticking the marketing box opts a signed-in shopper in; guests are tracked on the order.
+  if (userId && data.marketingConsent) {
+    await tx.notificationPreference.upsert({ where: { userId }, create: { userId, marketingEmail: true, marketingEmailAt: now }, update: { marketingEmail: true, marketingEmailAt: now } });
+  }
 
   const pricedByKey = new Map(c.priced.lines.map((l) => [l.key, l]));
   const sellerById = new Map(c.sellers.map((s) => [s.businessId, s]));

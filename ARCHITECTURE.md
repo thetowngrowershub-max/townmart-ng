@@ -289,6 +289,38 @@ Ledger postings added in this phase (all in `lib/ledger/entries.ts`, balanced an
 
 Notices for refunds, disputes and payouts go through the same worker job as order notices (`refund.update`, `dispute.update`, `payout.update`), by email and in-app notification. Photos for refund requests are stored privately under `evidence/o-<order id>/` and opened through `/api/refunds/[id]/evidence/[n]`, which checks the viewer is the customer (or has the order link), the seller or TownMart and redirects to a 60-second signed URL.
 
+## Phase 6: legal, consent and privacy (NDPA 2023)
+
+### Legal pages
+
+Every page under `/legal/*` (13, listed in `lib/legal/documents.ts`, all linked from the footer) is a row in `legal_documents`, versioned by effective date. A page shows the version in force, notes an upcoming one, lists older versions (`?v=` opens one) and, while `is_template` is set, carries the notice "Template: review with a Nigerian lawyer/DPO before launch". The seed writes the starting templates (`prisma/legal-templates.ts`, version `2026-10-draft`). Admins publish a new version on `/admin/compliance/legal/[slug]` with the rich-text editor (sanitised), an effective date and a change note; nothing is ever edited in place. `{{company.*}}` and `{{retention.*}}` placeholders are filled from the company details and retention settings on `/admin/compliance/retention`, and anything not set yet shows as a highlighted "[… not set]" marker.
+
+`recordAcceptances()` writes a `policy_acceptances` row per document at sign-up (Terms, Privacy), checkout (Terms, Refunds; guests by order) and seller onboarding (Seller Agreement, DPA, Prohibited Items, plus Service Provider Terms for service sellers), and returns the versions copied onto the order or business. Google sign-up records the same acceptances in the `createUser` event; the sign-in and sign-up pages say continuing with Google accepts them.
+
+### Cookies and marketing
+
+`<ConsentManager />` in the root layout reads the `tm_consent` cookie (random subject id, three choices, Cookie Policy version, time). Until there is a current choice it shows the banner: Accept all, Reject non-essential and Customise, all the same size and style. Analytics and marketing scripts (`ANALYTICS_SCRIPT_URL`, `MARKETING_SCRIPT_URL`) are rendered only for the categories allowed, so nothing loads before consent. Each choice is stored in `consent_records` (append-only); the banner returns after 12 months or when the Cookie Policy changes. "Cookie settings" in the footer and the Privacy Centre reopen it.
+
+Marketing is opt-in and separate from the terms: a box at sign-up and checkout, and a switch in notification settings. Every marketing email carries `List-Unsubscribe` with one-click POST (RFC 8058, `/api/unsubscribe`) and a footer link to `/unsubscribe`; both are HMAC-signed and need no sign-in. Unsubscribed addresses go on `marketing_suppressions`, and `marketingAudience()` (the only source for a campaign list) leaves them out.
+
+### Privacy Centre and data requests
+
+`/account/privacy` lets a signed-in person: download their data (JSON and PDF, built by the `privacy` worker job, stored privately and offered through a signed link for 7 days); correct their name (other details on the profile pages); change cookie and marketing choices; object to or restrict processing, or ask for anything else, as a request; and delete their account. Deletion signs them out everywhere and starts a 14-day grace period; signing in again (after two-step sign-in, if on) cancels it. When it ends, `retention.anonymise-accounts` removes everything that identifies them (name, email, phone, password, sign-in methods, addresses, carts, wishlist, notifications, roles; reviews show "Former customer"), keeps order, payment and refund records for six years as the law requires, suppresses marketing to the old address and emails it to confirm. Shop owners' deletions are handled by hand.
+
+`/legal/data-request` is the public form for people without an account (Turnstile, rate limited by IP and email). The requester confirms by email link before the request joins the queue; unconfirmed requests are removed after 7 days. Every request (`data_subject_requests`, `DSR-YYYY-NNNNNN`) has a deadline (30 days by default) and its history in the audit log; closing one emails the requester.
+
+### Compliance centre
+
+`/admin/compliance` (`compliance.manage`, admins): an overview of what's due; the request queue with SLA countdown, assignment, notes, linking to an account and preparing an export; the breach register with a live 72-hour NDPC countdown from the moment TownMart became aware, NDPC reference, notice to the people affected and a ready-to-edit notice; the Record of Processing Activities, processors (with DPA dates) and DPIAs; retention periods and company details; legal page publishing; and logs of cookie choices and staff access to personal data. Opening someone's order, dispute or data request in the admin console writes a `personal_data.viewed` audit entry, alongside the existing KYC and application view entries.
+
+### Retention jobs
+
+Nightly (02:10 to 02:55 Lagos), each reading its period from `retention_settings` at run time: abandoned carts (30 days), unverified sign-ups that never did anything (30 days; never staff, shop owners or anyone with an order, booking or review), job logs and in-app notifications (12 months), accounts past their deletion grace period, unconfirmed public requests (7 days) and expired export files. Order, payment, refund and ledger records and the audit log are never touched.
+
+### Account security and notices
+
+Two-step sign-in by SMS code to a verified phone, switched on from `/account/security`: after a correct password the browser gets only a signed 10-minute `tm_2fa` cookie, and the session is created once the code is right. The phone can't be removed while it's on. The same page connects or disconnects Google (an existing account links only from inside it; an account with no password and no verified phone can't disconnect its only way to sign in). `/account/notifications` sets SMS order updates, SMS booking reminders, message emails and marketing; order and booking notices honour them, and emails that are needed for the service (receipts, refunds, security) are always sent.
+
 ## Design system
 
 Tokens live in `app/globals.css` as CSS variables (light and dark via `prefers-color-scheme`) and are exposed to Tailwind v4 through `@theme`. Components in `components/ui` use semantic tokens only (`bg-primary`, `text-muted-foreground`). Admins can see everything at `/design-system`.

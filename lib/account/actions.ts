@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { writeAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/current-user";
 import { encrypt } from "@/lib/crypto";
 import { withRls } from "@/lib/db";
+import { requestMeta } from "@/lib/request";
 import { newAddressSchema } from "@/lib/validation/checkout";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 
@@ -78,4 +80,33 @@ export async function markNotificationsReadAction(): Promise<ActionResult> {
   await withRls({ userId: user.id }, (tx) => tx.notification.updateMany({ where: { userId: user.id, readAt: null }, data: { readAt: new Date() } }));
   revalidatePath("/account/notifications");
   return { ok: true };
+}
+
+const preferencesSchema = z.object({
+  smsOrderUpdates: z.boolean(),
+  smsBookingReminders: z.boolean(),
+  emailMessages: z.boolean(),
+  marketingEmail: z.boolean(),
+  marketingSms: z.boolean(),
+});
+
+/** Optional channels only: receipts, refunds and security emails always go. */
+export async function saveNotificationPreferencesAction(input: z.input<typeof preferencesSchema>): Promise<ActionResult> {
+  const parsed = preferencesSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  const user = await requirePermission("account.access", "/account/notifications");
+  const meta = await requestMeta();
+  await withRls({ userId: user.id }, async (tx) => {
+    const before = await tx.notificationPreference.findUnique({ where: { userId: user.id } });
+    const d = parsed.data;
+    // When marketing consent was given is part of the record; keep it until it's withdrawn.
+    const marketingEmailAt = d.marketingEmail ? (before?.marketingEmail ? before.marketingEmailAt : new Date()) : null;
+    await tx.notificationPreference.upsert({ where: { userId: user.id }, create: { userId: user.id, ...d, marketingEmailAt }, update: { ...d, marketingEmailAt } });
+    if (Boolean(before?.marketingEmail) !== d.marketingEmail || Boolean(before?.marketingSms) !== d.marketingSms) {
+      await writeAudit(tx, { actorUserId: user.id, action: "user.marketing_consent", entityType: "user", entityId: user.id, after: { marketingEmail: d.marketingEmail, marketingSms: d.marketingSms }, ipHash: meta.ipHash });
+    }
+  });
+  revalidatePath("/account/notifications");
+  revalidatePath("/account/privacy");
+  return { ok: true, message: "Saved." };
 }

@@ -10,6 +10,7 @@ export const QUEUES = {
   maintenance: "maintenance",
   imports: "imports",
   orders: "orders",
+  privacy: "privacy",
 } as const;
 
 export type NotificationJobs = {
@@ -17,6 +18,7 @@ export type NotificationJobs = {
   "sms.send": SmsMessage;
   "stock.low": { businessId: string; variantIds: string[] };
 };
+export type PrivacyJobs = { "privacy.export": { requestId: string } };
 export type ImportJobs = { "products.csv": { importJobId: string; businessId: string } };
 /** Status changes and messages that the customer or seller is told about. */
 export type FulfilmentNotice =
@@ -81,7 +83,7 @@ export async function enqueueNotice(notice: FulfilmentNotice): Promise<void> {
   }
 }
 
-const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue; importsQueue?: Queue };
+const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue; importsQueue?: Queue; privacyQueue?: Queue };
 
 function notificationsQueue(): Queue {
   globalForQueues.notificationsQueue ??= new Queue(QUEUES.notifications, {
@@ -124,4 +126,13 @@ function importsQueue(): Queue {
 
 export async function enqueueProductImport(data: ImportJobs["products.csv"]): Promise<void> {
   await importsQueue().add("products.csv", data, { jobId: data.importJobId });
+}
+
+/** Data exports for the Privacy Centre. One job per request. */
+export async function enqueueDataExport(data: PrivacyJobs["privacy.export"]): Promise<void> {
+  globalForQueues.privacyQueue ??= new Queue(QUEUES.privacy, {
+    connection: redis,
+    defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 30_000 }, removeOnComplete: 100, removeOnFail: { age: 30 * 24 * 3600 } },
+  });
+  await globalForQueues.privacyQueue.add("privacy.export", data, { jobId: `export-${data.requestId}` });
 }

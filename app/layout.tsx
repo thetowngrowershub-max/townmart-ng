@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import type { ReactNode } from "react";
+import { ConsentManager } from "@/components/consent/consent-manager";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           Skip to content
         </a>
         <Providers>{children}</Providers>
+        <ConsentManager />
       </body>
     </html>
   );

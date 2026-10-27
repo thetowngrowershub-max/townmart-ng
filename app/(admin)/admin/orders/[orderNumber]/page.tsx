@@ -9,16 +9,23 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { loadAdminOrder } from "@/lib/admin/finance-view";
+import { logPersonalDataView } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/current-user";
 import { can } from "@/lib/authz";
 import { withRls } from "@/lib/db";
+import { requestMeta } from "@/lib/request";
 
 export const metadata: Metadata = { title: "Order" };
 
 export default async function AdminOrderPage({ params }: { params: Promise<{ orderNumber: string }> }) {
   const { orderNumber } = await params;
   const user = await requirePermission("dispute.manage", `/admin/orders/${orderNumber}`);
-  const o = await withRls({ scope: "admin", userId: user.id }, (tx) => loadAdminOrder(tx, orderNumber));
+  const meta = await requestMeta();
+  const o = await withRls({ scope: "admin", userId: user.id }, async (tx) => {
+    const o = await loadAdminOrder(tx, orderNumber);
+    if (o) await logPersonalDataView(tx, { actorUserId: user.id, entityType: "order", entityId: orderNumber, fields: ["customer name", "email"], ipHash: meta.ipHash });
+    return o;
+  });
   if (!o) notFound();
   const finance = can(user, "finance.manage");
 

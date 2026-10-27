@@ -56,6 +56,7 @@ export async function placeOrderAction(input: CheckoutInput): Promise<ActionResu
           accountName: user?.name ?? null,
           data: parsed.data,
           ipHash: meta.ipHash,
+          userAgent: meta.userAgent,
         }),
       { timeout: 30_000 },
     );

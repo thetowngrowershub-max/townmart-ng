@@ -39,6 +39,10 @@ export default async function SignInPage({
               <Button type="submit" variant="outline" className="w-full">
                 Continue with Google
               </Button>
+              <p className="mt-2 text-center text-xs text-muted-foreground">
+                New to TownMart? Continuing with Google accepts our <Link href="/legal/terms" className="underline">Terms of Use</Link> and confirms you&apos;ve read the{" "}
+                <Link href="/legal/privacy" className="underline">Privacy Policy</Link>.
+              </p>
             </form>
             <p className="text-center text-xs text-muted-foreground">or sign in with email</p>
           </>

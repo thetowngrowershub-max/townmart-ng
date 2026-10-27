@@ -54,7 +54,8 @@ export type GlobalPermission =
   | "seller.review"
   | "kyc.document.view"
   | "finance.manage"
-  | "dispute.manage";
+  | "dispute.manage"
+  | "compliance.manage";
 
 type AnyPermission = `${OwnedPermission | BusinessPermission}:any`;
 
@@ -81,6 +82,8 @@ const ADMIN: Grant[] = [
   "order.read:any",
   "finance.manage",
   "dispute.manage",
+  // Data requests, breach register, RoPA, retention and legal pages.
+  "compliance.manage",
 ];
 
 export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {

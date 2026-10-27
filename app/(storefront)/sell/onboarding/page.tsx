@@ -15,7 +15,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/authz";
 import { withRls } from "@/lib/db";
 import { env } from "@/lib/env";
-import { SELLER_AGREEMENT_VERSION } from "@/lib/legal";
+import { currentDocuments } from "@/lib/legal/documents";
 import { bankVerifier } from "@/lib/payments/banks";
 import { EDITABLE_STATUSES, getOnboardingState, nextStep, ONBOARDING_STEPS, STEP_LABELS, type OnboardingStep } from "@/lib/seller/onboarding";
 import { publicImageUrl } from "@/lib/storage";
@@ -48,6 +48,10 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
   const requested = (await searchParams).step as OnboardingStep | undefined;
   const reachable = (s: OnboardingStep) => ONBOARDING_STEPS.indexOf(s) <= ONBOARDING_STEPS.indexOf(firstOpen);
   const step = requested && ONBOARDING_STEPS.includes(requested) && reachable(requested) ? requested : firstOpen;
+  const versions =
+    step === "submit"
+      ? Object.fromEntries([...(await withRls({ userId: user.id }, (tx) => currentDocuments(tx, ["seller-agreement", "dpa"])))].map(([slug, d]) => [slug, d.version]))
+      : {};
 
   const host = new URL(env().APP_URL).host;
   const states =
@@ -178,7 +182,11 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
             />
           )}
           {step === "submit" && (
-            <SubmitForm ready={(["details", "phone", "identity", "payout", "branding"] as const).every((s) => state.done[s])} agreementVersion={SELLER_AGREEMENT_VERSION} />
+            <SubmitForm
+              ready={(["details", "phone", "identity", "payout", "branding"] as const).every((s) => state.done[s])}
+              versions={versions}
+              services={b?.sellsServices ?? false}
+            />
           )}
         </CardContent>
       </Card>

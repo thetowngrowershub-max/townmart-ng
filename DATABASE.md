@@ -129,6 +129,22 @@ Unique partial indexes allow one open refund request and one open dispute per se
 
 `tests/db/payouts.test.ts` proves: cancelling refunds everything, restocks and empties the seller's escrow; partial returns split the money in proportion, escrow is released once and later refunds come from the available balance, with the ledger balanced throughout; a declined refund escalates to a dispute that TownMart decides; booking cancellations refund by the policy; pay-on-delivery orders settle commission and fees from the seller's balance; a payout pays the balance once and a failed transfer puts it back; an unusable payment is refunded once; a declined provider refund can be retried; and seller A can't read B's refunds, disputes or payouts, can't write refunds, payouts or escrow release at all, and can't post into B's dispute, someone else's as a customer, or as TownMart, nor edit messages.
 
+Phase 6 policies:
+
+| Table | Read | Write |
+|---|---|---|
+| `legal_documents` | everyone | admin/system only. A version is never edited: publishing adds a row (`slug`, `version` unique) |
+| `policy_acceptances` | the user, the business owner for its own onboarding, admin/system | the signed-in user for themselves (and their own business), a guest only with an order id, admin/system. Append-only (`UPDATE`/`DELETE`/`TRUNCATE` revoked) |
+| `consent_records` | the signed-in user for their own, admin/system | admin/system only (the cookie banner action writes in the system scope after rate limiting). Append-only |
+| `notification_preferences` | the user | the user |
+| `data_subject_requests` | the requester (by `user_id`), admin/system | admin/system only. A unique partial index allows one open erasure request per account |
+| `marketing_suppressions`, `breach_incidents`, `processing_activities`, `data_processors`, `dpia_records`, `retention_settings` | admin/system only | admin/system only |
+| `reviews` (Phase 6 addition) | as before | `author_name` is granted to the app so anonymising can replace it, but `guard_review_author` allows the change only in admin/system scope |
+
+`next_dsr_reference()` numbers requests `DSR-YYYY-NNNNNN` and `next_breach_reference()` breaches `BR-YYYY-NNNN`. Partial indexes `users_unverified` and `users_pending_deletion` keep the retention jobs cheap.
+
+`tests/db/compliance.test.ts` proves: acceptances are recorded with the current versions at sign-up, checkout (guest and signed in) and seller onboarding, and nobody can edit or delete them or consent records; users see only their own acceptances, consent records and data requests, and can't write the compliance tables; a deletion request can be undone by signing in within the grace period, and anonymising removes personal data, keeps the order with the money unchanged, renames reviews to "Former customer" and suppresses marketing to the old address; the retention jobs remove abandoned carts, unverified accounts (never staff or anyone with an order), old logs and unconfirmed requests, and nothing else; the marketing audience skips suppressed addresses; the export collects the account's data.
+
 Tables without RLS: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data (states, LGAs, categories), `settings`, `job_runs`.
 
 RLS is defence in depth. The application `authz` check always runs first.
@@ -145,9 +161,28 @@ RLS is defence in depth. The application `authz` check always runs first.
 
 ## Encryption and hashing
 
-- Column-level encryption: `lib/crypto` AES-256-GCM, format `v1.<keyId>.<iv>.<tag>.<ciphertext>`, key id bound into the authenticated data. Used for `*_encrypted` columns (phone numbers, address lines, business phone and address, KYC provider references). Full bank account numbers are never stored: only the last 4 digits and Paystack's subaccount code.
-- Lookups on encrypted values use keyed HMAC-SHA256 hashes (`phone_hash`, `ip_hash`) with a separate `DATA_HASH_KEY`.
+- Column-level encryption: `lib/crypto` AES-256-GCM, format `v1.<keyId>.<iv>.<tag>.<ciphertext>`, key id bound into the authenticated data.
+- Lookups on encrypted values use keyed HMAC-SHA256 hashes with a separate `DATA_HASH_KEY`.
 - Key rotation: [scripts/db/rotate-keys.md](scripts/db/rotate-keys.md).
+
+### Personal data and how each column is protected (Phase 6 audit)
+
+| Column | Holds | Protection |
+|---|---|---|
+| `users.phone_encrypted` / `users.phone_hash` | sign-in phone number | encrypted; HMAC for lookup |
+| `users.password_hash` | password | argon2id |
+| `addresses.phone_encrypted`, `line1_encrypted`, `line2_encrypted` | delivery phone and street | encrypted (city, LGA, state and landmark are plain for delivery pricing) |
+| `orders.contact_phone_encrypted` | order phone | encrypted |
+| `orders.shipping_address_snapshot`, `seller_orders.fulfilment_contact` (JSON) | address at the time of the order | `phoneEncrypted`, `line1Encrypted`, `line2Encrypted` keys encrypted |
+| `businesses.phone_encrypted` / `phone_hash`, `address_encrypted` | seller contact and address | encrypted; HMAC for lookup |
+| `store_policies.pickup_address_encrypted` | pickup address | encrypted |
+| `business_kyc.provider_reference_encrypted` | identity provider reference | encrypted. Raw BVN/NIN is never stored; KYC documents sit in the private bucket and open through 60-second signed URLs, each view audited |
+| `payout_accounts.account_number_last4`, `payouts.account_number_last4` | bank account | last 4 digits only; the full number stays with Paystack |
+| `orders.access_token_hash`, `carts.guest_token_hash`, `otp_codes.code_hash` | guest links, one-time codes | hashed, never stored in plain |
+| `*.ip_hash` (audit logs, sessions, orders, acceptances, consent, data requests) | IP address | HMAC only |
+| `users.email`, `name`; `orders.contact_email`, `customer_name`; `data_subject_requests.email`, `name` | needed in plain to sign in, send receipts and answer requests | plain; orders and requests are behind RLS, and anonymisation removes them from the account |
+
+`tests/db/schema-conventions.test.ts` checks every `*_encrypted` column, and every `*Encrypted` key in every JSON column, holds `v1` ciphertext, so a new column written in plain fails the build.
 
 ## Reference data
 

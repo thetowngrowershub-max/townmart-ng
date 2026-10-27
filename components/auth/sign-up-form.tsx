@@ -5,6 +5,7 @@ import { Turnstile } from "@/components/auth/turnstile";
 import { useActionForm } from "@/components/auth/use-action-form";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { signUpAction } from "@/lib/auth/actions";
@@ -15,6 +16,8 @@ export function SignUpForm() {
     name: "",
     email: "",
     password: "",
+    acceptTerms: false as true,
+    marketingEmail: false,
   });
   const errors = form.formState.errors;
 
@@ -31,17 +34,25 @@ export function SignUpForm() {
         <Input type="password" autoComplete="new-password" {...form.register("password")} />
       </FormField>
       <Turnstile onToken={(t) => form.setValue("turnstileToken", t)} />
-      <p className="text-xs text-muted-foreground">
-        By creating an account you agree to our{" "}
-        <Link href="/legal/terms" className="text-primary underline">
-          Terms of Use
-        </Link>{" "}
-        and confirm you have read our{" "}
-        <Link href="/legal/privacy" className="text-primary underline">
-          Privacy Policy
-        </Link>
-        . You must be 18 or older.
-      </p>
+      <Checkbox
+        id="acceptTerms"
+        label={
+          <>
+            I agree to the{" "}
+            <Link href="/legal/terms" target="_blank" className="text-primary underline">
+              Terms of Use
+            </Link>{" "}
+            and have read the{" "}
+            <Link href="/legal/privacy" target="_blank" className="text-primary underline">
+              Privacy Policy
+            </Link>
+            . I&apos;m 18 or older.
+          </>
+        }
+        {...form.register("acceptTerms")}
+      />
+      {errors.acceptTerms && <p className="text-xs font-medium text-danger">{errors.acceptTerms.message}</p>}
+      <Checkbox id="marketingEmail" label="Send me offers and news by email (optional)" hint="Unsubscribe with one click from any offer email." {...form.register("marketingEmail")} />
       <Button type="submit" disabled={pending}>
         {pending ? "Creating account…" : "Create account"}
       </Button>

@@ -18,7 +18,7 @@ import { saveProduct } from "../lib/catalogue/products";
 import { saveService } from "../lib/catalogue/services";
 import { encrypt, phoneHash } from "../lib/crypto";
 import { dateToLagosLocal } from "../lib/datetime";
-import { DPA_VERSION, SELLER_AGREEMENT_VERSION } from "../lib/legal";
+import { INITIAL_LEGAL_VERSION } from "./legal-templates";
 import { normaliseNigerianPhone } from "../lib/phone";
 import { savePromotion } from "../lib/promotions/promotions";
 import { storage } from "../lib/storage";
@@ -203,9 +203,9 @@ async function seedSeller(prisma: PrismaClient, seller: DemoSeller, categoryIds:
           reviewedAt: now,
           sellsProducts: b.sellsProducts,
           sellsServices: b.sellsServices,
-          sellerAgreementVersion: SELLER_AGREEMENT_VERSION,
+          sellerAgreementVersion: INITIAL_LEGAL_VERSION,
           sellerAgreementAcceptedAt: now,
-          dpaVersion: DPA_VERSION,
+          dpaVersion: INITIAL_LEGAL_VERSION,
           dpaAcceptedAt: now,
         },
       });

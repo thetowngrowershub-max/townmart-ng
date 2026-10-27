@@ -183,6 +183,12 @@
     color: var(--color-primary);
     text-decoration: underline;
   }
+  .prose-tm mark {
+    background: color-mix(in oklab, var(--color-warning) 25%, transparent);
+    color: inherit;
+    border-radius: 0.2em;
+    padding: 0 0.2em;
+  }
   .prose-tm blockquote {
     border-left: 3px solid var(--color-border);
     padding-left: 0.75rem;
