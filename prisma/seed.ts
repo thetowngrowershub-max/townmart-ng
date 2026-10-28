@@ -7,7 +7,8 @@
  * then the catalogue: categories plus six demo sellers with products, services
  * and promotions (seed-catalogue.ts), and default delivery zones, rates and
  * commission (seed-delivery.ts), then demo orders, bookings and reviews
- * (seed-orders.ts), and demo refunds, a dispute and a payout (seed-money.ts).
+ * (seed-orders.ts), demo refunds, a dispute and a payout (seed-money.ts), and
+ * attributes, help answers and pages, plus demo banners and questions (seed-content.ts).
  */
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
@@ -16,6 +17,7 @@ import { hashPassword } from "../lib/auth/password";
 import { slugify } from "../lib/slug";
 import statesData from "./data/nigeria-states-lgas.json";
 import { seedDemoCatalogue } from "./seed-catalogue";
+import { seedContent, seedDemoContent } from "./seed-content";
 import { seedCompliance } from "./seed-legal";
 import { seedDeliveryAndCommission } from "./seed-delivery";
 import { seedDemoMoney } from "./seed-money";
@@ -105,9 +107,11 @@ async function main() {
   await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN_PASSWORD");
   await seedDeliveryAndCommission(prisma);
   await seedDemoCatalogue(prisma);
+  await seedContent(prisma);
   if (!isProd || process.env.SEED_DEMO_DATA === "true") {
     await seedDemoOrders(prisma);
     await seedDemoMoney(prisma);
+    await seedDemoContent(prisma);
   }
 }
 

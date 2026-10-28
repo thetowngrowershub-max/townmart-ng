@@ -107,7 +107,7 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
         SELECT storage_key, alt_text FROM product_images i
          WHERE i.product_id = p.id ORDER BY i.is_cover DESC, i.sort_order LIMIT 1
       ) img ON true
-     WHERE p.status = 'active' AND p.deleted_at IS NULL
+     WHERE p.status = 'active' AND p.deleted_at IS NULL AND p.taken_down_at IS NULL
        ${match}
        ${categoryFilter("p", query.categoryId)}
        ${priceFilter("p", query)}
@@ -174,7 +174,7 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
       LEFT JOIN LATERAL (
         SELECT storage_key, alt_text FROM service_images i WHERE i.service_id = sv.id ORDER BY i.sort_order LIMIT 1
       ) img ON true
-     WHERE sv.status = 'active' AND sv.deleted_at IS NULL
+     WHERE sv.status = 'active' AND sv.deleted_at IS NULL AND sv.taken_down_at IS NULL
        ${match}
        ${categoryFilter("sv", query.categoryId)}
        ${priceFilter("sv", query)}
@@ -213,8 +213,8 @@ async function searchStores(tx: Tx, query: SearchQuery, q: string | undefined): 
   const rank = q ? Prisma.sql`similarity(b.name, ${q})` : Prisma.sql`0`;
   const category = query.categoryId
     ? Prisma.sql`AND (
-        EXISTS (SELECT 1 FROM products p WHERE p.business_id = b.id AND p.status = 'active' AND p.deleted_at IS NULL ${categoryFilter("p", query.categoryId)})
-        OR EXISTS (SELECT 1 FROM services sv WHERE sv.business_id = b.id AND sv.status = 'active' AND sv.deleted_at IS NULL ${categoryFilter("sv", query.categoryId)}))`
+        EXISTS (SELECT 1 FROM products p WHERE p.business_id = b.id AND p.status = 'active' AND p.deleted_at IS NULL AND p.taken_down_at IS NULL ${categoryFilter("p", query.categoryId)})
+        OR EXISTS (SELECT 1 FROM services sv WHERE sv.business_id = b.id AND sv.status = 'active' AND sv.deleted_at IS NULL AND sv.taken_down_at IS NULL ${categoryFilter("sv", query.categoryId)}))`
     : Prisma.empty;
   // Stores have no price; price sorts fall back to rating.
   const sortQuery: SearchQuery = query.sort === "price_asc" || query.sort === "price_desc" ? { ...query, sort: "rating" } : query;

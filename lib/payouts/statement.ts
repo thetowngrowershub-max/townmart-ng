@@ -1,3 +1,4 @@
+import { csvCell } from "@/lib/csv";
 import type { Tx } from "@/lib/db";
 import { formatDateTime } from "@/lib/datetime";
 import { koboToNairaString } from "@/lib/money";
@@ -100,11 +101,8 @@ export async function buildStatement(tx: Tx, businessId: string, month: string):
   };
 }
 
-const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-
 /** The statement as CSV, amounts in naira. Text cells starting with = + - @ are prefixed so spreadsheets don't run them. */
 export function statementCsv(s: Statement, businessName: string): string {
-  const safe = (v: string) => csvCell(/^[=+\-@]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v) ? `'${v}` : v);
   const rows: string[][] = [
     ["TownMart statement", businessName],
     ["Month", s.month],
@@ -117,5 +115,5 @@ export function statementCsv(s: Statement, businessName: string): string {
     ["Closing available balance", koboToNairaString(s.closing.availableKobo)],
     ["Closing held in escrow", koboToNairaString(s.closing.escrowKobo)],
   ];
-  return rows.map((r) => r.map(safe).join(",")).join("\r\n") + "\r\n";
+  return rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }

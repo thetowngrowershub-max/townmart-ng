@@ -22,11 +22,11 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Add to cart, checkout, delivery fees and delivery estimates | Built in Phase 3 | Done |
 | Booking a service | Built in Phase 4 | Done |
 | Reviews and ratings | Built in Phase 4 | Done |
-| Questions and answers on listings | Not built; reviews and order messages cover the launch need | Phase 7 |
+| Questions and answers on listings | Built in Phase 7 | Done |
 | Promotions, coupons and sale scheduling | Built in Phase 2 | Done |
-| Staff invitations and management UI | `business_staff` and the staff permission flags are enforced in `authz` and RLS; the invite screens are not built | Phase 7 |
-| Category and category-attribute management in the admin console | Categories are seeded; attribute values per category are stored on products but not yet edited in the product form | Phase 7 |
-| Listing moderation queue (flag, take down) | Listings of approved sellers go live directly; admins can suspend a seller | Phase 7 |
+| Staff invitations and management UI | Built in Phase 7 | Done |
+| Category and category-attribute management in the admin console | Built in Phase 7, with attributes in the product form and on product pages | Done |
+| Listing moderation queue (flag, take down) | Built in Phase 7: reports, keyword flags and take-downs | Done |
 | Automated KYC with an identity provider (e.g. NIN/BVN check) | Phase 1 uses manual document review behind a `provider` column. Re-deferred in Phase 6: it needs a chosen provider (e.g. Smile ID, Prembly, Dojah), a signed contract and DPA, and a DPIA (a draft is in the compliance centre) | When a KYC provider is contracted |
 | Image cropping in the uploader (spec §Catalogue, Phase 1) | Not built. Uploads are compressed to WebP (max 1600 px) and shown centre-fitted; sellers crop before uploading. Flagged in the Phase 1 review | Phase 1 follow-up, if wanted before merge |
 | Cleaning up abandoned uploads in `tmp/` | Best handled by an S3 lifecycle rule (expire `tmp/` after 1 day), configured with production storage | Phase 8 |
@@ -39,7 +39,7 @@ What the spec asks for that is **not** in the current build, and the phase that 
 |---|---|---|
 | Entering a coupon code, and recording redemptions | Built in Phase 3 | Done |
 | Cart-level promotions shown on listings | Promotions with a minimum order or a coupon apply in the cart, which shows what's needed to qualify; cards and product pages still show automatic deals only | Not planned |
-| Admin screens for platform-wide promotions | Schema, RLS and pricing support them; only admin/system scope can write them | Phase 7 |
+| Admin screens for platform-wide promotions | Built in Phase 7 (store or category scope) | Done |
 | Price filter and sort on the discounted price | Search filters and sorts on the listed price; cards show the discounted price | When search moves to a dedicated engine |
 | Final Promotions & Coupon Terms | Template at `/legal/promotions`; needs legal review | Before launch |
 
@@ -53,7 +53,7 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Releasing escrow to sellers and payouts | Built in Phase 5 | Done |
 | Reconciling provider clearing against Paystack/Flutterwave settlement reports | The ledger tracks what each provider holds for us (shown on `/admin/payouts`); matching it to the providers' settlement files needs their report formats and live accounts | Phase 8 |
 | Per-customer coupon limits for guests | Coupons with a per-customer limit ask the shopper to sign in | Not planned |
-| Admin screens for delivery zones, default rates and commission rules | Seeded (6 zones, 4 weight bands each, 5% global commission) and stored in tables; edited in the database for now | Phase 7 |
+| Admin screens for delivery zones, default rates and commission rules | Built in Phase 7 | Done |
 | Seller screen for its own delivery rates | Built in Phase 4 | Done |
 | Notification bell in the header | Built in Phase 4 | Done |
 | Wishlist | Built in Phase 4 | Done |
@@ -69,7 +69,7 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Commission on pay-on-delivery orders | Built in Phase 5: taken from the seller's balance once the cash is collected and the hold period ends | Done |
 | Releasing escrow after completion | Built in Phase 5 | Done |
 | PDF invoices | Sellers print the packing slip page (browser print or save as PDF); customers have the emailed receipt and order page | Phase 8, if wanted |
-| Review moderation queue | Reported reviews are marked `reported` and stay visible; hiding is admin/system only, with no admin screen yet | Phase 7 |
+| Review moderation queue | Built in Phase 7 | Done |
 | Notification preferences (opt out of SMS or email per type) | All order and booking notices are sent; marketing stays opt-in | Done (Phase 6) |
 | Week or month calendar grid for providers | `/dashboard/bookings` is a day-by-day diary with filters, which works on phones | Not planned unless asked |
 | Real-time messages | The conversation updates on page load and after sending; the other side is told by email and in-app notice | Phase 8, if wanted |
@@ -82,10 +82,10 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Statement PDF file | Statements are a print-friendly page (print or save as PDF from the browser) plus a CSV download | Phase 8, if wanted |
 | Payouts through Flutterwave | Payouts use Paystack transfers, the provider seller bank accounts are verified and registered with; card payments through Flutterwave still refund through Flutterwave | When a second payout provider is needed |
 | Refunds for pay-on-delivery orders through TownMart | The customer paid the seller in cash, so TownMart can't send money back; disputes can still be opened, and TownMart's decision tells the seller what to do | Not planned |
-| Collecting money from a seller whose balance goes negative | A refund after payout can leave a negative available balance; it is netted against later sales before the next payout. Recovering it otherwise (invoice, card on file) is not built | Phase 7 |
+| Collecting money from a seller whose balance goes negative | A refund after payout can leave a negative available balance; it is netted against later sales before the next payout. Recovering it otherwise (invoice, card on file) is not built. Re-deferred in Phase 7: it needs a collection method agreed with the payment provider and wording in the Seller Agreement | When a seller's balance stays negative in practice |
 | Return shipping labels and pickup booking | The customer and seller agree how the item comes back in messages; the seller chooses what goes back on sale when approving | Not planned |
 | Refunds to a store credit or wallet | Every refund goes back to the original payment method | Not planned |
-| Admin settings screen for refund deadlines, the late-cancellation share and the payout minimum | Stored as settings (`refunds.seller_response_hours`, `refunds.late_cancel_percent`, `payouts.minimum_naira`) with defaults of 48 hours, 50% and ₦1,000; edited in the database for now | Phase 7 |
+| Admin settings screen for refund deadlines, the late-cancellation share and the payout minimum | Built in Phase 7 (`/admin/catalogue/settings`) | Done |
 
 ## From Phase 6 (Legal, consent and privacy)
 
@@ -100,6 +100,18 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Two-step sign-in by authenticator app, and recovery codes | SMS codes cover launch; a lost phone is recovered through support, who check identity | Phase 8, if wanted |
 | Strict CSP with nonces, covering the consent-gated scripts | Scripts load only after consent; a nonce-based CSP follows once the analytics and marketing tools are chosen | Phase 8 |
 
-## Links that point at later phases
+## From Phase 7 (Admin console and analytics)
 
-The footer's help and company links point at routes that later phases build (`/about`, `/help`, `/contact`). Until then they show the 404 page. Sidebar items for later phases are shown as "Soon" and are not links.
+| Item | Why deferred | Lands in |
+|---|---|---|
+| Blog (spec: optional) | Not built; banners, the help centre and the about and contact pages cover launch content | Not planned for launch |
+| Collecting a negative seller balance | See Phase 5 | When a seller's balance stays negative in practice |
+| Choosing a delivery zone's states and LGAs in the admin console | Zones' names, ETAs, active flag and default rates are edited in the console; which states and LGAs belong to each zone is set in the seed and changed in the database | When zones need to change after launch |
+| Slowest-queries table on the system health page | Needs the `pg_stat_statements` extension loaded through `shared_preload_libraries`; the page says "unavailable" until then | Phase 8 (production database setup) |
+| Recording backups and restore drills automatically | `pnpm ops:record` records them; the backup and restore scripts that call it come with the production setup | Phase 8 |
+| Analytics beyond the dashboard (cohorts, funnels, seller-level reports for sellers) | The admin dashboard covers GMV, orders, refunds, sellers and customers with a CSV export; sellers see their own figures on `/dashboard` and in statements | When asked |
+| Admin impersonation ("view as seller") | Not built on purpose: admins see sellers' data through the admin console, and every change is in the audit log under their own name | Not planned |
+
+## Links
+
+The footer's help and company links (`/about`, `/help`, `/contact`) are live since Phase 7. Sidebar items for later phases are shown as "Soon" and are not links.

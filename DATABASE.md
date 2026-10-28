@@ -145,7 +145,23 @@ Phase 6 policies:
 
 `tests/db/compliance.test.ts` proves: acceptances are recorded with the current versions at sign-up, checkout (guest and signed in) and seller onboarding, and nobody can edit or delete them or consent records; users see only their own acceptances, consent records and data requests, and can't write the compliance tables; a deletion request can be undone by signing in within the grace period, and anonymising removes personal data, keeps the order with the money unchanged, renames reviews to "Former customer" and suppresses marketing to the old address; the retention jobs remove abandoned carts, unverified accounts (never staff or anyone with an order), old logs and unconfirmed requests, and nothing else; the marketing audience skips suppressed addresses; the export collects the account's data.
 
-Tables without RLS: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data (states, LGAs, categories), `settings`, `job_runs`.
+Phase 7 policies:
+
+| Table | Read | Write |
+|---|---|---|
+| `products`, `services` (Phase 7 addition) | a taken-down listing is hidden from the public; its own shop and admin/system still see it | `taken_down_at`, `taken_down_by` and `taken_down_reason` can only be set or cleared by TownMart (`guard_listing_takedown`) |
+| `listing_reports` | the reporter, admin/system | the signed-in reporter (open, never `keyword_match`), admin/system. One open report per person per listing, one open keyword flag per listing |
+| `listing_questions` | everyone once answered on a visible listing; the asker; the shop; admin/system | the asker inserts; the shop may update only the answer columns (column grants); hiding is admin/system only (`guard_question_update`) |
+| `staff_invitations` | the shop (owner context), admin/system | the shop, admin/system. Accepting runs in the system scope after checking the token and the signed-in email. One pending invitation per email per shop; tokens stored as SHA-256 |
+| `cms_banners` | everyone while active and in its window; admin/system | admin/system only |
+| `faq_entries` | everyone when published; admin/system | admin/system only |
+| `featured_stores`, `cms_pages` | everyone | admin/system only |
+| `ops_events` | admin/system only | admin/system only. Append-only (`UPDATE`/`DELETE`/`TRUNCATE` revoked) |
+| `categories`, `attributes`, `category_attributes`, `settings` | everyone | admin/system only (the admin console now edits them) |
+
+`tests/db/admin-console.test.ts` proves: a seller can't take its own listing down or restore it, and a taken-down listing disappears from the public but not from its shop; closing a report and the keyword flag work once; reports are visible only to the reporter and TownMart; questions are public only once answered, and a shop can answer only its own and can't hide them; seller A can't see or write B's staff invitations; unpublished CMS content stays hidden; sellers and customers can't write categories, attributes, settings or CMS tables; ops events can't be edited or deleted; attributes are inherited and validated by `saveProduct`; and the analytics daily series adds up to the totals.
+
+Tables without RLS: Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`), `otp_codes`, reference data (states, LGAs), `job_runs`.
 
 RLS is defence in depth. The application `authz` check always runs first.
 
@@ -190,4 +206,4 @@ RLS is defence in depth. The application `authz` check always runs first.
 
 ## Backups and restore
 
-Nightly `pg_dump`, WAL archiving for point-in-time recovery, encrypted off-site copies and monthly automated restore drills are delivered in **Phase 8** (`scripts/db/backup.sh`, `restore.sh`, `verify-restore.sh`), with RPO ≤ 15 minutes and RTO ≤ 2 hours. Until then, use `pg_dump -Fc` manually before risky changes.
+Nightly `pg_dump`, WAL archiving for point-in-time recovery, encrypted off-site copies and monthly automated restore drills are delivered in **Phase 8** (`scripts/db/backup.sh`, `restore.sh`, `verify-restore.sh`), with RPO ≤ 15 minutes and RTO ≤ 2 hours. Until then, use `pg_dump -Fc` manually before risky changes, and record each backup and restore drill with `pnpm ops:record` so `/admin/system` shows when they last ran.

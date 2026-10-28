@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { saveProductAction } from "@/lib/catalogue/actions";
+import type { AttributeDef } from "@/lib/catalogue/attributes";
 import { UNITS } from "@/lib/catalogue/units";
 import { productInputSchema, type ProductInput } from "@/lib/validation/catalogue";
 
@@ -41,10 +42,13 @@ const skuPart = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]+/g, "").slice(
 export function ProductForm({
   productId,
   categories,
+  attributeDefs,
   initial,
 }: {
   productId: string | null;
   categories: CategoryOption[];
+  /** Attributes each category asks for, by category id. */
+  attributeDefs: Record<string, AttributeDef[]>;
   initial: ProductFormValues;
 }) {
   const router = useRouter();
@@ -99,6 +103,9 @@ export function ProductForm({
     variants.replace(next.length ? next : [{ ...(template ?? { sku: base, price: "", stockQty: "0", lowStockThreshold: "5" }), optionValues: {} }]);
   }
 
+  const categoryId = useWatch({ control: form.control, name: "categoryId" });
+  const defs = attributeDefs[categoryId ?? ""] ?? [];
+  const attributeErrors = (errors.attributes ?? {}) as Record<string, { message?: string } | undefined>;
   const categoryError = errors.categoryId?.message;
   const optionNames = (optionValues ?? []).map((o) => o.name).filter(Boolean);
 
@@ -156,6 +163,33 @@ export function ProductForm({
           </FormField>
         </CardContent>
       </Card>
+
+      {defs.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Details</CardTitle>
+            <CardDescription>What shoppers in this category look for. Fields marked required must be filled in.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-5 sm:grid-cols-2">
+            {defs.map((d) => (
+              <FormField key={d.slug} id={`attr-${d.slug}`} label={`${d.name}${d.isRequired ? "" : " (optional)"}`} error={attributeErrors[d.slug]?.message}>
+                {d.type === "select" ? (
+                  <Select {...form.register(`attributes.${d.slug}`)}>
+                    <option value="">Choose…</option>
+                    {d.options.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input inputMode={d.type === "number" ? "decimal" : undefined} {...form.register(`attributes.${d.slug}`)} />
+                )}
+              </FormField>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

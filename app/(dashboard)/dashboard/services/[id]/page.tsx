@@ -33,7 +33,7 @@ export default async function EditServicePage({ params, searchParams }: { params
         title={service.title}
         actions={
           <div className="flex flex-wrap gap-2">
-            {service.status === "active" && ctx.business.status === "approved" && (
+            {service.status === "active" && !service.takenDownAt && ctx.business.status === "approved" && (
               <Button asChild variant="outline" size="sm">
                 <Link href={`/s/${service.slug}`} target="_blank">
                   <ExternalLink aria-hidden /> View
@@ -45,6 +45,11 @@ export default async function EditServicePage({ params, searchParams }: { params
         }
       />
       {(await searchParams).saved && <Alert variant="success" className="mb-4">Service created.</Alert>}
+      {service.takenDownAt && (
+        <Alert variant="danger" className="mb-4">
+          TownMart has taken this service down, so shoppers can&apos;t see or buy it. Reason: {service.takenDownReason} Contact support once you&apos;ve fixed it and we&apos;ll look again.
+        </Alert>
+      )}
       <ServiceForm serviceId={id} categories={data.categories} lgaGroups={data.groups} defaultStateId={data.business.stateId} initial={serviceToFormValues(service)} />
     </>
   );

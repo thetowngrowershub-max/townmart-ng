@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { CalendarCheck, Search } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/app-shell";
@@ -22,7 +22,17 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
 
   return (
     <>
-      <PageHeader title="Orders & disputes" description="Decide disputes, step in on late refund requests and look up any order." />
+      <PageHeader
+        title="Orders & disputes"
+        description="Decide disputes, step in on late refund requests and look up any order."
+        actions={
+          <Button asChild size="sm" variant="outline">
+            <Link href="/admin/orders/bookings">
+              <CalendarCheck aria-hidden /> Bookings
+            </Link>
+          </Button>
+        }
+      />
       <form className="mb-4 flex max-w-xl gap-2" role="search">
         <Input name="q" defaultValue={q} placeholder="Order number, email or customer name" aria-label="Search orders" />
         <Button type="submit" variant="outline">

@@ -39,7 +39,9 @@ type BusinessPermission =
   | "order.manage"
   | "booking.manage"
   | "review.manage"
-  | "payout.manage";
+  | "payout.manage"
+  | "staff.manage"
+  | "question.answer";
 
 export type GlobalPermission =
   | "account.access"
@@ -55,7 +57,13 @@ export type GlobalPermission =
   | "kyc.document.view"
   | "finance.manage"
   | "dispute.manage"
-  | "compliance.manage";
+  | "compliance.manage"
+  | "analytics.view"
+  | "moderation.manage"
+  | "catalogue.manage"
+  | "content.manage"
+  | "user.manage"
+  | "jobs.retry";
 
 type AnyPermission = `${OwnedPermission | BusinessPermission}:any`;
 
@@ -84,6 +92,17 @@ const ADMIN: Grant[] = [
   "dispute.manage",
   // Data requests, breach register, RoPA, retention and legal pages.
   "compliance.manage",
+  "analytics.view",
+  // Listing take-downs, reports, prohibited keywords, reviews and questions.
+  "moderation.manage",
+  // Categories and attributes. Commission, delivery zones, platform promotions and settings are settings.manage.
+  "catalogue.manage",
+  // Homepage banners, featured stores, help centre, about and contact.
+  "content.manage",
+  // Find users, suspend and restore them, sign them out. Changing roles is super admin only.
+  "user.manage",
+  // Retry failed background jobs from the system health page.
+  "jobs.retry",
 ];
 
 export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {
@@ -107,6 +126,8 @@ const BUSINESS: ReadonlySet<string> = new Set<BusinessPermission>([
   "booking.manage",
   "review.manage",
   "payout.manage",
+  "staff.manage",
+  "question.answer",
 ]);
 
 /** Which staff permission flag unlocks each business permission. `null` = owner only. */
@@ -123,6 +144,10 @@ const STAFF_FLAG: Record<BusinessPermission, string | null> = {
   "review.manage": "reviews",
   // Balances, payouts and statements: owner only.
   "payout.manage": null,
+  // Inviting and removing staff: owner only.
+  "staff.manage": null,
+  // Answering shoppers' questions sits with replying to reviews.
+  "question.answer": "reviews",
 };
 
 function hasGrant(actor: NonNullable<Actor>, grant: Grant): boolean {

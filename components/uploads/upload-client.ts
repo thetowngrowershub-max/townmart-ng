@@ -1,6 +1,15 @@
 "use client";
 
-import { finaliseEvidenceAction, finaliseImageAction, finaliseReviewImageAction, requestEvidenceUploadAction, requestReviewUploadAction, requestUploadAction } from "@/lib/storage/actions";
+import {
+  finaliseCmsImageAction,
+  finaliseEvidenceAction,
+  finaliseImageAction,
+  finaliseReviewImageAction,
+  requestCmsUploadAction,
+  requestEvidenceUploadAction,
+  requestReviewUploadAction,
+  requestUploadAction,
+} from "@/lib/storage/actions";
 import type { ImagePurpose } from "@/lib/storage/uploads";
 
 export type UploadedImage = { key: string; url: string; width: number; height: number };
@@ -52,6 +61,19 @@ export async function uploadImage(file: File, purpose: ImagePurpose): Promise<Up
   }
   const tmpKey = await putToStorage(purpose, body);
   const fin = await finaliseImageAction({ tmpKey, purpose });
+  if (!fin.ok) throw new Error(fin.error);
+  return fin.data!;
+}
+
+/** A homepage banner uploaded from the admin console. */
+export async function uploadCmsBanner(file: File): Promise<UploadedImage> {
+  const body = await compressImage(file, MAX_EDGE.banner);
+  const req = await requestCmsUploadAction({ contentType: body.type, size: body.size });
+  if (!req.ok) throw new Error(req.error);
+  const { tmpKey, target } = req.data!;
+  const res = await fetch(target.url, { method: target.method, headers: target.headers, body });
+  if (!res.ok) throw new Error("Upload failed. Check your connection and try again.");
+  const fin = await finaliseCmsImageAction({ tmpKey });
   if (!fin.ok) throw new Error(fin.error);
   return fin.data!;
 }

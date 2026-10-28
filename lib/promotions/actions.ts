@@ -1,14 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
+import type { z } from "zod";
 import { writeAudit } from "@/lib/audit";
 import { assertCan, AuthzError } from "@/lib/authz";
 import { logger } from "@/lib/logger";
 import { getSellerContext, withSellerRls, type SellerContext } from "@/lib/seller/context";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
-import { promotionIdSchema, promotionInputSchema, type PromotionInput } from "@/lib/validation/promotions";
-import { PromotionError, savePromotion } from "./promotions";
+import { promotionChangeSchema as changeSchema, promotionIdSchema, promotionInputSchema, type PromotionInput } from "@/lib/validation/promotions";
+import { changeLabel, changePromotion, deletePromotion, PromotionError, savePromotion } from "./promotions";
 
 async function promoter(): Promise<SellerContext> {
   const ctx = await getSellerContext();
@@ -70,9 +70,7 @@ export async function savePromotionAction(promotionId: string | null, input: Pro
   }
 }
 
-const changeSchema = z.object({ id: promotionIdSchema, change: z.enum(["pause", "resume", "end"]) });
 
-/** Pause and resume flip is_active; "end" stops a promotion now and keeps its history. */
 export async function changePromotionAction(input: z.input<typeof changeSchema>): Promise<ActionResult> {
   const parsed = changeSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Promotion not found." };
@@ -80,17 +78,8 @@ export async function changePromotionAction(input: z.input<typeof changeSchema>)
   try {
     const ctx = await promoter();
     await withSellerRls(ctx, async (tx) => {
-      const p = await tx.promotion.findFirst({ where: { id, businessId: ctx.business.id }, select: { startsAt: true, endsAt: true } });
-      if (!p) throw new PromotionError("Promotion not found");
-      const now = new Date();
-      if (now >= p.endsAt) throw new PromotionError("This promotion has already ended.");
-      const data =
-        change === "end"
-          ? // ends_at must stay after starts_at; a promotion that hasn't started yet ends the moment it would start.
-            { endsAt: p.startsAt > now ? new Date(p.startsAt.getTime() + 1000) : now, isActive: false }
-          : { isActive: change === "resume" };
-      await tx.promotion.update({ where: { id }, data });
-      await writeAudit(tx, { actorUserId: ctx.user.id, action: `promotion.${change === "end" ? "ended" : change === "pause" ? "paused" : "resumed"}`, entityType: "promotion", entityId: id });
+      await changePromotion(tx, ctx.business.id, id, change);
+      await writeAudit(tx, { actorUserId: ctx.user.id, action: `promotion.${changeLabel(change)}`, entityType: "promotion", entityId: id });
     });
     revalidateStorefront();
     return { ok: true, message: change === "end" ? "Promotion ended." : change === "pause" ? "Promotion paused." : "Promotion resumed." };
@@ -99,17 +88,13 @@ export async function changePromotionAction(input: z.input<typeof changeSchema>)
   }
 }
 
-/** Only promotions nobody has used can be deleted; used ones are ended instead, so order history stays intact. */
 export async function deletePromotionAction(id: string): Promise<ActionResult> {
   if (!promotionIdSchema.safeParse(id).success) return { ok: false, error: "Promotion not found." };
   try {
     const ctx = await promoter();
     await withSellerRls(ctx, async (tx) => {
-      const p = await tx.promotion.findFirst({ where: { id, businessId: ctx.business.id }, select: { name: true, redemptionCount: true } });
-      if (!p) throw new PromotionError("Promotion not found");
-      if (p.redemptionCount > 0) throw new PromotionError("Customers have used this promotion, so it can't be deleted. End it instead.");
-      await tx.promotion.delete({ where: { id } });
-      await writeAudit(tx, { actorUserId: ctx.user.id, action: "promotion.deleted", entityType: "promotion", entityId: id, before: { name: p.name } });
+      const p = await deletePromotion(tx, ctx.business.id, id);
+      await writeAudit(tx, { actorUserId: ctx.user.id, action: "promotion.deleted", entityType: "promotion", entityId: id, before: p });
     });
     revalidateStorefront();
     return { ok: true, message: "Promotion deleted." };

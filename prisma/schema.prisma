@@ -94,6 +94,9 @@ model User {
   notificationPrefs    NotificationPreference?
   dataRequests         DataSubjectRequest[]
 
+  listingReports   ListingReport[]
+  listingQuestions ListingQuestion[]
+
   @@index([status])
   @@map("users")
 }
@@ -402,6 +405,10 @@ model Business {
   disputes        Dispute[]
   payouts         Payout[]
   acceptances     PolicyAcceptance[]
+  listingReports  ListingReport[]
+  questions       ListingQuestion[]
+  invitations     StaffInvitation[]
+  featured        FeaturedStore?
 
   @@index([ownerUserId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "businesses_name_trgm")
@@ -642,16 +649,22 @@ model Product {
   ratingCount        Int                      @default(0) @map("rating_count")
   publishedAt        DateTime?                @map("published_at") @db.Timestamptz(6)
   deletedAt          DateTime?                @map("deleted_at") @db.Timestamptz(6)
+  // Taken down by TownMart (moderation): hidden everywhere until restored. Only TownMart can set these.
+  takenDownAt        DateTime?                @map("taken_down_at") @db.Timestamptz(6)
+  takenDownReason    String?                  @map("taken_down_reason")
+  takenDownBy        String?                  @map("taken_down_by") @db.Uuid
   createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  business      Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  category      Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  category      Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   images        ProductImage[]
   options       ProductOption[]
   variants      ProductVariant[]
   reviews       Review[]
   wishlistItems WishlistItem[]
+  reports       ListingReport[]
+  questions     ListingQuestion[]
 
   promotionTargets PromotionTarget[]
 
@@ -776,6 +789,10 @@ model Service {
   ratingCount          Int                      @default(0) @map("rating_count")
   publishedAt          DateTime?                @map("published_at") @db.Timestamptz(6)
   deletedAt            DateTime?                @map("deleted_at") @db.Timestamptz(6)
+  // Taken down by TownMart (moderation): hidden everywhere until restored. Only TownMart can set these.
+  takenDownAt          DateTime?                @map("taken_down_at") @db.Timestamptz(6)
+  takenDownReason      String?                  @map("taken_down_reason")
+  takenDownBy          String?                  @map("taken_down_by") @db.Uuid
   createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -791,6 +808,8 @@ model Service {
   bookings         Booking[]
   reviews          Review[]
   wishlistItems    WishlistItem[]
+  reports          ListingReport[]
+  questions        ListingQuestion[]
 
   @@unique([id, businessId], map: "services_id_business_key")
   @@index([searchVector], type: Gin, map: "services_search_vector_gin")
@@ -2279,4 +2298,199 @@ model RetentionSetting {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("retention_settings")
+}
+
+// ─── Phase 7: moderation, questions, staff invitations, CMS, operations ─────
+
+enum ReportReason {
+  prohibited
+  counterfeit
+  misleading
+  offensive
+  scam
+  other
+  // Raised automatically when a listing matches the prohibited-items keyword list.
+  keyword_match
+
+  @@map("report_reason")
+}
+
+enum ReportStatus {
+  open
+  actioned
+  dismissed
+
+  @@map("report_status")
+}
+
+/// A shopper's report about a listing, or an automatic flag from the prohibited-items keywords.
+model ListingReport {
+  id             String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  productId      String?      @map("product_id") @db.Uuid
+  serviceId      String?      @map("service_id") @db.Uuid
+  businessId     String       @map("business_id") @db.Uuid
+  reporterUserId String?      @map("reporter_user_id") @db.Uuid
+  reason         ReportReason
+  details        String?
+  // Keywords that matched, for keyword_match reports.
+  matched        String[]     @default([])
+  status         ReportStatus @default(open)
+  resolvedBy     String?      @map("resolved_by") @db.Uuid
+  resolvedAt     DateTime?    @map("resolved_at") @db.Timestamptz(6)
+  resolutionNote String?      @map("resolution_note")
+  ipHash         String?      @map("ip_hash")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  product  Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  service  Service? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reporter User?    @relation(fields: [reporterUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([productId])
+  @@index([serviceId])
+  @@index([businessId])
+  @@index([reporterUserId])
+  @@map("listing_reports")
+}
+
+enum QuestionStatus {
+  published
+  hidden
+
+  @@map("question_status")
+}
+
+/// Questions shoppers ask on a listing. Shown publicly once the seller answers.
+model ListingQuestion {
+  id          String         @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  productId   String?        @map("product_id") @db.Uuid
+  serviceId   String?        @map("service_id") @db.Uuid
+  businessId  String         @map("business_id") @db.Uuid
+  askerUserId String?        @map("asker_user_id") @db.Uuid
+  // Shown instead of the full name: "Ada O."
+  askerName   String         @map("asker_name")
+  question    String
+  answer      String?
+  answeredBy  String?        @map("answered_by") @db.Uuid
+  answeredAt  DateTime?      @map("answered_at") @db.Timestamptz(6)
+  status      QuestionStatus @default(published)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  product  Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  service  Service? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  asker    User?    @relation(fields: [askerUserId], references: [id], onDelete: SetNull)
+
+  @@index([productId, createdAt])
+  @@index([serviceId, createdAt])
+  @@index([businessId, answeredAt])
+  @@index([askerUserId])
+  @@map("listing_questions")
+}
+
+/// An owner's invitation for someone to join their shop as staff. The token is emailed; only its hash is stored.
+model StaffInvitation {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  email          String    @db.Citext
+  // Same flags as business_staff.permissions.
+  permissions    Json      @default("{}")
+  tokenHash      String    @unique @map("token_hash")
+  invitedBy      String    @map("invited_by") @db.Uuid
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  acceptedAt     DateTime? @map("accepted_at") @db.Timestamptz(6)
+  acceptedUserId String?   @map("accepted_user_id") @db.Uuid
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@map("staff_invitations")
+}
+
+/// Homepage banners, managed in the admin console.
+model CmsBanner {
+  id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  title     String
+  subtitle  String?
+  imageKey  String?   @map("image_key")
+  linkUrl   String?   @map("link_url")
+  ctaLabel  String?   @map("cta_label")
+  sortOrder Int       @default(0) @map("sort_order")
+  startsAt  DateTime? @map("starts_at") @db.Timestamptz(6)
+  endsAt    DateTime? @map("ends_at") @db.Timestamptz(6)
+  isActive  Boolean   @default(true) @map("is_active")
+  updatedBy String?   @map("updated_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive, sortOrder])
+  @@map("cms_banners")
+}
+
+/// Stores shown in "Featured stores" on the homepage, in order.
+model FeaturedStore {
+  businessId String   @id @map("business_id") @db.Uuid
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("featured_stores")
+}
+
+/// Help centre questions and answers (/help).
+model FaqEntry {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  section     String
+  question    String
+  answerHtml  String   @map("answer_html")
+  sortOrder   Int      @default(0) @map("sort_order")
+  isPublished Boolean  @default(true) @map("is_published")
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([section, sortOrder])
+  @@map("faq_entries")
+}
+
+/// Simple editable pages: about, contact.
+model CmsPage {
+  slug      String   @id
+  title     String
+  summary   String?
+  bodyHtml  String   @map("body_html")
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("cms_pages")
+}
+
+enum OpsEventKind {
+  backup
+  restore_test
+
+  @@map("ops_event_kind")
+}
+
+/// Backups and restore drills, written by scripts/db (Phase 8) and shown on the health page.
+model OpsEvent {
+  id         String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  kind       OpsEventKind
+  succeeded  Boolean
+  startedAt  DateTime     @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime     @map("finished_at") @db.Timestamptz(6)
+  sizeBytes  BigInt?      @map("size_bytes")
+  details    Json?
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([kind, finishedAt])
+  @@map("ops_events")
 }

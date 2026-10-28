@@ -51,7 +51,7 @@ export async function addToCartAction(input: { variantId: string; qty: string })
     const count = await withCart(owner, async (tx) => {
       // Only live listings of approved sellers can be added (RLS hides the rest anyway).
       const v = await tx.productVariant.findFirst({
-        where: { id: parsed.data.variantId, product: { status: "active", deletedAt: null, business: { status: "approved" } } },
+        where: { id: parsed.data.variantId, product: { status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved" } } },
         include: { product: { select: { minOrderQty: true, allowFractionalQty: true, trackInventory: true, allowBackorder: true } } },
       });
       if (!v) throw new CartError("This item is no longer available.");
@@ -88,7 +88,7 @@ export async function addBookingToCartAction(input: { serviceId: string; package
     const owner = await ensureCart();
     const count = await withCart(owner, async (tx) => {
       const service = await tx.service.findFirst({
-        where: { id: serviceId, status: "active", deletedAt: null, business: { status: "approved" } },
+        where: { id: serviceId, status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved" } },
         include: { packages: { select: { id: true, durationMinutes: true } } },
       });
       if (!service) throw new CartError("This service is no longer available.");

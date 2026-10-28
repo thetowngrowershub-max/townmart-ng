@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import { categoryAttributeDefs } from "@/lib/catalogue/attributes";
 import { withRls } from "@/lib/db";
 import { loadListingRules } from "@/lib/promotions/live";
 import { listingReviews } from "@/lib/reviews/reviews";
@@ -7,7 +8,7 @@ import { listingReviews } from "@/lib/reviews/reviews";
 /** Public reads run as a guest so the storefront shows exactly what anyone can see. */
 const asGuest = <T,>(fn: Parameters<typeof withRls<T>>[1]) => withRls({ userId: null }, fn);
 
-const live = { status: "active", deletedAt: null, business: { status: "approved" } } as const;
+const live = { status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved" } } as const;
 
 export const getPublicProduct = cache((slug: string) =>
   asGuest((tx) =>
@@ -127,3 +128,11 @@ export const getPublicStore = cache((slug: string) =>
 
 /** A listing's public reviews (hidden ones never show to guests). */
 export const getListingReviews = (where: { productId: string } | { serviceId: string }) => asGuest((tx) => listingReviews(tx, where));
+
+/** A product's attribute values with their names, in the category's order. Values for attributes the category no longer asks for aren't shown. */
+export async function getProductSpecs(categoryId: string, values: unknown): Promise<{ name: string; value: string }[]> {
+  const v = (values ?? {}) as Record<string, unknown>;
+  if (Object.keys(v).length === 0) return [];
+  const defs = (await asGuest((tx) => categoryAttributeDefs(tx, [categoryId]))).get(categoryId) ?? [];
+  return defs.filter((d) => v[d.slug] !== undefined && v[d.slug] !== "").map((d) => ({ name: d.name, value: String(v[d.slug]) }));
+}
