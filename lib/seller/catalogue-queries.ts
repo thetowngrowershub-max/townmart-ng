@@ -1,6 +1,7 @@
 import "server-only";
 import type { CategoryKind, Prisma } from "@prisma/client";
 import type { GalleryImage } from "@/components/uploads/image-gallery-input";
+import { categoryAttributeDefs, type AttributeDef } from "@/lib/catalogue/attributes";
 import type { Tx } from "@/lib/db";
 import { koboToNairaString } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
@@ -18,6 +19,13 @@ export async function categoryOptions(tx: Tx, kind: CategoryKind) {
   return all
     .filter((c) => !c.parentId)
     .map((c) => ({ id: c.id, name: c.name, children: all.filter((s) => s.parentId === c.id).map((s) => ({ id: s.id, name: s.name })) }));
+}
+
+/** Every product category's attributes, for the product form to show as the seller picks a category. */
+export async function productAttributeDefs(tx: Tx): Promise<Record<string, AttributeDef[]>> {
+  const ids = await tx.category.findMany({ where: { kind: "product", isActive: true }, select: { id: true } });
+  const defs = await categoryAttributeDefs(tx, ids.map((c) => c.id));
+  return Object.fromEntries([...defs].filter(([, d]) => d.length > 0));
 }
 
 export const EMPTY_PRODUCT: ProductFormValues = {
@@ -41,6 +49,7 @@ export const EMPTY_PRODUCT: ProductFormValues = {
   options: [],
   variants: [{ sku: "", barcode: "", optionValues: {}, price: "", compareAtPrice: "", stockQty: "0", lowStockThreshold: "5", imageKey: "" }],
   images: [],
+  attributes: {},
 };
 
 export type ProductForEdit = Prisma.ProductGetPayload<{
@@ -90,6 +99,7 @@ export function productToFormValues(p: ProductForEdit): ProductFormValues {
         imageKey: imageKeyByVariant.get(v.id) ?? "",
       })),
     images,
+    attributes: Object.fromEntries(Object.entries((p.attributes ?? {}) as Record<string, unknown>).map(([k, v]) => [k, String(v)])),
   };
 }
 

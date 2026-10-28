@@ -71,6 +71,8 @@ export const productInputSchema = z
     options: z.array(optionInput).max(3, "At most 3 options"),
     variants: z.array(variantInput).min(1, "Add at least one variant").max(100, "At most 100 variants"),
     images: z.array(productImageInput).max(8, "At most 8 images"),
+    /** Values for the category's attributes, by attribute key; checked against the category when saved. */
+    attributes: z.record(z.string().max(80), z.string().max(200)).default({}),
   })
   .superRefine((p, ctx) => {
     if (p.allowFractionalQty && !FRACTIONAL_UNITS.includes(p.unit)) {

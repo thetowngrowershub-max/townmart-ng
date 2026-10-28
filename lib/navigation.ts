@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   BadgePercent,
   BarChart3,
   Bell,
@@ -11,6 +12,7 @@ import {
   Heart,
   LayoutDashboard,
   MapPin,
+  MessageCircleQuestion,
   MessageSquare,
   Package,
   Palette,
@@ -20,6 +22,7 @@ import {
   ShieldCheck,
   Star,
   Store,
+  Tags,
   Users,
   Wallet,
   Wrench,
@@ -32,7 +35,7 @@ import {
  */
 export type NavItem = { href: string; label: string; icon: LucideIcon; phase: number };
 
-export const CURRENT_PHASE = 6;
+export const CURRENT_PHASE = 7;
 
 export const accountNav: NavItem[] = [
   { href: "/account", label: "Overview", icon: LayoutDashboard, phase: 0 },
@@ -58,6 +61,7 @@ export const dashboardNav: NavItem[] = [
   { href: "/dashboard/refunds", label: "Refunds & disputes", icon: RotateCcw, phase: 5 },
   { href: "/dashboard/payouts", label: "Payouts", icon: Wallet, phase: 5 },
   { href: "/dashboard/reviews", label: "Reviews", icon: Star, phase: 4 },
+  { href: "/dashboard/questions", label: "Questions", icon: MessageCircleQuestion, phase: 7 },
   { href: "/dashboard/messages", label: "Messages", icon: MessageSquare, phase: 4 },
   { href: "/dashboard/staff", label: "Staff", icon: Users, phase: 7 },
   { href: "/dashboard/settings", label: "Store settings", icon: Store, phase: 1 },
@@ -69,10 +73,12 @@ export const adminNav: NavItem[] = [
   { href: "/admin/moderation", label: "Moderation", icon: Gavel, phase: 7 },
   { href: "/admin/orders", label: "Orders & disputes", icon: ClipboardList, phase: 5 },
   { href: "/admin/payouts", label: "Refunds & payouts", icon: Wallet, phase: 5 },
+  { href: "/admin/catalogue", label: "Catalogue & fees", icon: Tags, phase: 7 },
   { href: "/admin/content", label: "Content (CMS)", icon: FileText, phase: 7 },
   { href: "/admin/compliance", label: "Compliance centre", icon: Scale, phase: 6 },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3, phase: 7 },
   { href: "/admin/users", label: "Users & roles", icon: Users, phase: 7 },
+  { href: "/admin/system", label: "System health", icon: Activity, phase: 7 },
   { href: "/design-system", label: "Design system", icon: Palette, phase: 0 },
 ];
 

@@ -14,6 +14,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatPrice, parseNairaToKobo } from "@/lib/money";
 import { unitDiscount } from "@/lib/pricing";
+import { savePlatformPromotionAction } from "@/lib/admin/promotion-actions";
 import { savePromotionAction } from "@/lib/promotions/actions";
 import { FLASH_DEAL_MAX_HOURS, promotionInputSchema, type PromotionInput } from "@/lib/validation/promotions";
 
@@ -96,6 +97,7 @@ export function PromotionForm({
   services,
   categories,
   redemptionCount,
+  platform = false,
 }: {
   promotionId: string | null;
   initial: PromotionInput;
@@ -103,14 +105,16 @@ export function PromotionForm({
   services: PickOption[];
   categories: PickOption[];
   redemptionCount: number;
+  /** TownMart's own promotion, edited from the admin console: everything or whole categories only. */
+  platform?: boolean;
 }) {
   const router = useRouter();
   const { form, onSubmit, pending, result } = useActionForm(
     promotionInputSchema,
     async (values) => {
-      const res = await savePromotionAction(promotionId, values);
+      const res = await (platform ? savePlatformPromotionAction : savePromotionAction)(promotionId, values);
       if (res.ok && res.data) {
-        if (!promotionId) router.push(`/dashboard/promotions/${res.data.id}?saved=1`);
+        if (!promotionId) router.push(`${platform ? "/admin/catalogue/promotions" : "/dashboard/promotions"}/${res.data.id}?saved=1`);
         else router.refresh();
       }
       return res;
@@ -187,9 +191,9 @@ export function PromotionForm({
         <CardContent className="flex flex-col gap-5">
           <FormField id="scope" label="What's on promotion" error={errors.scope?.message}>
             <Select {...form.register("scope")}>
-              {(Object.keys(SCOPE_LABELS) as PromotionInput["scope"][]).map((s) => (
+              {(platform ? (["store", "category"] as const) : (Object.keys(SCOPE_LABELS) as PromotionInput["scope"][])).map((s) => (
                 <option key={s} value={s} disabled={s === "service" && services.length === 0}>
-                  {SCOPE_LABELS[s]}
+                  {platform && s === "store" ? "Everything on TownMart" : SCOPE_LABELS[s]}
                 </option>
               ))}
             </Select>
@@ -218,7 +222,8 @@ export function PromotionForm({
               error={errors.categoryIds?.message}
             />
           )}
-          {scope === "category" && <p className="text-sm text-muted-foreground">Only your own listings in these categories get the discount.</p>}
+          {scope === "category" && <p className="text-sm text-muted-foreground">{platform ? "Every seller's listings in these categories get the discount. TownMart pays for it." : "Only your own listings in these categories get the discount."}</p>}
+          {platform && scope === "store" && <p className="text-sm text-muted-foreground">Every listing on TownMart gets the discount. TownMart pays for it, not sellers.</p>}
         </CardContent>
       </Card>
 

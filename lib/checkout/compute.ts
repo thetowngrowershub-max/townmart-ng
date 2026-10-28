@@ -220,7 +220,7 @@ export async function computeCheckout(
     if (i.variant) {
       const v = i.variant;
       const p = v.product;
-      const live = p.status === "active" && p.deletedAt === null && i.business.status === "approved";
+      const live = p.status === "active" && p.deletedAt === null && p.takenDownAt === null && i.business.status === "approved";
       let problem: LineProblem | null = null;
       if (!live) problem = { kind: "unavailable" };
       else if (!p.allowFractionalQty && !i.qty.isInteger()) problem = { kind: "fraction_not_allowed" };
@@ -262,7 +262,7 @@ export async function computeCheckout(
     const durationMinutes = pkg?.durationMinutes ?? sv.durationMinutes;
     const startsAt = i.bookingStartsAt!;
     const atProvider = sv.locationMode === "at_provider" || (sv.locationMode === "both" && i.atProvider);
-    const live = sv.status === "active" && sv.deletedAt === null && i.business.status === "approved" && (pkg === null || pkg.serviceId === sv.id);
+    const live = sv.status === "active" && sv.deletedAt === null && sv.takenDownAt === null && i.business.status === "approved" && (pkg === null || pkg.serviceId === sv.id);
     let problem: LineProblem | null = null;
     if (!live) problem = { kind: "unavailable" };
     else if (!atProvider && input.address && sv.serviceLgaIds.length > 0 && !sv.serviceLgaIds.includes(input.address.lgaId)) problem = { kind: "outside_area" };

@@ -4,7 +4,7 @@
 
 TownMart owns its whole data layer: PostgreSQL 16, Redis 7 and S3-compatible storage, all self-hosted. There is no Backend-as-a-Service.
 
-> **Status:** Phases 0 to 6 of the build plan in `TOWNMART_BUILD_PROMPT.md` (foundations; sellers, catalogue and search; promotions; cart, checkout and payments; fulfilment, bookings and reviews; refunds, disputes and payouts; legal pages, consent and privacy). See [DEFERRED.md](DEFERRED.md) for what later phases add.
+> **Status:** Phases 0 to 7 of the build plan in `TOWNMART_BUILD_PROMPT.md` (foundations; sellers, catalogue and search; promotions; cart, checkout and payments; fulfilment, bookings and reviews; refunds, disputes and payouts; legal pages, consent and privacy; admin console and analytics). See [DEFERRED.md](DEFERRED.md) for what later phases add.
 
 ## Quick start
 
@@ -51,7 +51,7 @@ Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DI
 | `pnpm worker` | BullMQ worker (`worker/`) |
 | `pnpm lint` / `pnpm typecheck` | ESLint, `tsc --noEmit` (strict) |
 | `pnpm test` | Unit tests (no database needed) |
-| `pnpm test:db` | Database tests: RLS and cross-seller isolation, order and booking status guards, overselling and double booking, verified reviews, refunds, disputes, escrow and payouts, policy acceptances and consent, account deletion and retention jobs, stock, search, append-only logs, encrypted columns, conventions. Needs a migrated, seeded DB |
+| `pnpm test:db` | Database tests: RLS and cross-seller isolation, order and booking status guards, overselling and double booking, verified reviews, refunds, disputes, escrow and payouts, policy acceptances and consent, account deletion and retention jobs, moderation and take-downs, questions, staff invitations, CMS and reference-data writes, stock, search, append-only logs, encrypted columns, conventions. Needs a migrated, seeded DB |
 | `pnpm db:bootstrap` | Creates roles and the database on an existing server (superuser) |
 | `pnpm db:migrate` / `pnpm db:deploy` | `prisma migrate dev` / `deploy` |
 | `pnpm db:seed` | Idempotent seed |

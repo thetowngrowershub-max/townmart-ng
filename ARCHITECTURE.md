@@ -321,6 +321,44 @@ Nightly (02:10 to 02:55 Lagos), each reading its period from `retention_settings
 
 Two-step sign-in by SMS code to a verified phone, switched on from `/account/security`: after a correct password the browser gets only a signed 10-minute `tm_2fa` cookie, and the session is created once the code is right. The phone can't be removed while it's on. The same page connects or disconnects Google (an existing account links only from inside it; an account with no password and no verified phone can't disconnect its only way to sign in). `/account/notifications` sets SMS order updates, SMS booking reminders, message emails and marketing; order and booking notices honour them, and emails that are needed for the service (receipts, refunds, security) are always sent.
 
+## Phase 7: admin console and analytics
+
+Every admin page checks a permission from `lib/authz` (`moderation.manage`, `catalogue.manage`, `settings.manage`, `content.manage`, `dispute.manage`, `user.manage`, `user.roles.manage`, `audit_log.read`, `analytics.view`, `system_health.view`, `jobs.retry`) and reads in the admin RLS scope. Admin actions go through `adminContext(permission)` (`lib/admin/context.ts`), which checks the permission, runs the change in the admin scope and hands it an audit writer, so every change lands in `audit_logs` with before and after.
+
+### Dashboard and analytics
+
+`/admin` shows what needs attention: seller applications, reported listings and reviews, open disputes, failed refunds, data requests (and overdue ones), open breaches and jobs that failed in the last day. `/admin/analytics` (`lib/analytics/metrics.ts`) shows GMV, confirmed orders, average order value, refund rate, active sellers and new customers for 7, 30 or 90 days, each compared with the period before, plus a daily chart, top categories and top sellers. Definitions are on the page; days are Lagos days. The daily figures download as CSV (`/api/admin/analytics`, cells guarded against spreadsheet formulas).
+
+### Moderation
+
+Shoppers report a listing (reason and details, one open report per person per listing) and ask questions on product and service pages. Saving a listing checks it against the prohibited-items keyword list (`/admin/moderation/keywords`, stored in `settings`, whole words and simple plurals) and opens a `keyword_match` report on a hit. `/admin/moderation` has queues for reports, questions and reported reviews, and a list of taken-down listings. Taking a listing down needs a reason; the listing leaves the storefront and search at once, the seller is told why and sees "Taken down by TownMart" in their dashboard, can keep editing, and TownMart restores it. Only TownMart can set or clear a take-down (trigger) or hide a question. Reporters' names are never shown to the shop.
+
+Shops answer questions at `/dashboard/questions` (`question.answer`); an answered question shows publicly on the listing.
+
+### Catalogue, fees and delivery
+
+`/admin/catalogue` edits the two-level category tree (a slug can't change once listings use it), attributes (select, number or text) and which attributes each category asks for. Attributes are inherited from the parent category, and a required one must be filled. The product form shows them in a Details card, `saveProduct` validates them (`lib/catalogue/attributes.ts`), CSV imports keep existing values, and the storefront product page shows them. The same section edits commission rules (global, per category or per store, starting now or later), delivery zones and TownMart's default rates, platform-wide promotions (store or category scope) and platform settings (service fee, VAT, default commission, stock hold, pay on delivery, auto-complete, refund deadlines, late-cancellation share, escrow days, payout minimum, booking lead time and horizon), each range-checked.
+
+### Content
+
+`/admin/content` manages homepage banners (image uploaded to `banners/cms/`, link on TownMart or https, optional start and end), featured stores, help-centre answers by section and the about and contact pages. Rich text goes through `sanitizeCmsHtml`, which also allows links to TownMart paths. The public pages are `/help`, `/about` and `/contact`.
+
+### Orders, bookings and disputes
+
+`/admin/orders` (Phase 5) gains `/admin/orders/bookings`: every booking, with views for upcoming, waiting for the provider, today and recent cancellations or no-shows, and search by order, provider, service or customer email. Changes happen on the order page.
+
+### Users, roles and the audit log
+
+`/admin/users` searches accounts by name, email or role. A user's page shows their roles, stores, orders and recent audit entries. Admins can suspend (with a reason; signs them out everywhere), restore or sign someone out. Roles are changed by super admins only (`user.roles.manage`); at least one super admin always remains and nobody removes their own super admin role. `/admin/users/audit` (`audit_log.read`) filters the append-only audit log by actor, action, entity and date and shows before and after.
+
+### System health
+
+`/admin/system` (`lib/system/health.ts`) shows database size and connections, the largest tables, queries running over 5 seconds, the slowest statements (when `pg_stat_statements` is loaded), every BullMQ queue's counts and recent failures with retry buttons (`jobs.retry`), the last run of each scheduled job, and the last backup and restore drill. Each section fails on its own, so a Redis outage shows as "unavailable" rather than breaking the page. Backups and restore drills are recorded by the ops scripts with `pnpm ops:record backup|restore_test --ok|--failed` into the append-only `ops_events`.
+
+### Staff
+
+Store owners invite people by email at `/dashboard/staff` and choose what each can do (products and services, orders, bookings, promotions, reviews and questions). The emailed link (`/invite/[token]`, hashed, 7 days, resendable and revocable) is accepted while signed in with that email; an account that owns or already works for a store can't accept. Owners change permissions or remove staff at any time, and the change applies on the next request.
+
 ## Design system
 
 Tokens live in `app/globals.css` as CSS variables (light and dark via `prefers-color-scheme`) and are exposed to Tailwind v4 through `@theme`. Components in `components/ui` use semantic tokens only (`bg-primary`, `text-muted-foreground`). Admins can see everything at `/design-system`.

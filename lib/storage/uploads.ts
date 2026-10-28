@@ -42,6 +42,9 @@ export const newTmpKey = (businessId: string) => `${tmpPrefix(businessId)}${rand
  */
 export const customerOwner = (userId: string) => `u-${userId}`;
 
+/** Images TownMart itself publishes (homepage banners). */
+export const CMS_OWNER = "cms";
+
 /** Refund evidence belongs to the order (guests can add photos too): `o-<orderId>`. */
 export const orderOwner = (orderId: string) => `o-${orderId}`;
 export const evidencePrefix = (orderId: string) => `evidence/${orderOwner(orderId)}/`;

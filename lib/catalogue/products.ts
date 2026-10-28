@@ -4,6 +4,7 @@ import { sanitizeRichText } from "@/lib/sanitize";
 import { imagePrefix } from "@/lib/storage/uploads";
 import type { ProductData } from "@/lib/validation/catalogue";
 import { listingSlug } from "./slug";
+import { categoryAttributeDefs, checkAttributes } from "./attributes";
 
 /** A business-rule failure the seller can fix; `field` points at the form field. */
 export class CatalogueError extends Error {
@@ -103,6 +104,8 @@ export async function saveProduct(
     productId?: string;
     /** How stock edits are labelled in the stock log. */
     stockSource?: { reason: StockMovementReason; note: string };
+    /** "keep" leaves attribute values alone (the CSV import has no attribute columns). */
+    attributes?: "replace" | "keep";
   },
 ): Promise<SaveProductResult> {
   const { businessId, actorUserId, data } = params;
@@ -111,6 +114,16 @@ export async function saveProduct(
   const category = await tx.category.findUnique({ where: { id: data.categoryId }, select: { kind: true, isActive: true } });
   if (!category || category.kind !== "product" || !category.isActive) {
     throw new CatalogueError("Choose a product category", "categoryId");
+  }
+  let attributes: Record<string, string | number> | undefined;
+  if (params.attributes !== "keep") {
+    const defs = (await categoryAttributeDefs(tx, [data.categoryId])).get(data.categoryId) ?? [];
+    const checked = checkAttributes(defs, data.attributes);
+    if (!checked.ok) {
+      const [slug, message] = Object.entries(checked.errors)[0]!;
+      throw new CatalogueError(message, `attributes.${slug}`);
+    }
+    attributes = checked.value;
   }
   const prefix = imagePrefix("product", businessId);
   if (data.images.some((i) => !i.key.startsWith(prefix))) throw new CatalogueError("One of the images isn't yours", "images");
@@ -153,6 +166,7 @@ export async function saveProduct(
     status: data.status,
     metaTitle: data.metaTitle || null,
     metaDescription: data.metaDescription || null,
+    ...(attributes ? { attributes } : {}),
     publishedAt: data.status === "active" ? (existing?.publishedAt ?? new Date()) : (existing?.publishedAt ?? null),
   };
 

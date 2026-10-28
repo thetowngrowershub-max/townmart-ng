@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { QuestionsSection } from "@/components/listings/questions-section";
+import { ReportListing } from "@/components/listings/report-listing";
 import { ReviewList } from "@/components/reviews/review-list";
 import { WishlistButton } from "@/components/storefront/wishlist-button";
 import { isSaved } from "@/lib/wishlist";
@@ -9,7 +11,8 @@ import { ProductPurchase, type VariantView } from "@/components/storefront/produ
 import { PolicySummary, SellerCard } from "@/components/storefront/seller-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { getListingReviews, getListingRules, getPublicProduct, getRelatedProducts } from "@/lib/catalogue/storefront";
+import { listingQuestions } from "@/lib/questions/questions";
+import { getListingReviews, getListingRules, getProductSpecs, getPublicProduct, getRelatedProducts } from "@/lib/catalogue/storefront";
 import { formatDateTime } from "@/lib/datetime";
 import { dealFor } from "@/lib/promotions/live";
 import { unitLabel } from "@/lib/catalogue/units";
@@ -36,6 +39,7 @@ export default async function ProductPage({ params }: Props) {
   const p = await getPublicProduct((await params).slug);
   if (!p) notFound();
   const [related, reviews, viewer] = await Promise.all([getRelatedProducts(p.id, p.categoryId), getListingReviews({ productId: p.id }), getCurrentUser()]);
+  const [questions, specs] = await Promise.all([listingQuestions({ productId: p.id }, viewer?.id ?? null), getProductSpecs(p.categoryId, p.attributes)]);
   const saved = await isSaved(viewer?.id, { productId: p.id });
   const now = new Date();
   const rules = await getListingRules([p.businessId, ...related.map((r) => r.businessId)]);
@@ -130,6 +134,24 @@ export default async function ProductPage({ params }: Props) {
         <PolicySummary policy={p.business.policy} />
       </ProductPurchase>
 
+      {specs.length > 0 && (
+        <Card className="mt-10">
+          <CardHeader>
+            <CardTitle>Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid max-w-3xl gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+              {specs.map((s) => (
+                <div key={s.name} className="flex justify-between gap-4 border-b py-1.5">
+                  <dt className="text-muted-foreground">{s.name}</dt>
+                  <dd className="text-right font-medium">{s.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </CardContent>
+        </Card>
+      )}
+
       {p.descriptionHtml && (
         <Card className="mt-10">
           <CardHeader>
@@ -145,6 +167,16 @@ export default async function ProductPage({ params }: Props) {
           <ReviewList avg={Number(p.ratingAvg)} total={reviews.total} breakdown={reviews.breakdown} reviews={reviews.reviews} signedIn={Boolean(viewer)} />
         </CardContent>
       </Card>
+
+      <Card className="mt-10">
+        <CardContent className="pt-6">
+          <QuestionsSection kind="product" id={p.id} questions={questions} viewerId={viewer?.id ?? null} returnTo={`/p/${p.slug}`} />
+        </CardContent>
+      </Card>
+
+      <div className="mt-6">
+        <ReportListing kind="product" id={p.id} signedIn={Boolean(viewer)} returnTo={`/p/${p.slug}`} />
+      </div>
 
       {related.length > 0 && (
         <section aria-labelledby="related" className="mt-12">

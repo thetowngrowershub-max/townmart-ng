@@ -46,6 +46,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         id: true,
         title: true,
         status: true,
+        takenDownAt: true,
         basePriceKobo: true,
         trackInventory: true,
         unit: true,
@@ -66,7 +67,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       price: `${p.variants.length > 1 ? "From " : ""}${formatPrice(p.basePriceKobo)}`,
       status: p.status,
       detail: p.trackInventory ? `${stock.toString()} ${p.unit} across ${p.variants.length} variant${p.variants.length === 1 ? "" : "s"}` : "Not tracked",
-      warning: low ? "Low stock" : undefined,
+      warning: p.takenDownAt ? "Taken down by TownMart" : low ? "Low stock" : undefined,
     };
   });
 

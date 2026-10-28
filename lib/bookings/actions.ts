@@ -40,7 +40,7 @@ export async function serviceSlotsAction(input: { serviceId: string; packageId?:
 
   return withSystemContext(async (tx) => {
     const service = await tx.service.findFirst({
-      where: { id: parsed.data.serviceId, status: "active", deletedAt: null, business: { status: "approved" } },
+      where: { id: parsed.data.serviceId, status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved" } },
       select: { id: true, durationMinutes: true, packages: { select: { id: true, durationMinutes: true } } },
     });
     if (!service) return { ok: false as const, error: "This service is no longer available." };
