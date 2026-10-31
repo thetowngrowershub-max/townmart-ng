@@ -4,7 +4,7 @@
 # support) and a matching psql for debugging.
 FROM postgres:16-bookworm
 RUN apt-get update \
- && apt-get install -y --no-install-recommends pgbouncer openssl \
+ && apt-get install -y --no-install-recommends pgbouncer openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && install -d -o postgres -g postgres /etc/pgbouncer/tls /var/run/pgbouncer
 COPY docker/pgbouncer/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
