@@ -30,7 +30,7 @@ export function BarChart({ points, title, valueLabel, height = 220 }: { points: 
   return (
     <figure className="flex flex-col gap-2">
       <div className="relative">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-labelledby={`${id}-t`}>
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="group" aria-labelledby={`${id}-t`}>
           <title id={`${id}-t`}>{title}</title>
           {[0.25, 0.5, 0.75, 1].map((f) => (
             <line key={f} x1={pad.left} x2={width - pad.right} y1={y(max * f)} y2={y(max * f)} stroke="var(--border)" strokeWidth={1} />
@@ -57,6 +57,7 @@ export function BarChart({ points, title, valueLabel, height = 220 }: { points: 
                   height={plotH}
                   fill="transparent"
                   tabIndex={0}
+                  role="img"
                   aria-label={`${p.label}: ${p.display}`}
                   onMouseEnter={() => setActive(i)}
                   onMouseLeave={() => setActive(null)}
@@ -65,7 +66,7 @@ export function BarChart({ points, title, valueLabel, height = 220 }: { points: 
                   className="outline-none focus-visible:stroke-[var(--ring)]"
                 />
                 {(i % every === 0 || i === points.length - 1) && (
-                  <text x={pad.left + i * slot + slot / 2} y={height - 8} textAnchor="middle" fontSize={11} fill="var(--muted-foreground)">
+                  <text aria-hidden x={pad.left + i * slot + slot / 2} y={height - 8} textAnchor="middle" fontSize={11} fill="var(--muted-foreground)">
                     {p.label}
                   </text>
                 )}

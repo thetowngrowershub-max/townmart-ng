@@ -89,3 +89,128 @@ jobs:
         run: pnpm db:seed
       - name: Database tests (RLS, roles, append-only audit log, conventions)
         run: pnpm test:db
+
+  e2e:
+    name: Browser tests (purchase, refund, booking) and overselling load test
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres-ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres-ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=postgres-ci|" .env
+          sed -i "s|^STORAGE_DRIVER=.*|STORAGE_DRIVER=local|" .env
+          sed -i "s|^PAYMENT_PROVIDER=.*|PAYMENT_PROVIDER=fake|; s|^BANK_VERIFIER=.*|BANK_VERIFIER=fake|" .env
+          for k in AUTH_SECRET DATA_ENCRYPTION_KEY DATA_HASH_KEY; do
+            sed -i "s|^$k=.*|$k=$(openssl rand -base64 32)|" .env
+          done
+      - name: Database with demo data
+        run: pnpm db:bootstrap && pnpm db:deploy && pnpm db:seed
+      - name: Build
+        run: pnpm build
+      - name: Start the app and the worker
+        run: |
+          nohup pnpm start > app.log 2>&1 &
+          nohup pnpm worker > worker.log 2>&1 &
+          for i in $(seq 60); do curl -fsS http://localhost:3000/api/health && exit 0; sleep 2; done
+          cat app.log; exit 1
+      - name: Overselling load test (50 buyers race for 10 units)
+        run: pnpm load:oversell
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Browser tests
+        run: pnpm test:e2e
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+      - name: App and worker logs
+        if: failure()
+        run: tail -n 200 app.log worker.log
+
+  production:
+    name: Production images and stack smoke test
+    runs-on: ubuntu-24.04
+    env:
+      COMPOSE_FILE: docker-compose.prod.yml
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare production env, backup keys and secrets
+        run: |
+          cp .env.example .env
+          for k in AUTH_SECRET DATA_ENCRYPTION_KEY DATA_HASH_KEY; do
+            sed -i "s|^$k=.*|$k=$(openssl rand -base64 32)|" .env
+          done
+          for k in POSTGRES_PASSWORD TOWNMART_MIGRATOR_PASSWORD TOWNMART_APP_PASSWORD TOWNMART_READONLY_PASSWORD; do
+            sed -i "s|^$k=.*|$k=$(openssl rand -hex 16)|" .env
+          done
+          # Production refuses the development drivers; placeholders keep it starting.
+          sed -i "s|^NODE_ENV=.*|NODE_ENV=production|; s|^SMS_PROVIDER=.*|SMS_PROVIDER=termii|; s|^TERMII_API_KEY=.*|TERMII_API_KEY=ci-placeholder|; s|^PAYSTACK_SECRET_KEY=.*|PAYSTACK_SECRET_KEY=sk_test_ci_placeholder|; s|^APP_URL=.*|APP_URL=https://localhost|; s|^AUTH_URL=.*|AUTH_URL=https://localhost|" .env
+          sed -i "s|^DOMAIN=.*|DOMAIN=localhost|; s|^ACME_EMAIL=.*|ACME_EMAIL=ci@example.com|; s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$(openssl rand -hex 16)|" .env
+          sed -i "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=$(openssl rand -hex 12)|; s|^SEED_SUPER_ADMIN_PASSWORD=.*|SEED_SUPER_ADMIN_PASSWORD=$(openssl rand -hex 12)|" .env
+          sudo apt-get install -y --no-install-recommends age
+          mkdir -p secrets
+          age-keygen -o secrets/backup-age-identity.txt 2> /tmp/age-public.txt
+          chmod 644 secrets/backup-age-identity.txt
+          printf 'BACKUP_AGE_RECIPIENTS=%s\nPGBACKREST_REPO1_CIPHER_PASS=%s\nBACKUP_RUN_ON_START=1\n' \
+            "$(grep -o 'age1[0-9a-z]*' /tmp/age-public.txt)" "$(openssl rand -hex 24)" > backup.env
+      - name: Build images
+        run: docker compose --profile tools build
+      - name: Start Postgres, Redis and PgBouncer
+        run: docker compose up -d --wait postgres redis pgbouncer
+      - name: Migrate and seed (as the schema owner, over TLS)
+        run: |
+          docker compose run --rm migrate
+          docker compose run --rm migrate pnpm db:seed
+      - name: Start the app, worker, Caddy and the backup scheduler
+        run: docker compose up -d --wait web worker caddy backup
+      - name: Smoke test through Caddy, the app and PgBouncer
+        run: |
+          for i in $(seq 1 30); do curl -fsk https://localhost/api/health && break; sleep 2; done
+          curl -fsk https://localhost/api/health | grep -q '"status":"ok"'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)" = 200
+          curl -sk -D - -o /dev/null https://localhost/ | grep -qi '^strict-transport-security'
+          curl -sk -D - -o /dev/null https://localhost/ | grep -qi '^content-security-policy'
+          # Nothing but Caddy listens on the host.
+          ! nc -z localhost 5432 && ! nc -z localhost 6432 && ! nc -z localhost 6379
+      - name: Backups ran on start and were recorded
+        run: |
+          q() { docker compose exec -T -u postgres postgres psql -d townmart -XAtc "$1"; }
+          for i in $(seq 1 60); do
+            n="$(q "SELECT count(*) FROM ops_events WHERE kind = 'backup' AND succeeded")"
+            [ "${n:-0}" -ge 2 ] && break; sleep 5
+          done
+          q "SELECT kind, succeeded, details FROM ops_events ORDER BY created_at"
+          test "${n:-0}" -ge 2
+      - name: Restore drill passes
+        run: docker compose exec -T -u postgres backup /opt/townmart/scripts/db/verify-restore.sh
+      - name: Logs
+        if: failure()
+        run: docker compose --profile tools logs --no-color --tail 200

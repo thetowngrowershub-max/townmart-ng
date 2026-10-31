@@ -23,7 +23,9 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "ops:record": "tsx scripts/ops/record.ts",
-    "postinstall": "prisma generate"
+    "load:oversell": "tsx scripts/load/oversell.ts",
+    "postinstall": "prisma generate",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@auth/prisma-adapter": "2.11.3",
@@ -62,7 +64,9 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/eslintrc": "^3.3.7",
+    "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.5",
     "@types/nodemailer": "^8.0.2",
@@ -87,6 +91,10 @@
       "esbuild",
       "sharp",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "next>postcss": "^8.5.31",
+      "@prisma/config>deepmerge-ts": "^8.0.0"
+    }
   }
 }

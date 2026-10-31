@@ -5,8 +5,9 @@ const weekday = new Intl.DateTimeFormat("en-NG", { timeZone: "UTC", weekday: "sh
 
 /**
  * Daily earnings as columns, one series (so no legend: the card title names
- * it). Each column shows its value on hover or focus; the same figures are in
- * a table for screen readers.
+ * it). Each column shows its value on hover. The plot is hidden from
+ * assistive technology, so its columns aren't focusable; the same figures are
+ * in a table for screen readers.
  */
 export function SalesChart({ days }: { days: { date: string; kobo: bigint; orders: number }[] }) {
   const max = days.reduce((m, d) => (d.kobo > m ? d.kobo : m), 0n);
@@ -22,9 +23,9 @@ export function SalesChart({ days }: { days: { date: string; kobo: bigint; order
           {days.map((d) => {
             const h = max > 0n ? Number((d.kobo * 1000n) / max) / 10 : 0;
             return (
-              <div key={d.date} tabIndex={0} className="group relative flex h-full flex-1 items-end justify-center outline-none">
-                <div className="w-full max-w-7 rounded-t-[4px] bg-primary transition-opacity group-hover:opacity-80 group-focus:opacity-80" style={{ height: d.kobo > 0n ? `max(${h}%, 2px)` : "0" }} />
-                <div className="pointer-events-none absolute bottom-full z-10 mb-1 hidden whitespace-nowrap rounded-lg border bg-popover px-2 py-1 text-xs text-popover-foreground shadow group-hover:block group-focus:block">
+              <div key={d.date} className="group relative flex h-full flex-1 items-end justify-center">
+                <div className="w-full max-w-7 rounded-t-[4px] bg-primary transition-opacity group-hover:opacity-80" style={{ height: d.kobo > 0n ? `max(${h}%, 2px)` : "0" }} />
+                <div className="pointer-events-none absolute bottom-full z-10 mb-1 hidden whitespace-nowrap rounded-lg border bg-popover px-2 py-1 text-xs text-popover-foreground shadow group-hover:block">
                   <p className="font-medium">
                     {weekday.format(new Date(`${d.date}T00:00:00Z`))} {label(d.date)}
                   </p>
