@@ -133,7 +133,9 @@ jobs:
         run: pnpm build
       - name: Start the app and the worker
         run: |
-          nohup pnpm start > app.log 2>&1 &
+          # A production build, but NODE_ENV=development lets it use the fake
+          # payment, bank and SMS drivers, which production mode refuses.
+          NODE_ENV=development nohup pnpm start > app.log 2>&1 &
           nohup pnpm worker > worker.log 2>&1 &
           for i in $(seq 60); do curl -fsS http://localhost:3000/api/health && exit 0; sleep 2; done
           cat app.log; exit 1

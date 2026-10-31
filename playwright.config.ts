@@ -3,9 +3,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * End-to-end tests: purchase, refund and booking, in a real browser against a
- * running app and worker with the fake payment provider (see tests/e2e/README).
+ * running app and worker with the fake payment provider (README, "Scripts").
  *
- *   pnpm build && pnpm start      # or pnpm dev
+ *   pnpm build && NODE_ENV=development pnpm start   # or pnpm dev; fake drivers need a non-production NODE_ENV
  *   pnpm worker
  *   pnpm test:e2e
  */
