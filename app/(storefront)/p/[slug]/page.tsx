@@ -137,7 +137,7 @@ export default async function ProductPage({ params }: Props) {
       {specs.length > 0 && (
         <Card className="mt-10">
           <CardHeader>
-            <CardTitle>Details</CardTitle>
+            <CardTitle as="h2">Details</CardTitle>
           </CardHeader>
           <CardContent>
             <dl className="grid max-w-3xl gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
@@ -155,7 +155,7 @@ export default async function ProductPage({ params }: Props) {
       {p.descriptionHtml && (
         <Card className="mt-10">
           <CardHeader>
-            <CardTitle>Description</CardTitle>
+            <CardTitle as="h2">Description</CardTitle>
           </CardHeader>
           {/* Sanitised with an allowlist when saved (lib/sanitize.ts). */}
           <CardContent className="prose-tm max-w-3xl text-sm" dangerouslySetInnerHTML={{ __html: p.descriptionHtml }} />

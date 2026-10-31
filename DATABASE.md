@@ -206,4 +206,69 @@ RLS is defence in depth. The application `authz` check always runs first.
 
 ## Backups and restore
 
-Nightly `pg_dump`, WAL archiving for point-in-time recovery, encrypted off-site copies and monthly automated restore drills are delivered in **Phase 8** (`scripts/db/backup.sh`, `restore.sh`, `verify-restore.sh`), with RPO ≤ 15 minutes and RTO ≤ 2 hours. Until then, use `pg_dump -Fc` manually before risky changes, and record each backup and restore drill with `pnpm ops:record` so `/admin/system` shows when they last ran.
+Two independent kinds of backup, both encrypted, both copied to a second location, and both run by the `backup` service in `docker-compose.prod.yml` (`scripts/db/scheduler.sh`). DEPLOYMENT.md covers setting them up.
+
+| | pgBackRest (point-in-time recovery) | Nightly dump (`scripts/db/backup.sh`) |
+|---|---|---|
+| What | Physical backups plus every WAL segment, archived at least every 60 seconds | `pg_dump -Fc` of one consistent snapshot, with each table's row count taken in the same snapshot |
+| When | Full on Sundays, differential other days, 01:00 Lagos | 01:30 Lagos |
+| Encryption | AES-256 (`PGBACKREST_REPO1_CIPHER_PASS`) | age, to the public key(s) in `BACKUP_AGE_RECIPIENTS`; the private key stays offline |
+| Second location | `PGBACKREST_REPO2_*` (S3-compatible) | `BACKUP_OFFSITE` (any rclone remote) |
+| Kept | 3 full backups and all WAL between | 14 daily, 8 weekly, 12 monthly |
+| Good for | Going back to a moment before a mistake | A portable copy that restores anywhere; the monthly drill |
+
+**Targets:** RPO about 1 minute (at most 15), RTO 2 hours.
+
+**Restore drill:** at 04:00 on the 1st of each month, `scripts/db/verify-restore.sh` takes the newest dump (from the second location when one is configured), restores it into a scratch database, compares every table's row count with the counts saved at backup time, drops the scratch database and records the result. CI runs the same drill on every push.
+
+**Records:** every backup and drill, good or bad, writes a row to `ops_events` (as the superuser; the app roles can only read it). `/admin/system` shows the last of each, with its size and details. `pnpm ops:record` stays available for backups taken by hand.
+
+### Restore runbook: a dump into a new database
+
+Use this to recover from a lost server, or to look at old data next to the live database.
+
+```sh
+export COMPOSE_FILE=docker-compose.prod.yml
+# 1. Pick a dump (local, or fetch from the second location with rclone).
+docker compose exec -u postgres backup ls /var/backups/townmart/daily
+# 2. Restore it into a NEW database. It checks the checksum and never touches an existing database.
+docker compose exec -u postgres backup /opt/townmart/scripts/db/restore.sh dump \
+  /var/backups/townmart/daily/townmart-20261102T003000Z.dump.age townmart_restored
+```
+
+To put it live:
+
+```sh
+docker compose stop web worker pgbouncer
+docker compose exec -u postgres postgres psql -c 'ALTER DATABASE townmart RENAME TO townmart_before_restore' \
+                                            -c 'ALTER DATABASE townmart_restored RENAME TO townmart'
+docker compose start pgbouncer web worker
+```
+
+Keep `townmart_before_restore` until you're sure, then drop it. On a brand-new server, follow DEPLOYMENT.md up to "First deploy", start only `postgres` (it creates the roles), restore as above straight into the name `townmart` after dropping the empty one, then start the rest. Don't run `migrate pnpm db:seed` on a restored database.
+
+### Restore runbook: point in time
+
+Use this after a mistake (a bad migration, a mass delete): it rebuilds the database as it was at a moment you choose, losing everything after it.
+
+```sh
+export COMPOSE_FILE=docker-compose.prod.yml
+# 1. Find the moment just before the mistake (audit_logs, app logs). Use a time with its zone.
+# 2. Take a dump of the current state, in case you need something from after that moment.
+docker compose exec -u postgres backup /opt/townmart/scripts/db/backup.sh
+# 3. Stop everything that uses the database, and the database itself.
+docker compose stop web worker backup pgbouncer postgres
+# 4. Restore. This rewrites the data directory, replays WAL up to the target and promotes.
+docker compose run --rm --no-deps -u postgres --entrypoint "" -e PGDATA=/var/lib/postgresql/data \
+  postgres /opt/townmart/scripts/db/restore.sh pitr "2026-11-02 14:29:00+01"
+# 5. Start the database and check the data before letting traffic in.
+docker compose up -d --wait postgres
+docker compose exec -u postgres postgres psql -d townmart -c 'SELECT max(created_at) FROM orders'
+docker compose up -d --wait pgbouncer web worker backup
+```
+
+After a point-in-time restore Postgres starts a new timeline; the next scheduled pgBackRest backup covers it. Orders and payments made after the target time are lost from TownMart. Find those payments in the Paystack or Flutterwave dashboard by time, refund them there, and tell the customers and sellers affected.
+
+### Before risky changes
+
+Run a dump first: `docker compose exec -u postgres backup /opt/townmart/scripts/db/backup.sh`. In development, `pg_dump -Fc` is enough.

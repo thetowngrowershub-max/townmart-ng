@@ -28,7 +28,11 @@ const nextConfig: NextConfig = {
     remotePatterns: remoteImagePatterns(),
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Pages get a nonce-based policy from middleware.ts; API responses never run scripts.
+      { source: "/api/:path*", headers: [{ key: "Content-Security-Policy", value: "default-src 'none'; frame-ancestors 'none'" }] },
+    ];
   },
 };
 

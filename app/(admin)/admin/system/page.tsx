@@ -107,7 +107,7 @@ export default async function SystemHealthPage() {
           <CardContent className="flex flex-col gap-6">
             <Unavailable s={queues} />
             {queues.ok && (
-              <div className="relative overflow-x-auto">
+              <div className="relative overflow-x-auto" tabIndex={0} role="region" aria-label="Queue counts">
                 <table className="w-full min-w-[520px] text-sm">
                   <thead className="border-b text-left text-xs text-muted-foreground">
                     <tr>

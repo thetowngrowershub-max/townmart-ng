@@ -1,0 +1,204 @@
+# TownMart production stack for one server (VPS or dedicated). See DEPLOYMENT.md.
+#
+#   docker compose -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.prod.yml up -d postgres redis
+#   docker compose -f docker-compose.prod.yml run --rm migrate
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Only Caddy publishes ports (80 and 443). Postgres, PgBouncer, Redis and MinIO
+# live on the private "backend" network and are never reachable from outside.
+# Secrets come from .env (app) and backup.env (backups); neither is committed.
+name: townmart-prod
+
+x-app: &app
+  env_file: .env
+  environment: &app-env
+    NODE_ENV: production
+    # Through PgBouncer (transaction pooling), encrypted to the pooler.
+    DATABASE_URL: postgresql://townmart_app:${TOWNMART_APP_PASSWORD:?}@pgbouncer:6432/${POSTGRES_DB:-townmart}?schema=public&pgbouncer=true&sslmode=require
+    # The app never needs the migrator or superuser: point the migration URL at
+    # the pooler too, and blank the database passwords that .env also holds.
+    MIGRATE_DATABASE_URL: postgresql://townmart_app:${TOWNMART_APP_PASSWORD:?}@pgbouncer:6432/${POSTGRES_DB:-townmart}?schema=public&pgbouncer=true&sslmode=require
+    POSTGRES_PASSWORD: ""
+    TOWNMART_MIGRATOR_PASSWORD: ""
+    TOWNMART_READONLY_PASSWORD: ""
+    MINIO_ROOT_PASSWORD: ""
+    REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379
+  restart: unless-stopped
+  networks: [backend]
+  depends_on:
+    pgbouncer: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  logging: &logging
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+x-build: &build
+  context: .
+  args:
+    # Read at build time by Next.js: the public image host and the Turnstile site key.
+    S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env, e.g. townmart.ng}
+      MEDIA_DOMAIN: ${MEDIA_DOMAIN:-media.localhost}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [backend]
+    depends_on: [web]
+    logging: *logging
+
+  web:
+    <<: *app
+    build: { <<: *build, target: web }
+    image: townmart-web:${IMAGE_TAG:-latest}
+
+  worker:
+    <<: *app
+    build: { <<: *build, target: worker }
+    image: townmart-worker:${IMAGE_TAG:-latest}
+
+  # One-off: apply migrations (and, first time only, seed reference data).
+  #   docker compose -f docker-compose.prod.yml run --rm migrate
+  #   docker compose -f docker-compose.prod.yml run --rm migrate pnpm db:seed
+  migrate:
+    <<: *app
+    build: { <<: *build, target: build }
+    image: townmart-tools:${IMAGE_TAG:-latest}
+    command: ["pnpm", "db:deploy"]
+    environment:
+      <<: *app-env
+      # Migrations and the seed run as the schema owner, straight to Postgres over TLS.
+      MIGRATE_DATABASE_URL: postgresql://townmart_migrator:${TOWNMART_MIGRATOR_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-townmart}?schema=public&sslmode=require
+      TOWNMART_MIGRATOR_PASSWORD: ${TOWNMART_MIGRATOR_PASSWORD:?}
+    restart: "no"
+    profiles: [tools]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  postgres:
+    build: { context: ., dockerfile: docker/postgres/Dockerfile }
+    image: townmart-postgres:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    shm_size: 256mb
+    env_file:
+      - path: backup.env
+        required: false
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: postgres
+      TOWNMART_DB: ${POSTGRES_DB:-townmart}
+      TOWNMART_MIGRATOR_PASSWORD: ${TOWNMART_MIGRATOR_PASSWORD:?}
+      TOWNMART_APP_PASSWORD: ${TOWNMART_APP_PASSWORD:?}
+      TOWNMART_READONLY_PASSWORD: ${TOWNMART_READONLY_PASSWORD:?}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - postgres-tls:/var/lib/postgresql/tls
+      - postgres-socket:/var/run/postgresql
+      - pgbackrest-repo:/var/lib/pgbackrest
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $${TOWNMART_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    logging: *logging
+
+  pgbouncer:
+    build: { context: ., dockerfile: docker/pgbouncer/Dockerfile }
+    image: townmart-pgbouncer:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      TOWNMART_APP_PASSWORD: ${TOWNMART_APP_PASSWORD:?}
+      TOWNMART_READONLY_PASSWORD: ${TOWNMART_READONLY_PASSWORD:?}
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    logging: *logging
+
+  # pgBackRest backups, nightly encrypted dumps and the monthly restore drill
+  # (scripts/db/scheduler.sh). Shares the database's volumes and socket.
+  backup:
+    image: townmart-postgres:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    entrypoint: ["gosu", "postgres", "/opt/townmart/scripts/db/scheduler.sh"]
+    env_file:
+      - path: backup.env
+        required: false
+    environment:
+      BACKUP_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-townmart}?sslmode=require
+      BACKUP_DIR: /var/backups/townmart
+      # Only the monthly restore drill decrypts. To keep the private key off this
+      # server, remove this line and the mount below, and run the drill elsewhere.
+      BACKUP_AGE_IDENTITY_FILE: /run/secrets/backup-age-identity.txt
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:ro
+      - postgres-socket:/var/run/postgresql
+      - pgbackrest-repo:/var/lib/pgbackrest
+      - backups:/var/backups/townmart
+      - ./secrets/backup-age-identity.txt:/run/secrets/backup-age-identity.txt:ro
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction", "--requirepass", "${REDIS_PASSWORD:?}"]
+    volumes:
+      - redis-data:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+    logging: *logging
+
+  # Optional: object storage on this server. Skip it when using R2, S3 or a
+  # Nigerian S3-compatible provider (set S3_ENDPOINT in .env instead).
+  #   docker compose -f docker-compose.prod.yml --profile minio up -d
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    profiles: [minio]
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+      # Presigned uploads come from the shop's pages only.
+      MINIO_API_CORS_ALLOW_ORIGIN: https://${DOMAIN}
+    volumes:
+      - minio-data:/data
+    networks: [backend]
+    logging: *logging
+
+networks:
+  backend: {}
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres-data:
+  postgres-tls:
+  postgres-socket:
+  pgbackrest-repo:
+  backups:
+  redis-data:
+  minio-data:
