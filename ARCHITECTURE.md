@@ -378,7 +378,7 @@ The `backup` service (`scripts/db/scheduler.sh`) runs pgBackRest backups (point-
 ### Tests at the edges
 
 - `pnpm load:oversell` (`scripts/load/`) forks one process per buyer, each with its own connection, waits until all are connected, releases them together and checks exactly the stock was sold. It then pays every order through the running app's webhook endpoint three times at once and checks each was paid and booked in the ledger once.
-- `tests/e2e/` (Playwright, Pixel 7 screen): a guest purchase, a refund after delivery approved by the seller, and a booking confirmed by the provider, each through the real pages and the fake payment page, plus an axe audit (WCAG 2.2 AA rules) of 27 storefront, account, seller and admin pages. CI runs both against a production build with the worker.
+- `tests/e2e/` (Playwright, Pixel 7 screen): a guest purchase, a refund after delivery approved by the seller, and a booking confirmed by the provider, each through the real pages and the fake payment page, plus an axe audit (WCAG 2.2 AA rules) of 32 storefront, account, seller and admin pages. CI runs both against a production build with the worker.
 
 ## Design system
 

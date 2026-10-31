@@ -47,7 +47,7 @@ export default async function PlatformPromotionsPage() {
       {list.length === 0 ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">No platform promotions yet.</Card>
       ) : (
-        <Card className="overflow-x-auto p-0">
+        <Card className="overflow-x-auto p-0" tabIndex={0} role="region" aria-label="Promotions">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
               <tr>

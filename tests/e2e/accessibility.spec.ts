@@ -45,7 +45,7 @@ test.describe("accessibility", () => {
 
   test("admin", async ({ page }) => {
     await signIn(page, fixtures().admin.email, "/admin");
-    for (const path of ["/admin", "/admin/orders", "/admin/sellers", "/admin/refunds", "/admin/system"]) {
+    for (const path of ["/admin", "/admin/orders", "/admin/sellers", "/admin/disputes", "/admin/users", "/admin/catalogue", "/admin/catalogue/commission", "/admin/catalogue/promotions", "/admin/compliance/logs", "/admin/system"]) {
       await audit(page, path);
     }
   });

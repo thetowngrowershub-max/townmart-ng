@@ -86,7 +86,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
           Search
         </Button>
       </form>
-      <Card className="overflow-x-auto p-0">
+      <Card className="overflow-x-auto p-0" tabIndex={0} role="region" aria-label="Users">
         <table className="w-full min-w-[720px] text-sm">
           <thead className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
             <tr>

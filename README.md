@@ -52,7 +52,7 @@ Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DI
 | `pnpm lint` / `pnpm typecheck` | ESLint, `tsc --noEmit` (strict) |
 | `pnpm test` | Unit tests (no database needed) |
 | `pnpm test:db` | Database tests: RLS and cross-seller isolation, order and booking status guards, overselling and double booking, verified reviews, refunds, disputes, escrow and payouts, policy acceptances and consent, account deletion and retention jobs, moderation and take-downs, questions, staff invitations, CMS and reference-data writes, stock, search, append-only logs, encrypted columns, conventions. Needs a migrated, seeded DB |
-| `pnpm test:e2e` | Playwright browser tests on a phone-sized screen: a guest purchase, a refund after delivery, a booking confirmed by the provider, and an axe accessibility audit of 27 pages. Needs the app and worker running with `PAYMENT_PROVIDER=fake` and the demo seed (see `playwright.config.ts`) |
+| `pnpm test:e2e` | Playwright browser tests on a phone-sized screen: a guest purchase, a refund after delivery, a booking confirmed by the provider, and an axe accessibility audit of 32 pages. Needs the app and worker running with `PAYMENT_PROVIDER=fake` and the demo seed (see `playwright.config.ts`) |
 | `pnpm load:oversell` | Overselling load test: 50 buyers in separate processes race for 10 units, then each order is paid through three duplicate webhooks. Checks nothing is oversold or paid twice and the ledger balances. Options `--buyers`, `--stock`, `--no-webhooks` |
 | `pnpm db:bootstrap` | Creates roles and the database on an existing server (superuser) |
 | `pnpm db:migrate` / `pnpm db:deploy` | `prisma migrate dev` / `deploy` |
