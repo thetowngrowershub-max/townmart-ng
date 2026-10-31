@@ -28,7 +28,7 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Category and category-attribute management in the admin console | Built in Phase 7, with attributes in the product form and on product pages | Done |
 | Listing moderation queue (flag, take down) | Built in Phase 7: reports, keyword flags and take-downs | Done |
 | Automated KYC with an identity provider (e.g. NIN/BVN check) | Phase 1 uses manual document review behind a `provider` column. Re-deferred in Phase 6: it needs a chosen provider (e.g. Smile ID, Prembly, Dojah), a signed contract and DPA, and a DPIA (a draft is in the compliance centre) | When a KYC provider is contracted |
-| Image cropping in the uploader (spec §Catalogue, Phase 1) | Not built. Uploads are compressed to WebP (max 1600 px) and shown centre-fitted; sellers crop before uploading. Flagged in the Phase 1 review | Phase 1 follow-up, if wanted before merge |
+| Image cropping in the uploader (spec §Catalogue, Phase 1) | Built in Phase 9: each product or service image is cropped before upload (square by default, 4:3 or original), and can be cropped again | Done |
 | Cleaning up abandoned uploads in `tmp/` | An S3 lifecycle rule (expire `tmp/` after 1 day), set on the production bucket; the steps are in DEPLOYMENT.md | Done (Phase 8: deployment step) |
 | Final legal texts (Seller Agreement, DPA, Prohibited Items) | Sellers accept versioned drafts (`2026-10-draft`); final texts need legal review. The versioned `legal_documents` table shipped in Phase 6; see "Final, lawyer-reviewed legal texts" below | Before launch |
 | Dedicated search engine (Meilisearch/Typesense) | Postgres full-text plus trigram covers launch scale; callers use the `SearchProvider` interface only | When search load needs it |

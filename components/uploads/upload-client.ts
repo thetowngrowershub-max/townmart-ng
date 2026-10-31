@@ -14,7 +14,7 @@ import type { ImagePurpose } from "@/lib/storage/uploads";
 
 export type UploadedImage = { key: string; url: string; width: number; height: number };
 
-const MAX_EDGE = { product: 1600, service: 1600, logo: 512, banner: 2400, review: 1600 } satisfies Record<ImagePurpose, number>;
+export const MAX_EDGE = { product: 1600, service: 1600, logo: 512, banner: 2400, review: 1600 } satisfies Record<ImagePurpose, number>;
 
 /**
  * Shrinks an image in the browser before upload (max edge, WebP) so sellers on
