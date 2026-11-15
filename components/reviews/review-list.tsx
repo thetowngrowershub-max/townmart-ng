@@ -7,7 +7,7 @@ export function Stars({ rating, className = "size-4" }: { rating: number; classN
   return (
     <span className="inline-flex" aria-label={`${rating} out of 5 stars`} role="img">
       {[1, 2, 3, 4, 5].map((n) => (
-        <Star key={n} className={`${className} ${n <= rating ? "fill-accent text-accent" : "text-muted-foreground/30"}`} aria-hidden />
+        <Star key={n} className={`${className} ${n <= rating ? "fill-accent text-accent-strong" : "text-muted-foreground/30"}`} aria-hidden />
       ))}
     </span>
   );

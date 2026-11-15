@@ -18,7 +18,7 @@ export default async function HomePage() {
     <main id="main">
       <section className="bg-primary text-primary-foreground dark:bg-primary-soft dark:text-foreground">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-14 sm:py-20">
-          <p className="text-sm font-semibold uppercase tracking-wider opacity-80">Shop local. Book local.</p>
+          <p className="w-fit rounded-full bg-accent px-3 py-1 text-xs font-bold uppercase tracking-wider text-accent-foreground sm:text-sm">Shop local. Book local.</p>
           <h1 className="max-w-2xl text-4xl font-extrabold sm:text-5xl">Everything your town sells, in one place.</h1>
           <p className="max-w-xl text-lg opacity-90">
             Groceries, fashion, electronics and fresh farm produce, plus trusted plumbers, tailors and other artisans near
@@ -65,7 +65,7 @@ export default async function HomePage() {
           {storefrontCategories.map((c) => (
             <li key={c.slug}>
               <Link href={`/c/${c.slug}`} className="block focus-visible:outline-none">
-                <Card className="flex h-full flex-col items-center gap-3 p-6 text-center transition-shadow hover:shadow-md">
+                <Card className="flex h-full flex-col items-center gap-3 border-b-4 border-b-transparent p-6 text-center transition-[box-shadow,border-color] hover:border-b-accent hover:shadow-md">
                   <span className="text-4xl" aria-hidden>
                     {c.emoji}
                   </span>

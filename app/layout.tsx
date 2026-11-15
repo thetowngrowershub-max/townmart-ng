@@ -13,6 +13,7 @@ const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakart
 
 export const metadata: Metadata = {
   metadataBase: new URL(platformAppUrl() ?? "http://localhost:3000"),
+  applicationName: "TownMart",
   title: { default: "TownMart — Everything your town sells, in one place", template: "%s · TownMart" },
   description:
     "Shop groceries, fashion, electronics and farm produce, and book trusted service providers and artisans near you across Nigeria.",

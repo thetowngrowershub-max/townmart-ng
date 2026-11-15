@@ -1,13 +1,21 @@
+import { platformAppUrl } from "@/lib/platform-url";
 import type { EmailMessage } from "./provider";
 
 const escape = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+/** The wordmark as a PNG (mail apps don't show SVG); plain text when the site has no address. */
+function brandHeader(): string {
+  const base = platformAppUrl()?.replace(/\/$/, "");
+  if (!base) return `<p style="margin:0 0 24px;font-weight:700;font-size:20px;color:#0F6B3E">TownMart</p>`;
+  return `<p style="margin:0 0 24px"><img src="${escape(base)}/brand/townmart-logo-email.png" width="152" height="40" alt="TownMart" style="display:block;border:0;height:40px;width:152px;color:#0F6B3E;font-weight:700;font-size:20px"></p>`;
+}
+
 function layout(title: string, bodyHtml: string, footer = "You received this email because of activity on your TownMart account. If this wasn't you, you can ignore it."): string {
   return `<!doctype html><html lang="en"><body style="margin:0;background:#FAFAF7;font-family:Inter,Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
-<table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;padding:32px">
-<tr><td><p style="margin:0 0 24px;font-weight:700;font-size:20px;color:#0F6B3E">TownMart</p>
+<table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;border-top:4px solid #FF9934;padding:32px">
+<tr><td>${brandHeader()}
 <h1 style="margin:0 0 16px;font-size:22px">${escape(title)}</h1>${bodyHtml}
 <p style="margin:32px 0 0;font-size:12px;color:#64748b">${footer}</p>
 </td></tr></table></td></tr></table></body></html>`;
