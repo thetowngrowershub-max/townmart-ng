@@ -84,7 +84,15 @@ function run(cmd: string, args: string[], env: Record<string, string>) {
   if (r.status !== 0) fail(`${cmd} ${args.join(" ")} failed`);
 }
 
+/** Which expected settings this build can see (names only, never values), to tell a missing setting from a wrong one. */
+function reportSettings() {
+  const names = ["TOWNMART_TEST_MODE", "AUTH_SECRET", "DATABASE_URL", "DATABASE_URL_UNPOOLED", "REDIS_URL", "KV_URL", "STORAGE_DRIVER", "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_PUBLIC_BASE_URL"];
+  console.log(`Settings this ${process.env.VERCEL_ENV ?? "local"} build can see:`);
+  for (const n of names) console.log(`  ${process.env[n] ? "✓" : "✗"} ${n}${n === "AUTH_SECRET" && process.env[n] ? ` (${process.env[n]!.length} characters)` : ""}`);
+}
+
 async function main() {
+  reportSettings();
   if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 32) fail("Set AUTH_SECRET (32 characters or more) in the project's environment variables.");
 
   let migrateUrl: string;
