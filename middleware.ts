@@ -9,6 +9,8 @@ import { buildCsp } from "@/lib/security/csp";
  * policy follows the server's environment, not the build machine's.
  */
 export function middleware(request: NextRequest) {
+  // Prefetches don't render a page the browser runs, so they need no policy.
+  if (request.headers.get("next-router-prefetch") || request.headers.get("purpose") === "prefetch") return NextResponse.next();
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");
   const csp = buildCsp({
     nonce,
@@ -28,14 +30,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   runtime: "nodejs",
-  matcher: [
-    {
-      // Pages only: API routes, static files and images don't run scripts.
-      source: "/((?!api/|_next/static|_next/image|favicon.ico|icon|apple-icon|robots.txt|sitemap.xml).*)",
-      missing: [
-        { type: "header", key: "next-router-prefetch" },
-        { type: "header", key: "purpose", value: "prefetch" },
-      ],
-    },
-  ],
+  // Pages only: API routes, static files and images don't run scripts. A plain
+  // string, because Vercel's builder refuses matcher objects with conditions.
+  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico|icon|apple-icon|robots.txt|sitemap.xml).*)"],
 };
