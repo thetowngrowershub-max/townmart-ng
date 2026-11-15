@@ -95,7 +95,8 @@
     ],
     "overrides": {
       "next>postcss": "^8.5.31",
-      "@prisma/config>deepmerge-ts": "^8.0.0"
+      "@prisma/config>deepmerge-ts": "^8.0.0",
+      "isomorphic-dompurify>jsdom": "^26.1.0"
     }
   }
 }
