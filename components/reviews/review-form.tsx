@@ -63,7 +63,7 @@ export function ReviewForm({ orderItemId }: { orderItemId: string }) {
           {[1, 2, 3, 4, 5].map((n) => (
             <label key={n} className="cursor-pointer" onMouseEnter={() => setHover(n)}>
               <input type="radio" name="rating" value={n} className="sr-only" checked={rating === n} onChange={() => setRating(n)} />
-              <Star className={cn("size-9 transition-colors", n <= shown ? "fill-accent text-accent" : "text-muted-foreground/40")} aria-hidden />
+              <Star className={cn("size-9 transition-colors", n <= shown ? "fill-accent text-accent-strong" : "text-muted-foreground/40")} aria-hidden />
               <span className="sr-only">
                 {n} star{n === 1 ? "" : "s"}
               </span>
