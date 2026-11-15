@@ -2,6 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import type { ReactNode } from "react";
 import { ConsentManager } from "@/components/consent/consent-manager";
+import { TestModeBanner } from "@/components/test-mode/test-mode-banner";
+import { MaintenanceTick } from "@/components/test-mode/maintenance-tick";
+import { isTestMode, jobsInline, platformAppUrl } from "@/lib/platform";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -9,11 +12,12 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "sw
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta", display: "swap" });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.APP_URL ?? "http://localhost:3000"),
+  metadataBase: new URL(platformAppUrl() ?? "http://localhost:3000"),
   title: { default: "TownMart — Everything your town sells, in one place", template: "%s · TownMart" },
   description:
     "Shop groceries, fashion, electronics and farm produce, and book trusted service providers and artisans near you across Nigeria.",
   openGraph: { siteName: "TownMart", locale: "en_NG", type: "website" },
+  ...(isTestMode() ? { robots: { index: false, follow: false } } : {}),
 };
 
 export const viewport: Viewport = {
@@ -33,7 +37,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         >
           Skip to content
         </a>
+        {isTestMode() ? <TestModeBanner /> : null}
         <Providers>{children}</Providers>
+        {jobsInline() ? <MaintenanceTick /> : null}
         <ConsentManager />
       </body>
     </html>

@@ -80,7 +80,8 @@ async function seedStaffAccount(email: string, name: string, roles: Role[], envV
   }
   let password = process.env[envVar];
   if (!password) {
-    if (isProd) throw new Error(`${envVar} must be set to seed ${email} in production`);
+    // A test-mode site signs staff in from /auth/demo, so their passwords can stay unknown.
+    if (isProd && process.env.TOWNMART_TEST_MODE !== "true") throw new Error(`${envVar} must be set to seed ${email} in production`);
     password = randomBytes(12).toString("base64url");
   }
   const user = await prisma.user.create({

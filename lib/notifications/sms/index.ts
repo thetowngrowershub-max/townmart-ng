@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { addToOutbox } from "@/lib/notifications/outbox";
 
 export type SmsMessage = { to: string; body: string };
 
@@ -46,6 +47,14 @@ class ConsoleSmsProvider implements SmsProvider {
   }
 }
 
+/** Test mode only (lib/env.ts refuses it elsewhere): keeps the SMS in the test inbox. */
+class OutboxSmsProvider implements SmsProvider {
+  readonly name = "outbox";
+  async send({ to, body }: SmsMessage) {
+    return { id: await addToOutbox({ kind: "sms", to, text: body }) };
+  }
+}
+
 let provider: SmsProvider | undefined;
 
 export function smsProvider(): SmsProvider {
@@ -54,6 +63,8 @@ export function smsProvider(): SmsProvider {
     if (e.SMS_PROVIDER === "termii") {
       if (!e.TERMII_API_KEY) throw new Error("TERMII_API_KEY is required when SMS_PROVIDER=termii");
       provider = new TermiiSmsProvider(e.TERMII_API_KEY, e.TERMII_SENDER_ID, e.TERMII_BASE_URL);
+    } else if (e.SMS_PROVIDER === "outbox") {
+      provider = new OutboxSmsProvider();
     } else {
       provider = new ConsoleSmsProvider();
     }

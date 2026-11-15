@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { platformAppUrl } from "@/lib/platform";
 import { buildCsp } from "@/lib/security/csp";
 
 /**
@@ -12,7 +13,7 @@ export function middleware(request: NextRequest) {
   const csp = buildCsp({
     nonce,
     dev: process.env.NODE_ENV !== "production",
-    https: (process.env.APP_URL ?? "").startsWith("https://"),
+    https: (platformAppUrl() ?? "").startsWith("https://"),
     storageUrls: [process.env.S3_ENDPOINT, process.env.S3_PUBLIC_BASE_URL],
     scriptUrls: [process.env.ANALYTICS_SCRIPT_URL, process.env.MARKETING_SCRIPT_URL],
     extra: process.env.CSP_EXTRA_SOURCES,

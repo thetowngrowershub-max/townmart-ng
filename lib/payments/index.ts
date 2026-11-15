@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { devDriversAllowed, env } from "@/lib/env";
 import { FakePaymentProvider } from "./fake";
 import { FlutterwaveProvider } from "./flutterwave";
 import { PaystackProvider } from "./paystack";
@@ -19,7 +19,7 @@ export function paymentProvider(name: ProviderName): PaymentProvider {
       if (!e.FLUTTERWAVE_SECRET_KEY) throw new Error("FLUTTERWAVE_SECRET_KEY is required for Flutterwave payments");
       p = new FlutterwaveProvider(e.FLUTTERWAVE_SECRET_KEY, e.FLUTTERWAVE_WEBHOOK_HASH);
     } else {
-      if (e.NODE_ENV === "production") throw new Error("The fake payment provider is for development only");
+      if (!devDriversAllowed()) throw new Error("The fake payment provider is for development and test sites only");
       p = new FakePaymentProvider();
     }
     cache.set(name, p);

@@ -1,12 +1,13 @@
 import type { MetadataRoute } from "next";
 import { withRls } from "@/lib/db";
+import { platformAppUrl } from "@/lib/platform";
 
 // Rendered per request (cached by the CDN), so builds never need a database.
 export const dynamic = "force-dynamic";
 
 /** Public catalogue URLs. Read as a guest, so only live listings of approved sellers appear. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = process.env.APP_URL ?? "http://localhost:3000";
+  const base = platformAppUrl() ?? "http://localhost:3000";
   const live = { status: "active", deletedAt: null, business: { status: "approved" } } as const;
   const { categories, products, services, stores } = await withRls({ userId: null }, async (tx) => ({
     categories: await tx.category.findMany({ where: { isActive: true }, select: { slug: true, parent: { select: { slug: true } } } }),

@@ -13,7 +13,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { requestMeta } from "@/lib/request";
 import { checkoutSchema, quoteRequestSchema, type CheckoutInput } from "@/lib/validation/checkout";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
-import { env } from "@/lib/env";
+import { devDriversAllowed, env } from "@/lib/env";
 import { computeCheckout } from "./compute";
 import { toCheckoutView, type CheckoutView } from "./view";
 
@@ -113,7 +113,7 @@ export async function checkPaymentAction(input: { orderNumber: string; token: st
 
 /** Development only: the stand-in payment page's Pay / Decline buttons. */
 export async function settleFakePaymentAction(input: { reference: string; outcome: "success" | "failed" }): Promise<ActionResult<{ redirectTo: string }>> {
-  if (env().NODE_ENV === "production" || env().PAYMENT_PROVIDER !== "fake") return { ok: false, error: "Not available." };
+  if (!devDriversAllowed() || env().PAYMENT_PROVIDER !== "fake") return { ok: false, error: "Not available." };
   const callback = await FakePaymentProvider.settle(input.reference, input.outcome === "success" ? "success" : "failed");
   if (!callback) return { ok: false, error: "This test payment has expired." };
   return { ok: true, data: { redirectTo: callback } };
