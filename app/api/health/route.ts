@@ -4,16 +4,9 @@ import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { isTestMode } from "@/lib/platform";
 import { redis } from "@/lib/redis";
+import { recentPageErrors, scrub } from "@/lib/test-mode/page-errors";
 
 export const dynamic = "force-dynamic";
-
-/** Hides anything that looks like a connection string's password or a long token. */
-function scrub(message: string): string {
-  return message
-    .replace(/(\w+:\/\/[^:\s/]+:)[^@\s]+@/g, "$1***@")
-    .replace(/[A-Za-z0-9+/_=-]{32,}/g, "***")
-    .slice(0, 600);
-}
 
 /** Fails a check that hasn't answered in 8 seconds (ioredis otherwise retries forever). */
 const within = <T>(p: Promise<T>, what: string) =>
@@ -55,7 +48,7 @@ export async function GET() {
       status: ok ? "ok" : "degraded",
       db: db.status === "fulfilled",
       redis: cache.status === "fulfilled",
-      ...(isTestMode() || process.env.TOWNMART_TEST_MODE === "true"
+      ...(isTestMode()
         ? {
             settings: settings.status === "fulfilled",
             errors: {
@@ -63,6 +56,10 @@ export async function GET() {
               db: reason(db),
               redis: reason(cache),
             },
+            recentPageErrors:
+              cache.status === "fulfilled"
+                ? await recentPageErrors().catch(() => [])
+                : [],
           }
         : {}),
     },
