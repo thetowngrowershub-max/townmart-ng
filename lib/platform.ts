@@ -29,16 +29,7 @@ export function jobsInline(): boolean {
   return onVercel();
 }
 
-/** APP_URL, or on Vercel the deployment's own address when APP_URL isn't set. */
-export function platformAppUrl(): string | undefined {
-  if (process.env.APP_URL) return process.env.APP_URL;
-  if (!onVercel()) return undefined;
-  const host =
-    process.env.VERCEL_ENV === "production"
-      ? (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL)
-      : (process.env.VERCEL_BRANCH_URL ?? process.env.VERCEL_URL);
-  return host ? `https://${host}` : undefined;
-}
+export { platformAppUrl } from "./platform-url";
 
 /** REDIS_URL, or the KV_URL that Vercel's Upstash integration sets. */
 export const platformRedisUrl = () => process.env.REDIS_URL ?? process.env.KV_URL;
