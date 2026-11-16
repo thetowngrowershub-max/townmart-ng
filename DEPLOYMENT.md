@@ -207,6 +207,7 @@ Never set it on the live site.
 | Variable | Value |
 |---|---|
 | `TOWNMART_TEST_MODE` | `true` |
+| `TEST_SITE_PASSWORD` | a password for your testers. Every page asks for it first. Set it before turning on real email or SMS, because anyone on the test site can sign in as the demo admin |
 | `AUTH_SECRET` | 32 or more random characters |
 | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | set by the Neon integration (leave its prefix empty) |
 | `REDIS_URL` (or `KV_URL`) | set by the Redis integration (Upstash) |
