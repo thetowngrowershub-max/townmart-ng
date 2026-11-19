@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { isTestMode } from "@/lib/platform";
+import { checkGoogleRoutes } from "@/lib/geo/routes";
 import { redis } from "@/lib/redis";
 import { recentPageErrors, scrub } from "@/lib/test-mode/page-errors";
 
@@ -56,6 +57,11 @@ export async function GET() {
               db: reason(db),
               redis: reason(cache),
             },
+            maps: await checkGoogleRoutes().catch((e: unknown) => ({
+              configured: true,
+              ok: false,
+              error: scrub(e instanceof Error ? e.message : String(e)),
+            })),
             recentPageErrors:
               cache.status === "fulfilled"
                 ? await recentPageErrors().catch(() => [])

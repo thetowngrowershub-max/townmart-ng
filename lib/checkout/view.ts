@@ -159,7 +159,7 @@ export function toCheckoutView(c: CheckoutComputation, opts: { locationProblem?:
             zone: s.delivery.zoneName,
             freeOver: s.delivery.freeOverKobo !== null && !s.delivery.free ? formatPrice(s.delivery.freeOverKobo) : null,
             distance: s.delivery.distance
-              ? `${formatDistance(s.delivery.distance.metres)} by road${s.delivery.distance.source === "area" ? " (estimate)" : ""}, ${s.delivery.distance.chargedKm} km at ${formatPrice(s.delivery.distance.perKmKobo)}/km`
+              ? `${s.delivery.distance.method === "road" ? "" : "About "}${formatDistance(s.delivery.distance.metres)} by road${s.delivery.distance.source === "area" ? " (from the town centre)" : ""}, ${s.delivery.distance.chargedKm} km at ${formatPrice(s.delivery.distance.perKmKobo)}/km`
               : null,
           }
         : null,
