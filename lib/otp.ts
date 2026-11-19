@@ -2,7 +2,8 @@ import type { OtpPurpose } from "@prisma/client";
 import { randomInt } from "node:crypto";
 import { lookupHash } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
-import { enqueueSms } from "@/lib/queue";
+import { twoFactorEmailTemplate } from "@/lib/notifications/email/templates";
+import { enqueueEmail, enqueueSms } from "@/lib/queue";
 import { rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -37,6 +38,28 @@ export async function issueOtp(params: { phoneE164: string; phoneHash: string; p
     }),
   ]);
   await enqueueSms({ to: phoneE164, body: `Your TownMart code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes. Never share it.` });
+  return { ok: true };
+}
+
+/**
+ * Two-step sign-in codes sent by email. They live in otp_codes too, under a
+ * keyed hash of the user id in place of a phone hash, so the same expiry,
+ * attempt limit and single-use rules apply.
+ */
+export const emailOtpKey = (userId: string) => lookupHash(userId, "otp-email");
+
+export async function issueEmailOtp(params: { userId: string; email: string; name: string | null }): Promise<IssueOtpResult> {
+  const key = emailOtpKey(params.userId);
+  const limit = await rateLimit(`otp:two_factor_email:${key}`, 3, 600);
+  if (!limit.allowed) return { ok: false, error: "Too many codes requested. Please wait 10 minutes." };
+  const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
+  await prisma.$transaction([
+    prisma.otpCode.deleteMany({ where: { phoneHash: key, purpose: "two_factor_email", usedAt: null } }),
+    prisma.otpCode.create({
+      data: { phoneHash: key, userId: params.userId, purpose: "two_factor_email", codeHash: codeHash(key, "two_factor_email", code), expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60_000) },
+    }),
+  ]);
+  await enqueueEmail(twoFactorEmailTemplate({ to: params.email, name: params.name, code, minutes: OTP_TTL_MINUTES }));
   return { ok: true };
 }
 

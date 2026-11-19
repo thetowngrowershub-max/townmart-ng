@@ -74,6 +74,8 @@ export async function collectPersonalData(tx: Tx, userId: string) {
       phoneVerifiedAt: iso(user.phoneVerifiedAt),
       status: user.status,
       twoStepSignIn: user.twoFactorEnabledAt !== null,
+      // The method only: the authenticator secret and backup codes are credentials, not shown.
+      twoStepMethod: user.twoFactorMethod,
       roles: user.roles.map((r) => r.role),
       signInWith: [...(user.passwordHash ? ["password"] : []), ...user.accounts.map((a) => a.provider)],
       createdAt: iso(user.createdAt),

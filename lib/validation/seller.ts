@@ -31,11 +31,9 @@ export const businessDetailsSchema = z
     sellsProducts: z.boolean(),
     sellsServices: z.boolean(),
   })
-  .refine((v) => v.sellsProducts || v.sellsServices, { path: ["sellsProducts"], message: "Choose products, services or both" })
-  .refine((v) => ["service_provider", "artisan"].includes(v.type) || v.cacNumber, {
-    path: ["cacNumber"],
-    message: "A CAC number is required for this business type",
-  });
+  // A CAC number is optional for every business type: many small Nigerian
+  // sellers trade before registering. Admins see "Not provided" when reviewing.
+  .refine((v) => v.sellsProducts || v.sellsServices, { path: ["sellsProducts"], message: "Choose products, services or both" });
 export type BusinessDetailsInput = z.input<typeof businessDetailsSchema>;
 
 export const verifyPhoneSchema = z.object({ code: otpCode });

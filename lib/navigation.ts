@@ -65,6 +65,7 @@ export const dashboardNav: NavItem[] = [
   { href: "/dashboard/messages", label: "Messages", icon: MessageSquare, phase: 4 },
   { href: "/dashboard/staff", label: "Staff", icon: Users, phase: 7 },
   { href: "/dashboard/settings", label: "Store settings", icon: Store, phase: 1 },
+  { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
 ];
 
 export const adminNav: NavItem[] = [
@@ -80,6 +81,7 @@ export const adminNav: NavItem[] = [
   { href: "/admin/users", label: "Users & roles", icon: Users, phase: 7 },
   { href: "/admin/system", label: "System health", icon: Activity, phase: 7 },
   { href: "/design-system", label: "Design system", icon: Palette, phase: 0 },
+  { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
 ];
 
 export const storefrontCategories = [

@@ -78,7 +78,7 @@ To report a vulnerability, email security@townmart.ng. Please don't open a publi
 - **Sessions** are database sessions (revocable). Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
 - **Sign-out everywhere.** A password reset, a suspension, a role removal and "sign out everywhere" each delete all of that person's sessions.
 - **Lockout.** Five failed passwords lock the account for 15 minutes, on top of per-IP and per-email rate limits.
-- **Two-step sign-in** is optional, with an SMS code to a verified phone.
+- **Two-step sign-in** is optional for every account type (shoppers, sellers, staff, admins), and the seller and admin overviews remind people who haven't turned it on. Methods: an authenticator app (TOTP, RFC 6238; recommended because it is free, works offline and is safe from SIM swaps), an SMS code to the verified phone, or an email code to the verified address. Ten one-time backup codes are issued when it is turned on (stored as keyed hashes). It applies to every sign-in route: password, SMS sign-in code (which then needs a different second step) and Google. Turning it off, unlinking the app and making new backup codes need a fresh code. Authenticator codes can't be replayed (the last used step is stored). Support can reset it from Users & roles after checking identity another way; the reason is audited.
 - **Google accounts** link to an existing account only from inside that account, never automatically by email.
 
 ## A08 Software and data integrity failures

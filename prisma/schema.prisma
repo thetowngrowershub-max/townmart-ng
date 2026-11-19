@@ -49,8 +49,18 @@ enum OtpPurpose {
   verify_phone
   two_factor
   verify_business_phone
+  two_factor_email
 
   @@map("otp_purpose")
+}
+
+/// The way an account prefers to get its second sign-in step.
+enum TwoFactorMethod {
+  authenticator
+  sms
+  email
+
+  @@map("two_factor_method")
 }
 
 model User {
@@ -67,8 +77,16 @@ model User {
   failedLoginCount    Int        @default(0) @map("failed_login_count")
   lockedUntil         DateTime?  @map("locked_until") @db.Timestamptz(6)
   deletionRequestedAt DateTime?  @map("deletion_requested_at") @db.Timestamptz(6)
-  // Sign-in with a password also asks for a code sent to the verified phone.
+  // Two-step sign-in: every sign-in (password, phone code or Google) also asks
+  // for a second code. See lib/auth/two-factor-methods.ts.
   twoFactorEnabledAt  DateTime?  @map("two_factor_enabled_at") @db.Timestamptz(6)
+  twoFactorMethod     TwoFactorMethod? @map("two_factor_method")
+  // Authenticator app (TOTP, RFC 6238) secret, encrypted like other personal data.
+  totpSecretEncrypted String?    @map("totp_secret_encrypted")
+  // The last 30-second step accepted, so a code can't be replayed.
+  totpLastStep        Int?       @map("totp_last_step")
+  // Keyed hashes of the unused one-time backup codes.
+  twoFactorBackupCodes String[]  @default([]) @map("two_factor_backup_codes")
   anonymisedAt        DateTime?  @map("anonymised_at") @db.Timestamptz(6)
   lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(6)
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
