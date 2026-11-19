@@ -5,6 +5,8 @@ import { logger } from "@/lib/logger";
 import { isTestMode } from "@/lib/platform";
 import { checkGoogleRoutes } from "@/lib/geo/routes";
 import { redis } from "@/lib/redis";
+import { channelLog } from "@/lib/notifications/delivery-log";
+import { emailStatus, smsStatus } from "@/lib/notifications/status";
 import { recentPageErrors, scrub } from "@/lib/test-mode/page-errors";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +64,13 @@ export async function GET() {
               ok: false,
               error: scrub(e instanceof Error ? e.message : String(e)),
             })),
+            messages:
+              settings.status === "fulfilled"
+                ? {
+                    sms: { ...smsStatus(), ...(cache.status === "fulfilled" ? await channelLog("sms", 3).catch(() => ({})) : {}) },
+                    email: { ...emailStatus(), ...(cache.status === "fulfilled" ? await channelLog("email", 3).catch(() => ({})) : {}) },
+                  }
+                : null,
             recentPageErrors:
               cache.status === "fulfilled"
                 ? await recentPageErrors().catch(() => [])

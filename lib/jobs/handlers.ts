@@ -1,8 +1,10 @@
 import { runProductImport } from "@/lib/catalogue/import";
 import { sendLowStockAlert } from "@/lib/catalogue/low-stock-alert";
 import { sendFulfilmentNotice } from "@/lib/fulfilment/notify";
+import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { emailProvider, type EmailMessage } from "@/lib/notifications/email";
+import { sendTracked } from "@/lib/notifications/delivery-log";
 import { smsProvider } from "@/lib/notifications/sms";
 import { sendOrderConfirmed } from "@/lib/orders/notify";
 import { processPaymentEvent } from "@/lib/orders/payment";
@@ -22,15 +24,15 @@ export async function handleNotification(job: JobLike) {
   switch (job.name) {
     case "email.send": {
       const message = job.data as EmailMessage;
-      const { id } = await emailProvider().send(message);
-      logger.info({ jobId: job.id, provider: emailProvider().name, messageId: id }, "email sent");
+      const { id, provider } = await sendTracked("email", message, emailProvider, env().EMAIL_PROVIDER);
+      logger.info({ jobId: job.id, provider, messageId: id }, "email sent");
       return;
     }
     case "sms.send": {
       const message = job.data as NotificationJobs["sms.send"];
-      const { id } = await smsProvider().send(message);
+      const { id, provider } = await sendTracked("sms", message, smsProvider, env().SMS_PROVIDER);
       // Never log the body: it holds one-time codes.
-      logger.info({ jobId: job.id, provider: smsProvider().name, messageId: id }, "sms sent");
+      logger.info({ jobId: job.id, provider, messageId: id }, "sms sent");
       return;
     }
     case "stock.low": {

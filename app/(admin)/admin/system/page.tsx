@@ -1,11 +1,14 @@
 import { CircleAlert, CircleCheck, CircleMinus } from "lucide-react";
 import type { Metadata } from "next";
 import { RetryAllButton, RetryJobButton } from "@/components/admin/job-retry";
+import { TestEmailButton, TestSmsForm } from "@/components/admin/message-tests";
 import { PageHeader } from "@/components/layout/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/lib/auth/current-user";
 import { can } from "@/lib/authz";
 import { formatDateTime } from "@/lib/datetime";
+import { channelLog, type ChannelLog } from "@/lib/notifications/delivery-log";
+import { emailStatus, smsStatus, type ServiceStatus } from "@/lib/notifications/status";
 import { databaseStats, longRunningQueries, opsAndJobs, queueStats, slowQueries, type Section } from "@/lib/system/health";
 
 export const metadata: Metadata = { title: "System health" };
@@ -52,10 +55,53 @@ function Tile({ label, value, children }: { label: string; value: string; childr
   );
 }
 
+function MessageService({ title, status, log, children }: { title: string; status: ServiceStatus; log: ChannelLog | null; children: React.ReactNode }) {
+  const recentFailure = log?.failures[0] && (!log.lastSentAt || log.failures[0].at > log.lastSentAt);
+  const tone: Tone = status.missing.length ? "bad" : !status.live ? "none" : recentFailure ? "bad" : log?.lastSentAt ? "good" : "warn";
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <Status tone={tone}>
+        {status.missing.length
+          ? `Switched on, but missing ${status.missing.join(", ")} in Vercel`
+          : !status.live
+            ? "Not switched on: messages stay on the site"
+            : recentFailure
+              ? "The last send failed (see below)"
+              : log?.lastSentAt
+                ? `Working. Last sent ${ago(new Date(log.lastSentAt))}`
+                : "Switched on. Nothing sent yet"}
+      </Status>
+      <p className="text-xs text-muted-foreground">{status.detail}</p>
+      {log && log.failures.length > 0 && (
+        <ul className="flex flex-col divide-y rounded-xl border text-sm">
+          {log.failures.map((f) => (
+            <li key={`${f.at}-${f.to}`} className="px-3 py-2">
+              <p className="text-xs text-muted-foreground">
+                {formatDateTime(new Date(f.at))} · {f.provider} · to {f.to}
+              </p>
+              <p className="break-words text-danger">{f.error}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      {children}
+    </div>
+  );
+}
+
 export default async function SystemHealthPage() {
   const user = await requirePermission("system_health.view", "/admin/system");
   const canRetry = can(user, "jobs.retry");
-  const [db, longRunning, slow, queues, ops] = await Promise.all([databaseStats(), longRunningQueries(), slowQueries(), queueStats(), opsAndJobs(user.id)]);
+  const [db, longRunning, slow, queues, ops, smsLog, emailLog] = await Promise.all([
+    databaseStats(),
+    longRunningQueries(),
+    slowQueries(),
+    queueStats(),
+    opsAndJobs(user.id),
+    channelLog("sms").catch(() => null),
+    channelLog("email").catch(() => null),
+  ]);
 
   const backupTone = (e: { succeeded: boolean; finishedAt: Date } | null | undefined, maxDays: number): Tone => (!e ? "none" : !e.succeeded ? "bad" : Date.now() - e.finishedAt.getTime() > maxDays * DAY ? "warn" : "good");
   const connPct = db.ok ? Math.round((db.data.connections / db.data.maxConnections) * 100) : 0;
@@ -95,6 +141,21 @@ export default async function SystemHealthPage() {
             </Tile>
           </li>
         </ul>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Text messages and email</CardTitle>
+            <CardDescription>Which services send sign-in codes, verification links and order updates, and whether sending works. Switch them on in Vercel&apos;s environment variables.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6 md:grid-cols-2">
+            <MessageService title="Text messages (Termii)" status={smsStatus()} log={smsLog}>
+              <TestSmsForm />
+            </MessageService>
+            <MessageService title="Email (Resend)" status={emailStatus()} log={emailLog}>
+              <TestEmailButton email={user.email} />
+            </MessageService>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="flex-row flex-wrap items-start justify-between gap-2">

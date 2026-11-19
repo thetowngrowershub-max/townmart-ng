@@ -76,7 +76,7 @@ In `.env`, set at least:
 | `POSTGRES_PASSWORD`, `TOWNMART_MIGRATOR_PASSWORD`, `TOWNMART_APP_PASSWORD`, `TOWNMART_READONLY_PASSWORD`, `REDIS_PASSWORD` | each `openssl rand -base64 24 \| tr -d '/+='` |
 | `PAYMENT_PROVIDER`, `PAYSTACK_SECRET_KEY` (and Flutterwave keys if used) | live keys from the provider dashboards |
 | `BANK_VERIFIER` | `paystack` |
-| `SMS_PROVIDER`, `TERMII_API_KEY`, `TERMII_SENDER_ID` | `termii` and the approved sender ID |
+| `SMS_PROVIDER`, `TERMII_API_KEY`, `TERMII_SENDER_ID`, `TERMII_BASE_URL` | `termii`, the approved sender ID, and the Base URL from the Termii dashboard. `TERMII_CHANNEL` stays `dnd` once Termii has enabled the DND route. Check both with **Admin → System health → Send test text** |
 | `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM` | `resend`, the key, and an address on a domain verified in Resend (SPF, DKIM, DMARC) |
 | `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | from Cloudflare Turnstile |
 | `S3_*` | your storage endpoint, keys and buckets; `S3_PUBLIC_BASE_URL` is the public bucket's URL |
