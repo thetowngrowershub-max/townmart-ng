@@ -8,6 +8,7 @@ import { requestMeta } from "@/lib/request";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 import { findSlot } from "@/lib/bookings/slots";
 import { loadSchedule } from "@/lib/bookings/schedule";
+import { openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
 import { withSystemContext } from "@/lib/db";
 import { getCheckoutSettings } from "@/lib/settings";
 import { addBookingSchema, addToCartSchema, cartItemIdSchema, couponCodeSchema, updateCartItemSchema } from "@/lib/validation/cart";
@@ -52,9 +53,26 @@ export async function addToCartAction(input: { variantId: string; qty: string })
       // Only live listings of approved sellers can be added (RLS hides the rest anyway).
       const v = await tx.productVariant.findFirst({
         where: { id: parsed.data.variantId, product: { status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved" } } },
-        include: { product: { select: { minOrderQty: true, allowFractionalQty: true, trackInventory: true, allowBackorder: true } } },
+        include: {
+          product: {
+            select: {
+              minOrderQty: true,
+              allowFractionalQty: true,
+              trackInventory: true,
+              allowBackorder: true,
+              category: { select: { isFood: true, parent: { select: { isFood: true } } } },
+              business: { select: { policy: { select: { openingHours: true, ordersPaused: true } } } },
+            },
+          },
+        },
       });
       if (!v) throw new CartError("This item is no longer available.");
+      // Food is cooked to order, so it can only be ordered while the kitchen is open.
+      if (v.product.category.isFood || v.product.category.parent?.isFood) {
+        const policy = v.product.business.policy;
+        const state = openState(parseOpeningHours(policy?.openingHours), policy?.ordersPaused ?? false);
+        if (!state.open) throw new CartError(state.reason === "paused" ? "This kitchen isn't taking orders right now. Please try again a little later." : `${state.label}. You can order once they're open.`);
+      }
       const existing = await tx.cartItem.findUnique({ where: { cartId_variantId: { cartId: owner.cartId, variantId: v.id } } });
       const qty = new Prisma.Decimal(parsed.data.qty).plus(existing && !existing.savedForLater ? existing.qty : 0);
       checkQty(v.product, v.stockQty, qty);

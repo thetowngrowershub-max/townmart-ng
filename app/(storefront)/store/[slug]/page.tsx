@@ -7,6 +7,7 @@ import { Rating } from "@/components/storefront/rating";
 import { PolicySummary } from "@/components/storefront/seller-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getPublicStore } from "@/lib/catalogue/storefront";
+import { describeWeek, openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
 import { formatDate } from "@/lib/datetime";
 import { searchProvider } from "@/lib/search";
 import { publicImageUrl } from "@/lib/storage";
@@ -30,6 +31,9 @@ export default async function StorePage({ params }: Props) {
   if (!b) notFound();
   // The store's own listings, newest first, via the public search path.
   const results = await searchProvider().search({ kind: "all", businessId: b.id, sort: "newest", page: 1, pageSize: 48 });
+  const isFoodSeller = b.type === "restaurant" || b.type === "confectioner";
+  const hours = parseOpeningHours(b.policy?.openingHours);
+  const kitchen = hours || b.policy?.ordersPaused ? openState(hours, b.policy?.ordersPaused ?? false) : null;
 
   return (
     <main id="main">
@@ -37,7 +41,7 @@ export default async function StorePage({ params }: Props) {
         {b.bannerKey && <Image src={publicImageUrl(b.bannerKey)} alt="" fill priority sizes="100vw" className="object-cover" />}
       </div>
       <div className="mx-auto max-w-7xl px-4">
-        <div className="-mt-10 flex flex-wrap items-end gap-4">
+        <div className="relative -mt-10 flex flex-wrap items-end gap-4">
           <div className="relative size-24 overflow-hidden rounded-2xl border-4 border-background bg-muted">
             {b.logoKey ? (
               <Image src={publicImageUrl(b.logoKey)} alt={`${b.name} logo`} fill sizes="96px" className="object-cover" />
@@ -54,6 +58,11 @@ export default async function StorePage({ params }: Props) {
               <span aria-hidden>·</span> Since {formatDate(b.createdAt)}
             </p>
             <Rating avg={Number(b.ratingAvg)} count={b.ratingCount} />
+            {kitchen && (
+              <p role="status" className={kitchen.open ? "mt-1 text-sm font-semibold text-primary" : "mt-1 text-sm font-semibold text-warning"}>
+                {kitchen.label}
+              </p>
+            )}
           </div>
         </div>
 
@@ -62,7 +71,7 @@ export default async function StorePage({ params }: Props) {
             {results.products.total > 0 && (
               <section aria-labelledby="store-products">
                 <h2 id="store-products" className="mb-4 text-xl font-bold">
-                  Products ({results.products.total})
+                  {isFoodSeller ? "Menu" : "Products"} ({results.products.total})
                 </h2>
                 <CardGrid>
                   {results.products.items.map((p) => (
@@ -92,6 +101,23 @@ export default async function StorePage({ params }: Props) {
                   <CardTitle>About</CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm whitespace-pre-line">{b.description}</CardContent>
+              </Card>
+            )}
+            {hours && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Opening hours</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <dl className="flex flex-col gap-1 text-sm">
+                    {describeWeek(hours).map(([day, time]) => (
+                      <div key={day} className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">{day}</dt>
+                        <dd className="font-medium">{time}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </CardContent>
               </Card>
             )}
             <Card>

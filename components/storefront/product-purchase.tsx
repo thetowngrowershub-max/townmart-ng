@@ -30,6 +30,7 @@ export function ProductPurchase({
   unitLabel,
   minOrder,
   fractional,
+  closedLabel = null,
   children,
 }: {
   title: string;
@@ -39,6 +40,8 @@ export function ProductPurchase({
   unitLabel: string;
   minOrder: string;
   fractional: boolean;
+  /** Food from a seller that's closed right now: ordering is off and this says why. */
+  closedLabel?: string | null;
   children?: React.ReactNode;
 }) {
   const [selected, setSelected] = useState<Record<string, string>>(variants[0]?.optionValues ?? {});
@@ -125,7 +128,19 @@ export function ProductPurchase({
         ))}
 
         {Number(minOrder) !== 1 && <p className="text-sm text-muted-foreground">Minimum order: {minOrder} {unitLabel}</p>}
-        <AddToCart key={variant?.id ?? "none"} variantId={variant?.id ?? null} disabled={!variant || variant.stock.state === "out"} minOrder={minOrder} fractional={fractional} unitLabel={unitLabel} />
+        {closedLabel && (
+          <p role="status" className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm font-medium">
+            {closedLabel}. You can order once the kitchen is open.
+          </p>
+        )}
+        <AddToCart
+          key={variant?.id ?? "none"}
+          variantId={variant?.id ?? null}
+          disabled={!variant || variant.stock.state === "out" || Boolean(closedLabel)}
+          minOrder={minOrder}
+          fractional={fractional}
+          unitLabel={unitLabel}
+        />
         {children}
       </div>
     </div>

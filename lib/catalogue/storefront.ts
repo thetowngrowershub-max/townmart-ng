@@ -18,7 +18,7 @@ export const getPublicProduct = cache((slug: string) =>
         images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }] },
         options: { orderBy: { position: "asc" } },
         variants: { orderBy: { position: "asc" } },
-        category: { select: { name: true, slug: true, parentId: true, parent: { select: { name: true, slug: true } } } },
+        category: { select: { name: true, slug: true, parentId: true, isFood: true, parent: { select: { name: true, slug: true, isFood: true } } } },
         business: {
           select: {
             id: true,
@@ -30,7 +30,7 @@ export const getPublicProduct = cache((slug: string) =>
             ratingCount: true,
             createdAt: true,
             state: { select: { name: true } },
-            policy: { select: { returnWindowDays: true, deliveryOptions: true, acceptsPayOnDelivery: true } },
+            policy: { select: { returnWindowDays: true, deliveryOptions: true, acceptsPayOnDelivery: true, openingHours: true, ordersPaused: true } },
           },
         },
       },
@@ -120,7 +120,7 @@ export const getPublicStore = cache((slug: string) =>
         createdAt: true,
         state: { select: { name: true } },
         lga: { select: { name: true } },
-        policy: { select: { returnWindowDays: true, deliveryOptions: true, acceptsPayOnDelivery: true } },
+        policy: { select: { returnWindowDays: true, deliveryOptions: true, acceptsPayOnDelivery: true, openingHours: true, ordersPaused: true } },
       },
     }),
   ),

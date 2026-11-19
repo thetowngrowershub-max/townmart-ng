@@ -21,8 +21,8 @@ export default async function HomePage() {
           <p className="w-fit rounded-full bg-accent px-3 py-1 text-xs font-bold uppercase tracking-wider text-accent-foreground sm:text-sm">Shop local. Book local.</p>
           <h1 className="max-w-2xl text-4xl font-extrabold sm:text-5xl">Everything your town sells, in one place.</h1>
           <p className="max-w-xl text-lg opacity-90">
-            Groceries, fashion, electronics and fresh farm produce, plus trusted plumbers, tailors and other artisans near
-            you.
+            Groceries, hot meals from local restaurants, cakes, fashion, electronics and fresh farm produce, plus trusted
+            plumbers, tailors and other artisans near you.
           </p>
           <SearchForm id="q-hero" size="lg" className="max-w-2xl text-foreground" />
         </div>

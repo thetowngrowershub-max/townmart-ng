@@ -84,6 +84,8 @@ export const adminNav: NavItem[] = [
 
 export const storefrontCategories = [
   { slug: "groceries", label: "Groceries", emoji: "🛒" },
+  { slug: "restaurants", label: "Restaurants", emoji: "🍲" },
+  { slug: "confectionery", label: "Confectionery", emoji: "🎂" },
   { slug: "fashion", label: "Fashion", emoji: "👗" },
   { slug: "electronics", label: "Electronics", emoji: "📱" },
   { slug: "home", label: "Home", emoji: "🛋️" },

@@ -74,6 +74,8 @@ function problemText(p: LineProblem | null, unit: string): string | null {
       return "This time is no longer available. Remove it and book another time.";
     case "outside_area":
       return "The provider doesn't come to this address. Choose another address or remove it.";
+    case "store_closed":
+      return `${p.label}. Save it for later, or remove it to check out the rest.`;
   }
 }
 
