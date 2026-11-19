@@ -28,9 +28,9 @@ function describeAgent(ua: string | null): string {
   return `${browser} on ${os}`;
 }
 
-export default async function SecurityPage({ searchParams }: { searchParams: Promise<{ google?: string }> }) {
+export default async function SecurityPage({ searchParams }: { searchParams: Promise<{ google?: string; required?: string }> }) {
   const user = await requirePermission("account.access", "/account/security");
-  const { google } = await searchParams;
+  const { google, required } = await searchParams;
   const token = await currentSessionToken();
   const account = await prisma.user.findUniqueOrThrow({
     where: { id: user.id },
@@ -48,6 +48,11 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
   return (
     <>
       <PageHeader title="Profile & security" description="Your phone number, how you sign in, and where you're signed in." />
+      {(user.adminNeedsTwoFactor || (required === "admin" && !isTwoFactorOn(twoFactor))) && (
+        <Alert variant="warning" className="mb-6">
+          <strong>Turn on two-step sign-in to use the admin console.</strong> It&apos;s required for every TownMart admin account. Set it up below, then go back to the admin console.
+        </Alert>
+      )}
       {google === "connected" && <Alert variant="success" className="mb-6">Google is connected. You can now sign in with it.</Alert>}
       <Card className="mb-6">
         <CardHeader>
