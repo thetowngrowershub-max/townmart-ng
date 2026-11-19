@@ -24,6 +24,8 @@ export const BUSINESS_TYPES = [
   { value: "vendor", label: "Vendor", sells: "products" },
   { value: "merchant", label: "Merchant", sells: "products" },
   { value: "producer", label: "Producer / farm", sells: "products" },
+  { value: "restaurant", label: "Restaurant / quick-service restaurant", sells: "products" },
+  { value: "confectioner", label: "Bakery / confectioner", sells: "products" },
   { value: "service_provider", label: "Service provider", sells: "services" },
   { value: "artisan", label: "Artisan", sells: "services" },
 ] as const;

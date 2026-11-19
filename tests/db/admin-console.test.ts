@@ -7,7 +7,7 @@ import { CatalogueError, saveProduct } from "@/lib/catalogue/products";
 import { prisma, withRls, withSystemContext } from "@/lib/db";
 import { restoreListing, screenListing, takeDownListing } from "@/lib/moderation/core";
 import type { ProductData } from "@/lib/validation/catalogue";
-import { createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createUser, deleteUsers, moweOgun, owner } from "./helpers";
 
 /**
  * Phase 7 at the database layer: take-downs (only TownMart, hidden from
@@ -39,7 +39,7 @@ async function user(label: string) {
 
 async function shop(label: string, productTitle = `${label} item ${tag}`) {
   const ownerUser = await user(label);
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   const categoryId = (await owner.category.findFirstOrThrow({ where: { kind: "product", isActive: true, parentId: { not: null } } })).id;
   return asSystem(async (tx) => {
     const business = await tx.business.create({
@@ -52,7 +52,7 @@ async function shop(label: string, productTitle = `${label} item ${tag}`) {
         phoneEncrypted: "v1.k1.test.test.test",
         phoneHash: `${label}-${tag}`,
         addressEncrypted: "v1.k1.test.test.test",
-        city: "Ikeja",
+        city: "Mowe",
         stateId,
         lgaId,
         status: "approved",

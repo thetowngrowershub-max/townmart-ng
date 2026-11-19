@@ -22,10 +22,10 @@ export async function saveService(
   }
   const prefix = imagePrefix("service", businessId);
   if (data.images.some((i) => !i.key.startsWith(prefix))) throw new CatalogueError("One of the images isn't yours", "images");
-  if (data.serviceLgaIds.length) {
-    const found = await tx.lga.count({ where: { id: { in: data.serviceLgaIds } } });
-    if (found !== new Set(data.serviceLgaIds).size) throw new CatalogueError("Unknown LGA selected", "serviceLgaIds");
-  }
+  // Providers and artisans are locked to where they're registered: a service
+  // covers its business's own LGA and nowhere else, whatever the form sent.
+  const business = await tx.business.findUniqueOrThrow({ where: { id: businessId }, select: { lgaId: true } });
+  const serviceLgaIds = data.locationMode === "at_provider" ? [] : [business.lgaId];
 
   const existing = params.serviceId
     ? await tx.service.findFirst({
@@ -51,7 +51,7 @@ export async function saveService(
     basePriceKobo,
     durationMinutes: data.durationMinutes,
     locationMode: data.locationMode,
-    serviceLgaIds: [...new Set(data.serviceLgaIds)],
+    serviceLgaIds,
     radiusKm: data.radiusKm ?? null,
     depositPercent: data.depositPercent,
     requiresConfirmation: data.requiresConfirmation,

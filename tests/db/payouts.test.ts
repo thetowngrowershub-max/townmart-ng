@@ -20,7 +20,7 @@ import { cancelPaidSellerOrder } from "@/lib/refunds/cancel";
 import { approveRefund, createRefundRequest, processRefunds, rejectRefund, RefundError } from "@/lib/refunds/core";
 import { paidOnline } from "@/lib/refunds/math";
 import { listSellerRefunds, loadSellerRefund } from "@/lib/refunds/seller-view";
-import { createUser, deleteMoneyTrail, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createUser, deleteMoneyTrail, deleteUsers, moweOgun, owner } from "./helpers";
 
 /**
  * Phase 5 at the database layer: refunds take back exactly what each side
@@ -55,7 +55,7 @@ const asSeller = <T>(s: { userId: string; businessId: string }, fn: (tx: Prisma.
 async function business(label: string, type: "merchant" | "service_provider", payOnDelivery: boolean) {
   const user = await createUser(label);
   users.push(user.id);
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   return asSystem((tx) =>
     tx.business.create({
       data: {
@@ -67,7 +67,7 @@ async function business(label: string, type: "merchant" | "service_provider", pa
         phoneEncrypted: "v1.k1.test.test.test",
         phoneHash: `${label}-${tag}`,
         addressEncrypted: "v1.k1.test.test.test",
-        city: "Ikeja",
+        city: "Mowe",
         stateId,
         lgaId,
         status: "approved",
@@ -106,7 +106,7 @@ async function place(lines: Line[], payment: "online" | "pay_on_delivery" = "onl
     },
   });
   carts.push(cart.id);
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   const quote = await sys((tx) => computeCheckout(tx, { cartId: cart.id, userId: buyer.id, address: { stateId, lgaId } }));
   return sys((tx) =>
     placeOrder(tx, {
@@ -117,7 +117,7 @@ async function place(lines: Line[], payment: "online" | "pay_on_delivery" = "onl
       ipHash: "test",
       data: {
         email: "",
-        address: { recipientName: "Ada Obi", phone: "08031234567", line1: "12 Allen Avenue", line2: "", landmark: "", city: "Ikeja", stateId, lgaId },
+        address: { recipientName: "Ada Obi", phone: "08031234567", line1: "12 Allen Avenue", line2: "", landmark: "", city: "Mowe", stateId, lgaId },
         addressId: "",
         saveAddress: false,
         methods: {},

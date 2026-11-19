@@ -27,12 +27,13 @@ import {
 } from "./uploads";
 
 // Seller uploads. Review photos have their own actions below (customers, not sellers).
-const UPLOAD_KINDS = ["product", "service", "logo", "banner", "kyc", "csv"] as const;
+const UPLOAD_KINDS = ["product", "service", "portfolio", "logo", "banner", "kyc", "csv"] as const;
 type UploadKind = (typeof UPLOAD_KINDS)[number];
 
 const RULES: Record<UploadKind, { types: readonly string[]; maxBytes: number; permission: "listing.write" | "store.manage" | "import.manage" }> = {
   product: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "listing.write" },
   service: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "listing.write" },
+  portfolio: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "listing.write" },
   logo: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "store.manage" },
   banner: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "store.manage" },
   kyc: { types: ACCEPTED_DOCUMENT_TYPES, maxBytes: MAX_DOCUMENT_BYTES, permission: "store.manage" },
@@ -67,7 +68,7 @@ export async function requestUploadAction(input: z.input<typeof requestSchema>):
   return { ok: true, data: { tmpKey, target } };
 }
 
-const SELLER_IMAGE_PURPOSES = ["product", "service", "logo", "banner"] as const satisfies readonly ImagePurpose[];
+const SELLER_IMAGE_PURPOSES = ["product", "service", "portfolio", "logo", "banner"] as const satisfies readonly ImagePurpose[];
 const finaliseSchema = z.object({ tmpKey: z.string().max(200), purpose: z.enum(SELLER_IMAGE_PURPOSES) });
 
 /** Step 2 for images: re-encode to WebP (stripping EXIF/GPS) into the public bucket. */

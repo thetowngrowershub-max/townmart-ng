@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { hashPassword } from "@/lib/auth/password";
+import { generateTotpSecret } from "@/lib/auth/totp";
+import { encrypt } from "@/lib/crypto";
 import { prisma, withSystemContext } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { FIXTURES_FILE, type E2EFixtures } from "./fixtures";
@@ -38,11 +40,16 @@ export default async function globalSetup() {
       // Start from an empty cart, whatever an interrupted run left behind.
       await tx.cart.deleteMany({ where: { userId: customer.id } });
 
-      const admin = await tx.user.update({ where: { email: "admin@townmart.local" }, data: signInReady });
+      // Two-step sign-in is compulsory for admins, so the admin signs in with an authenticator code.
+      const totpSecret = generateTotpSecret();
+      const admin = await tx.user.update({
+        where: { email: "admin@townmart.local" },
+        data: { ...signInReady, twoFactorEnabledAt: new Date(), twoFactorMethod: "authenticator", totpSecretEncrypted: encrypt(totpSecret), totpLastStep: null },
+      });
 
       return {
         password,
-        admin: { email: admin.email },
+        admin: { email: admin.email, totpSecret },
         customer: { email, name: "Ada Okafor" },
         seller: { email: shop.owner.email, shopName: shop.name },
         product: { slug: product.slug, title: product.title },

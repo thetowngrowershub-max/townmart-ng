@@ -20,6 +20,8 @@ export const categorySchema = z.object({
   icon: z.string().trim().max(40).regex(/^([a-z0-9-]+)?$/, "Use a Lucide icon name, e.g. shirt").optional().default(""),
   sortOrder: z.coerce.number().int().min(0).max(9999),
   isActive: z.boolean(),
+  /** Cooked food, cakes and pastries: shows prep times and follows the seller's opening hours. */
+  isFood: z.boolean().default(false),
 });
 export type CategoryInput = z.input<typeof categorySchema>;
 

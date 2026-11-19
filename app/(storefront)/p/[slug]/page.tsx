@@ -16,6 +16,7 @@ import { getListingReviews, getListingRules, getProductSpecs, getPublicProduct, 
 import { formatDateTime } from "@/lib/datetime";
 import { dealFor } from "@/lib/promotions/live";
 import { unitLabel } from "@/lib/catalogue/units";
+import { openState, parseOpeningHours, prepTimeLabel } from "@/lib/catalogue/opening-hours";
 import { env } from "@/lib/env";
 import { koboToNairaString } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
@@ -97,6 +98,8 @@ export default async function ProductPage({ params }: Props) {
     },
     aggregateRating: p.ratingCount > 0 ? { "@type": "AggregateRating", ratingValue: Number(p.ratingAvg), reviewCount: p.ratingCount } : undefined,
   };
+  const isFood = p.category.isFood || Boolean(p.category.parent?.isFood);
+  const kitchen = isFood ? openState(parseOpeningHours(p.business.policy?.openingHours), p.business.policy?.ordersPaused ?? false, now) : null;
   const crumbs = [p.category.parent, { name: p.category.name, slug: p.category.slug }].filter(Boolean) as { name: string; slug: string }[];
 
   return (
@@ -127,7 +130,14 @@ export default async function ProductPage({ params }: Props) {
         unitLabel={unitLabel(p.unit)}
         minOrder={p.minOrderQty.toString()}
         fractional={p.allowFractionalQty}
+        closedLabel={kitchen && !kitchen.open ? kitchen.label : null}
       >
+        {kitchen && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            {kitchen.open && kitchen.label !== "Open" && <p className="font-medium text-primary">{kitchen.label}</p>}
+            {p.prepTimeMinutes && <p>{prepTimeLabel(p.prepTimeMinutes)}, plus delivery time</p>}
+          </div>
+        )}
         {p.isPerishable && <p className="text-sm">Perishable{p.shelfLifeNote ? `: ${p.shelfLifeNote}` : "."}</p>}
         <WishlistButton target={{ productId: p.id }} saved={saved} signedIn={Boolean(viewer)} returnTo={`/p/${p.slug}`} />
         <SellerCard business={p.business} />

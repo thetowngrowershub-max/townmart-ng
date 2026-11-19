@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, withRls, withSystemContext } from "@/lib/db";
 import { searchProvider } from "@/lib/search";
-import { createBareOrder, createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createBareOrder, createUser, deleteUsers, moweOgun, owner } from "./helpers";
 
 /**
  * Promotions at the database layer: a seller manages only its own promotions,
@@ -29,7 +29,7 @@ function asSystem<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) {
 
 async function createSeller(label: string): Promise<Fixture> {
   const user = await createUser(label);
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   return asSystem(async (tx) => {
     const business = await tx.business.create({
       data: {
@@ -41,7 +41,7 @@ async function createSeller(label: string): Promise<Fixture> {
         phoneEncrypted: "v1.k1.test.test.test",
         phoneHash: `${label}-${tag}`,
         addressEncrypted: "v1.k1.test.test.test",
-        city: "Ikeja",
+        city: "Mowe",
         stateId,
         lgaId,
         status: "approved",

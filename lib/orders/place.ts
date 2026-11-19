@@ -6,6 +6,7 @@ import { decrypt, encrypt, lookupHash, sha256 } from "@/lib/crypto";
 import type { Tx } from "@/lib/db";
 import { recordAcceptances } from "@/lib/legal/documents";
 import { formatPrice } from "@/lib/money";
+import { checkServiceArea } from "@/lib/service-area-db";
 import type { CheckoutData } from "@/lib/validation/checkout";
 import { recordStatus } from "./status";
 
@@ -132,6 +133,10 @@ export async function placeOrder(
   if (!email) throw new OrderError("Enter your email address for the receipt.");
 
   const address = await resolveAddress(tx, data, userId);
+  // Orders and bookings are only delivered or done inside the service area (lib/service-area.ts).
+  const place = await checkServiceArea(tx, address.snapshot);
+  if (!place.ok) throw new OrderError(place.error);
+  address.snapshot.city = place.city;
   const c: CheckoutComputation = await computeCheckout(tx, {
     cartId: params.cartId,
     userId,

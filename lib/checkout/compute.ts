@@ -7,6 +7,7 @@ import { findSlot, type Interval } from "@/lib/bookings/slots";
 import { getCheckoutSettings, type CheckoutSettings } from "@/lib/settings";
 import { DEFAULT_ITEM_WEIGHT_G, quoteDelivery, type DeliveryQuote } from "./delivery";
 import { buildQuote, roundBps, type OrderQuote } from "./quote";
+import { openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
 
 /**
  * Everything checkout needs, worked out from the database in one place: the
@@ -25,7 +26,9 @@ export type LineProblem =
   | { kind: "below_minimum"; minimum: string }
   | { kind: "fraction_not_allowed" }
   | { kind: "slot_unavailable" }
-  | { kind: "outside_area" };
+  | { kind: "outside_area" }
+  /** Food from a seller that's closed or has paused orders. `label` says when they open. */
+  | { kind: "store_closed"; label: string };
 
 /** A service line: one booking at a chosen time. */
 export type BookingLine = {
@@ -169,7 +172,7 @@ export async function computeCheckout(
                 include: {
                   product: {
                     include: {
-                      category: { select: { parentId: true } },
+                      category: { select: { parentId: true, isFood: true, parent: { select: { isFood: true } } } },
                       images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }], take: 1, select: { storageKey: true, altText: true, variantId: true } },
                     },
                   },
@@ -189,8 +192,9 @@ export async function computeCheckout(
                   slug: true,
                   city: true,
                   status: true,
+                  lgaId: true,
                   state: { select: { name: true } },
-                  policy: { select: { deliveryOptions: true, acceptsPayOnDelivery: true, returnWindowDays: true } },
+                  policy: { select: { deliveryOptions: true, acceptsPayOnDelivery: true, returnWindowDays: true, openingHours: true, ordersPaused: true } },
                 },
               },
             },
@@ -227,6 +231,10 @@ export async function computeCheckout(
       else if (i.qty.lessThan(p.minOrderQty)) problem = { kind: "below_minimum", minimum: p.minOrderQty.toString() };
       else if (p.trackInventory && !p.allowBackorder && i.qty.greaterThan(v.stockQty))
         problem = v.stockQty.lte(0) ? { kind: "out_of_stock" } : { kind: "not_enough", available: v.stockQty.toString() };
+      else if (p.category.isFood || p.category.parent?.isFood) {
+        const state = openState(parseOpeningHours(i.business.policy?.openingHours), i.business.policy?.ordersPaused ?? false, now);
+        if (!state.open) problem = { kind: "store_closed", label: state.label };
+      }
       all.push({
         cartItemId: i.id,
         kind: "product",
@@ -265,7 +273,8 @@ export async function computeCheckout(
     const live = sv.status === "active" && sv.deletedAt === null && sv.takenDownAt === null && i.business.status === "approved" && (pkg === null || pkg.serviceId === sv.id);
     let problem: LineProblem | null = null;
     if (!live) problem = { kind: "unavailable" };
-    else if (!atProvider && input.address && sv.serviceLgaIds.length > 0 && !sv.serviceLgaIds.includes(input.address.lgaId)) problem = { kind: "outside_area" };
+    // Providers only work in the LGA they're registered in.
+    else if (!atProvider && input.address && input.address.lgaId !== i.business.lgaId) problem = { kind: "outside_area" };
     else if (!i.savedForLater && !(await slotOpen(sv.id, startsAt, durationMinutes))) problem = { kind: "slot_unavailable" };
     all.push({
       cartItemId: i.id,

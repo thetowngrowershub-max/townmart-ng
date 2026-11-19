@@ -24,13 +24,16 @@ export function ImageGalleryInput({
   purpose,
   max = 8,
   withCover = true,
+  altLabel = "Alt text (describe the image)",
   error,
 }: {
   value: GalleryImage[];
   onChange: (next: GalleryImage[]) => void;
-  purpose: Extract<ImagePurpose, "product" | "service">;
+  purpose: Extract<ImagePurpose, "product" | "service" | "portfolio">;
   max?: number;
   withCover?: boolean;
+  /** Label of each image's text field (alt text; job photos call it a caption). */
+  altLabel?: string;
   error?: string;
 }) {
   const inputId = useId();
@@ -196,7 +199,7 @@ export function ImageGalleryInput({
               <img src={img.url} alt="" className="size-20 shrink-0 rounded-xl object-cover" />
               <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <label className="text-xs font-medium" htmlFor={`${inputId}-alt-${i}`}>
-                  Alt text (describe the image)
+                  {altLabel}
                 </label>
                 <Input
                   id={`${inputId}-alt-${i}`}

@@ -21,6 +21,7 @@ import { dateToLagosLocal } from "../lib/datetime";
 import { INITIAL_LEGAL_VERSION } from "./legal-templates";
 import { normaliseNigerianPhone } from "../lib/phone";
 import { savePromotion } from "../lib/promotions/promotions";
+import { timeToMinutes } from "../lib/catalogue/units";
 import { storage } from "../lib/storage";
 import { productInputSchema, serviceInputSchema, type ProductInput, type ServiceInput } from "../lib/validation/catalogue";
 import { promotionInputSchema, type PromotionInput } from "../lib/validation/promotions";
@@ -94,9 +95,10 @@ function productInput(p: DemoProduct, images: ProductInput["images"]): ProductIn
     unit: p.unit ?? "piece",
     minOrderQty: p.fractional ? "0.5" : "1",
     allowFractionalQty: !!p.fractional,
-    trackInventory: true,
+    trackInventory: p.trackStock ?? true,
     allowBackorder: false,
     weightGrams: p.weightGrams,
+    prepTimeMinutes: p.prep,
     isPerishable: !!p.perishable,
     shelfLifeNote: p.perishable,
     status: "active",
@@ -132,14 +134,14 @@ export async function seedCategories(prisma: PrismaClient) {
   for (const [i, top] of CATEGORIES.entries()) {
     const parent = await prisma.category.upsert({
       where: { slug: top.slug },
-      update: { name: top.name, kind: top.kind, icon: top.icon, sortOrder: i },
-      create: { slug: top.slug, name: top.name, kind: top.kind, icon: top.icon, sortOrder: i },
+      update: { name: top.name, kind: top.kind, icon: top.icon, sortOrder: i, isFood: !!top.isFood },
+      create: { slug: top.slug, name: top.name, kind: top.kind, icon: top.icon, sortOrder: i, isFood: !!top.isFood },
     });
     for (const [j, c] of top.children.entries()) {
       await prisma.category.upsert({
         where: { slug: c.slug },
-        update: { name: c.name, kind: top.kind, parentId: parent.id, sortOrder: j },
-        create: { slug: c.slug, name: c.name, kind: top.kind, parentId: parent.id, sortOrder: j },
+        update: { name: c.name, kind: top.kind, parentId: parent.id, sortOrder: j, isFood: !!top.isFood },
+        create: { slug: c.slug, name: c.name, kind: top.kind, parentId: parent.id, sortOrder: j, isFood: !!top.isFood },
       });
       n++;
     }
@@ -211,7 +213,10 @@ async function seedSeller(prisma: PrismaClient, seller: DemoSeller, categoryIds:
       });
       const id = business.id;
       await tx.storePolicy.create({
-        data: { businessId: id, returnWindowDays: b.returnWindowDays, deliveryOptions: { delivery: true, pickup: !!b.pickup, notes: "" }, pickupAddressEncrypted: b.pickup ? encrypt(b.address) : null, acceptsPayOnDelivery: !!b.payOnDelivery },
+        data: { businessId: id, returnWindowDays: b.returnWindowDays, deliveryOptions: { delivery: true, pickup: !!b.pickup, notes: "" }, pickupAddressEncrypted: b.pickup ? encrypt(b.address) : null,
+          acceptsPayOnDelivery: !!b.payOnDelivery,
+          ...(b.hours ? { openingHours: b.hours.map((h) => (h ? { open: timeToMinutes(h[0]), close: timeToMinutes(h[1]) } : null)) } : {}),
+        },
       });
       await tx.businessKyc.create({ data: { businessId: id, provider: "manual", verificationStatus: "verified", idDocumentType: b.cac ? "cac_certificate" : "nin_slip", verifiedAt: now, notes: "Demo seller (seed data)" } });
       await tx.payoutAccount.create({
@@ -260,7 +265,41 @@ export async function seedDemoCatalogue(prisma: PrismaClient) {
   }
   const categoryIds = new Map((await prisma.category.findMany({ select: { slug: true, id: true } })).map((c) => [c.slug, c.id]));
   for (const seller of SELLERS) await seedSeller(prisma, seller, categoryIds);
+  await moveDemoSellersIntoServiceArea(prisma);
   await seedDemoPromotions(prisma, categoryIds);
+}
+
+/**
+ * Demo shops seeded before TownMart was limited to Mowe were spread across
+ * Lagos, Ogun and Oyo. This brings them (and the demo shopper's saved
+ * addresses) to where the demo data now says they are, so a test site keeps
+ * showing them. Only touches the demo accounts; idempotent.
+ */
+async function moveDemoSellersIntoServiceArea(prisma: PrismaClient) {
+  let moved = 0;
+  for (const { business: b } of SELLERS) {
+    const state = await prisma.state.findUniqueOrThrow({ where: { name: b.state }, select: { id: true } });
+    const lga = await prisma.lga.findFirstOrThrow({ where: { stateId: state.id, name: b.lga }, select: { id: true } });
+    const current = await prisma.business.findUnique({ where: { slug: b.slug }, select: { id: true, lgaId: true, city: true, name: true } });
+    if (!current || (current.lgaId === lga.id && current.city === b.city && current.name === b.name)) continue;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_scope', 'system', true)`;
+      await tx.business.update({
+        where: { id: current.id },
+        data: { name: b.name, description: b.description, city: b.city, stateId: state.id, lgaId: lga.id, addressEncrypted: encrypt(b.address) },
+      });
+      // Providers are locked to their own LGA (lib/catalogue/services.ts).
+      await tx.service.updateMany({ where: { businessId: current.id, locationMode: { not: "at_provider" } }, data: { serviceLgaIds: [lga.id] } });
+      await tx.service.updateMany({ where: { businessId: current.id, locationMode: "at_provider" }, data: { serviceLgaIds: [] } });
+    });
+    moved++;
+  }
+  const area = await prisma.lga.findFirstOrThrow({ where: { slug: "obafemi-owode", state: { slug: "ogun" } }, select: { id: true, stateId: true } });
+  const addresses = await prisma.address.updateMany({
+    where: { user: { email: { endsWith: "@demo.townmart.ng" } }, lgaId: { not: area.id } },
+    data: { city: "Mowe", stateId: area.stateId, lgaId: area.id },
+  });
+  if (moved || addresses.count) console.log(`✓ moved ${moved} demo shops and ${addresses.count} demo addresses to Mowe`);
 }
 
 async function seedDemoPromotions(prisma: PrismaClient, categoryIds: Map<string, string>) {

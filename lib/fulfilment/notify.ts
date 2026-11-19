@@ -100,13 +100,21 @@ export async function sendFulfilmentNotice(n: FulfilmentNotice): Promise<void> {
         confirmed: `${b.business.name} confirmed your booking: ${what}.`,
         cancelled: `${b.business.name} cancelled your booking for ${what}.${b.cancelReason ? ` Reason: ${b.cancelReason}` : ""}`,
         rescheduled: `${b.business.name} moved your booking for ${b.service.title}${before ? ` from ${before}` : ""} to ${when}.`,
-        completed: `${b.business.name} marked ${b.service.title} as done. We'd love a review.`,
+        completed: `${b.business.name} marked ${b.service.title} as done. How did they do? Rate their service to help your neighbours choose.`,
         no_show: `${b.business.name} marked ${what} as missed.`,
       };
       const line = lines[status];
       if (!line) return;
       const sms = ["confirmed", "cancelled", "rescheduled"].includes(status) ? line : null;
-      await tellCustomer(tx, b.sellerOrder.order, { type: `booking.${status}`, title, lines: [line], sms });
+      // A done booking asks a signed-in customer to rate the provider, straight to the form.
+      const rate = status === "completed" && b.sellerOrder.order.userId ? { path: `/account/reviews/new?item=${b.orderItemId}` } : null;
+      await tellCustomer(tx, b.sellerOrder.order, {
+        type: `booking.${status}`,
+        title,
+        lines: [line],
+        sms,
+        ...(rate ? { link: { url: `${env().APP_URL}${rate.path}`, path: rate.path }, buttonLabel: "Rate my service" } : {}),
+      });
       return;
     }
 

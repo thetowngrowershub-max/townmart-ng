@@ -6,6 +6,7 @@ import { writeAudit } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { assertCan, AuthzError } from "@/lib/authz";
 import { RESERVED_STORE_SLUGS } from "@/lib/catalogue/slug";
+import { timeToMinutes } from "@/lib/catalogue/units";
 import { decrypt, encrypt, phoneHash } from "@/lib/crypto";
 import { withRls, withSystemContext, type Tx } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -20,17 +21,20 @@ import { requestMeta } from "@/lib/request";
 import { storage } from "@/lib/storage";
 import { finaliseDocument, imagePrefix, UploadError } from "@/lib/storage/uploads";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
+import { checkServiceArea } from "@/lib/service-area-db";
 import {
   agreementsSchema,
   brandingSchema,
   businessDetailsSchema,
   kycSchema,
+  openingHoursSchema,
   payoutAccountSchema,
   storeSettingsSchema,
   verifyPhoneSchema,
   type BrandingInput,
   type BusinessDetailsInput,
   type KycInput,
+  type OpeningHoursInput,
   type PayoutAccountInput,
   type StoreSettingsInput,
 } from "@/lib/validation/seller";
@@ -88,8 +92,9 @@ export async function saveBusinessDetailsAction(input: BusinessDetailsInput): Pr
   const d = parsed.data;
   if (RESERVED_STORE_SLUGS.has(d.slug)) return { ok: false, error: "That store address is reserved.", fieldErrors: { slug: ["Choose another address"] } };
 
-  const lga = await withRls({ userId: user.id }, (tx) => tx.lga.findUnique({ where: { id: d.lgaId }, select: { stateId: true } }));
-  if (!lga || lga.stateId !== d.stateId) return { ok: false, error: "Choose an LGA in the selected state.", fieldErrors: { lgaId: ["Not in this state"] } };
+  // Businesses can only be based inside the service area (lib/service-area.ts).
+  const place = await withRls({ userId: user.id }, (tx) => checkServiceArea(tx, d));
+  if (!place.ok) return { ok: false, error: place.error, fieldErrors: place.fieldErrors };
 
   const meta = await requestMeta();
   const fields = {
@@ -101,7 +106,7 @@ export async function saveBusinessDetailsAction(input: BusinessDetailsInput): Pr
     phoneEncrypted: encrypt(d.phone),
     phoneHash: phoneHash(d.phone),
     addressEncrypted: encrypt(d.addressLine),
-    city: d.city,
+    city: place.city,
     stateId: d.stateId,
     lgaId: d.lgaId,
     sellsProducts: d.sellsProducts,
@@ -372,4 +377,29 @@ export async function saveStoreSettingsAction(input: StoreSettingsInput): Promis
   }
   revalidatePath("/dashboard/settings");
   return { ok: true, message: "Store policies saved." };
+}
+
+/** Opening hours and the "pause orders" switch, for restaurants and other food sellers. */
+export async function saveOpeningHoursAction(input: OpeningHoursInput): Promise<ActionResult> {
+  const parsed = openingHoursSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  const d = parsed.data;
+  const openingHours = d.useHours ? d.days.map((day) => (day.isOpen ? { open: timeToMinutes(day.open), close: day.close === "00:00" ? 1440 : timeToMinutes(day.close) } : null)) : Prisma.DbNull;
+  try {
+    await withOwnBusiness(async ({ tx, business, userId }) => {
+      const data = { openingHours, ordersPaused: d.ordersPaused };
+      await tx.storePolicy.upsert({ where: { businessId: business.id }, create: { ...data, businessId: business.id }, update: data });
+      await writeAudit(tx, {
+        actorUserId: userId,
+        action: "store_policy.hours_updated",
+        entityType: "business",
+        entityId: business.id,
+        after: { openingHours: d.useHours ? openingHours : null, ordersPaused: d.ordersPaused },
+      });
+    });
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/dashboard/settings");
+  return { ok: true, message: d.ordersPaused ? "Saved. New orders are paused until you switch them back on." : "Opening hours saved." };
 }

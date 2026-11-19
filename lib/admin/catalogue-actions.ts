@@ -41,19 +41,24 @@ export async function saveCategoryAction(input: CategoryInput): Promise<ActionRe
     const saved = await run(async (tx, audit) => {
       if (parentId) {
         if (parentId === id) throw new AdminError("A category can't be inside itself.");
-        const parent = await tx.category.findUnique({ where: { id: parentId }, select: { kind: true, parentId: true } });
+        const parent = await tx.category.findUnique({ where: { id: parentId }, select: { kind: true, parentId: true, isFood: true } });
         if (!parent) throw new AdminError("Choose a parent from the list.");
         if (parent.parentId) throw new AdminError("Categories go two levels deep. Choose a top-level parent.");
         if (parent.kind !== data.kind) throw new AdminError(`The parent is a ${parent.kind} category. Choose one of the same kind.`);
         if (id && (await tx.category.count({ where: { parentId: id } }))) throw new AdminError("This category has subcategories, so it has to stay at the top level.");
+        // Everything inside a food category is food too.
+        if (parent.isFood) data.isFood = true;
       }
+      if (data.kind !== "product") data.isFood = false;
       if (id) {
-        const before = await tx.category.findUnique({ where: { id }, select: { name: true, slug: true, kind: true, parentId: true, isActive: true, sortOrder: true } });
+        const before = await tx.category.findUnique({ where: { id }, select: { name: true, slug: true, kind: true, parentId: true, isActive: true, sortOrder: true, isFood: true } });
         if (!before) throw new AdminError("Category not found.");
         if (before.kind !== data.kind && (await tx.product.count({ where: { categoryId: id } })) + (await tx.service.count({ where: { categoryId: id } })) > 0) {
           throw new AdminError("Listings use this category, so its kind can't change.");
         }
         const c = await tx.category.update({ where: { id }, data, select: { id: true } });
+        // Subcategories follow their parent's food setting.
+        if (!parentId && before.isFood !== data.isFood) await tx.category.updateMany({ where: { parentId: id }, data: { isFood: data.isFood } });
         await audit("category.updated", "category", id, data, before);
         return c;
       }

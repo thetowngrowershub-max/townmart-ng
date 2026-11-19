@@ -39,6 +39,19 @@ export function verifyEmailTemplate(params: { to: string; name: string | null; u
   };
 }
 
+export function twoFactorEmailTemplate(params: { to: string; name: string | null; code: string; minutes: number }): EmailMessage {
+  const greeting = params.name ? `Hi ${params.name},` : "Hi,";
+  return {
+    to: params.to,
+    subject: `${params.code} is your TownMart sign-in code`,
+    html: layout(
+      "Your sign-in code",
+      `<p>${escape(greeting)}</p><p>Use this code to finish signing in to TownMart. It expires in ${params.minutes} minutes and works once.</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${escape(params.code)}</p><p>Never share this code. TownMart staff will never ask for it. If you didn't try to sign in, change your password now.</p>`,
+    ),
+    text: `${greeting}\n\nYour TownMart sign-in code is ${params.code}. It expires in ${params.minutes} minutes. Never share it.\nIf you didn't try to sign in, change your password now.\n`,
+  };
+}
+
 export function resetPasswordTemplate(params: { to: string; url: string }): EmailMessage {
   return {
     to: params.to,

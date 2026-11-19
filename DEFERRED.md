@@ -97,7 +97,7 @@ What the spec asks for that is **not** in the current build, and the phase that 
 | Automated KYC with an identity provider | See Phase 1 | When a KYC provider is contracted |
 | Sending marketing campaigns | Consent, unsubscribe, suppression and `marketingAudience()` are built; there is no campaign editor or sender | Not planned for launch |
 | Removing order records after six years | Orders, payments, refunds and the ledger are kept as the law requires; nothing is old enough to remove yet | When the first records reach six years |
-| Two-step sign-in by authenticator app, and recovery codes | SMS codes cover launch; a lost phone is recovered through support, who check identity | After launch, if wanted |
+| Two-step sign-in by authenticator app, and recovery codes | Done (authenticator app, SMS, email codes and backup codes) | Done |
 | Strict CSP with nonces, covering the consent-gated scripts | Built in Phase 8; the consent-gated scripts carry the nonce, and their origins come from `ANALYTICS_SCRIPT_URL` and `MARKETING_SCRIPT_URL` | Done |
 
 ## From Phase 7 (Admin console and analytics)

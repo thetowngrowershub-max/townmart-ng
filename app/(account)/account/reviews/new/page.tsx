@@ -21,7 +21,10 @@ export default async function NewReviewPage({ searchParams }: { searchParams: Pr
 
   return (
     <>
-      <PageHeader title="Write a review" />
+      <PageHeader
+        title={target?.kind === "service" ? "Rate my service" : "Write a review"}
+        description={target?.kind === "service" ? `Your rating helps ${target.businessName} grow and helps your neighbours pick a provider they can trust.` : undefined}
+      />
       {!target ? (
         <Alert variant="info">This item can&apos;t be reviewed. You may have reviewed it already, or it hasn&apos;t been delivered or done yet.</Alert>
       ) : (
@@ -36,7 +39,7 @@ export default async function NewReviewPage({ searchParams }: { searchParams: Pr
                 <p className="text-sm text-muted-foreground">from {target.businessName}</p>
               </div>
             </div>
-            <ReviewForm orderItemId={target.orderItemId} />
+            <ReviewForm orderItemId={target.orderItemId} kind={target.kind} providerName={target.businessName} />
           </CardContent>
         </Card>
       )}

@@ -8,7 +8,7 @@ import { applyVerifiedPayment, expireUnpaidOrders, processPaymentEvent } from "@
 import { OrderError, placeOrder, type PlacedOrder } from "@/lib/orders/place";
 import { FakePaymentProvider } from "@/lib/payments/fake";
 import type { VerifiedPayment } from "@/lib/payments";
-import { createUser, deleteMoneyTrail, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createUser, deleteMoneyTrail, deleteUsers, lagosIkeja, moweOgun, owner } from "./helpers";
 
 /**
  * Checkout end to end at the database layer: placing orders across sellers,
@@ -39,7 +39,7 @@ function asSystem<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) {
 async function createSeller(label: string, opts: { priceKobo: bigint; stock: number; payOnDelivery: boolean }): Promise<Seller> {
   const user = await createUser(label);
   users.push(user.id);
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   return asSystem(async (tx) => {
     const business = await tx.business.create({
       data: {
@@ -51,7 +51,7 @@ async function createSeller(label: string, opts: { priceKobo: bigint; stock: num
         phoneEncrypted: "v1.k1.test.test.test",
         phoneHash: `${label}-${tag}`,
         addressEncrypted: "v1.k1.test.test.test",
-        city: "Ikeja",
+        city: "Mowe",
         stateId,
         lgaId,
         status: "approved",
@@ -83,14 +83,15 @@ async function cartWith(items: { seller: Seller; qty: number }[], userId: string
   return cart.id;
 }
 
+type Address = Awaited<ReturnType<typeof address>>;
 async function address() {
-  const { stateId, lgaId } = await lagosIkeja();
-  return { recipientName: "Ada Obi", phone: "08031234567", line1: "12 Allen Avenue", line2: "", landmark: "", city: "Ikeja", stateId, lgaId };
+  const { stateId, lgaId } = await moweOgun();
+  return { recipientName: "Ada Obi", phone: "08031234567", line1: "12 Ofada Road", line2: "", landmark: "", city: "Mowe", stateId, lgaId };
 }
 
 /** Prices the cart as the checkout page would, then places the order with that total. */
-async function order(cartId: string, opts: { userId?: string | null; payment?: "online" | "pay_on_delivery" } = {}): Promise<PlacedOrder> {
-  const addr = await address();
+async function order(cartId: string, opts: { userId?: string | null; payment?: "online" | "pay_on_delivery"; address?: Address } = {}): Promise<PlacedOrder> {
+  const addr = opts.address ?? (await address());
   const userId = opts.userId ?? null;
   const quote = await withSystemContext((tx) => computeCheckout(tx, { cartId, userId, address: { stateId: addr.stateId, lgaId: addr.lgaId } }));
   return withSystemContext(
@@ -134,7 +135,7 @@ async function setPaymentAmount(id: string, amountKobo: bigint) {
 }
 
 beforeAll(async () => {
-  categoryId = (await owner.category.findFirstOrThrow({ where: { kind: "product", isActive: true, parentId: { not: null } } })).id;
+  categoryId = (await owner.category.findFirstOrThrow({ where: { kind: "product", isActive: true, isFood: false, parentId: { not: null } } })).id;
   a = await createSeller("co-a", { priceKobo: 200_000n, stock: 10, payOnDelivery: true });
   b = await createSeller("co-b", { priceKobo: 500_000n, stock: 20, payOnDelivery: false });
   const u = await createUser("co-buyer");
@@ -213,6 +214,26 @@ describe("placing an order", () => {
     const o = await owner.order.findUniqueOrThrow({ where: { id: placed.orderId }, include: { sellerOrders: true } });
     expect(o.paymentStatus).toBe("pay_on_delivery");
     expect(o.sellerOrders[0]).toMatchObject({ status: "processing", payOnDelivery: true });
+  });
+});
+
+describe("service area", () => {
+  it("refuses delivery outside Mowe, Obafemi-Owode, Ogun State", async () => {
+    const seller = await createSeller("area", { priceKobo: 100_000n, stock: 5, payOnDelivery: false });
+    const cartId = await cartWith([{ seller, qty: 1 }]);
+    const ikeja = { ...(await address()), ...(await lagosIkeja()), city: "Ikeja" };
+    await expect(order(cartId, { address: ikeja })).rejects.toThrow(/only open in Mowe, Obafemi-Owode, Ogun State/);
+    const otherTown = { ...(await address()), city: "Abeokuta" };
+    await expect(order(cartId, { address: otherTown })).rejects.toThrow(/only open in Mowe/);
+    expect(await stock(seller)).toBe(5);
+  });
+
+  it("accepts the town in any letter case and stores it as listed", async () => {
+    const seller = await createSeller("area-case", { priceKobo: 100_000n, stock: 5, payOnDelivery: false });
+    const cartId = await cartWith([{ seller, qty: 1 }]);
+    const placed = await order(cartId, { address: { ...(await address()), city: " mowe " } });
+    const o = await owner.order.findUniqueOrThrow({ where: { id: placed.orderId } });
+    expect((o.shippingAddressSnapshot as { city: string }).city).toBe("Mowe");
   });
 });
 
@@ -397,5 +418,40 @@ describe("RLS: orders and money", () => {
     const moved = await withRls({ userId: null, cartId: mine }, (tx) => tx.cartItem.updateMany({ where: { cartId: theirs }, data: { qty: 99 } }));
     expect(moved.count).toBe(0);
     expect(await withRls({ userId: null }, (tx) => tx.cart.findMany({ where: { id: { in: [mine, theirs] } } }))).toEqual([]);
+  });
+});
+
+describe("food from restaurants and bakeries", () => {
+  it("can only be ordered while the seller is open", async () => {
+    const food = await createSeller("co-food", { priceKobo: 350_000n, stock: 30, payOnDelivery: true });
+    const foodCategory = await owner.category.findFirstOrThrow({ where: { isFood: true, parentId: { not: null } }, select: { id: true } });
+    // Open 8 am to 10 pm every day, Lagos time.
+    const hours = Array.from({ length: 7 }, () => ({ open: 480, close: 1320 }));
+    await asSystem(async (tx) => {
+      await tx.product.update({ where: { id: food.productId }, data: { categoryId: foodCategory.id, prepTimeMinutes: 20 } });
+      await tx.storePolicy.update({ where: { businessId: food.businessId }, data: { openingHours: hours } });
+    });
+    const cartId = await cartWith([{ seller: food, qty: 1 }]);
+    const { stateId, lgaId } = await lagosIkeja();
+    const at = (now: Date) => withSystemContext((tx) => computeCheckout(tx, { cartId, userId: null, address: { stateId, lgaId }, now }));
+
+    // 12:00 in Lagos is 11:00 UTC.
+    const lunch = await at(new Date("2026-11-17T11:00:00Z"));
+    expect(lunch.lines[0]!.problem).toBeNull();
+
+    const lateNight = await at(new Date("2026-11-17T22:30:00Z"));
+    expect(lateNight.lines[0]!.problem).toEqual({ kind: "store_closed", label: "Closed · opens 8:00 am tomorrow" });
+    expect(lateNight.blockers.length).toBeGreaterThan(0);
+
+    // Pausing stops orders even inside opening hours.
+    await asSystem((tx) => tx.storePolicy.update({ where: { businessId: food.businessId }, data: { ordersPaused: true } }));
+    expect((await at(new Date("2026-11-17T11:00:00Z"))).lines[0]!.problem).toMatchObject({ kind: "store_closed" });
+
+    // Everything else ignores opening hours.
+    await asSystem((tx) => tx.storePolicy.update({ where: { businessId: a.businessId }, data: { openingHours: hours, ordersPaused: true } }));
+    const otherCart = await cartWith([{ seller: a, qty: 1 }]);
+    const other = await withSystemContext((tx) => computeCheckout(tx, { cartId: otherCart, userId: null, address: { stateId, lgaId }, now: new Date("2026-11-17T22:30:00Z") }));
+    expect(other.lines[0]!.problem).toBeNull();
+    await asSystem((tx) => tx.storePolicy.update({ where: { businessId: a.businessId }, data: { openingHours: Prisma.DbNull, ordersPaused: false } }));
   });
 });

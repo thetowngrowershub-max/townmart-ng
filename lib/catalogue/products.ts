@@ -163,6 +163,7 @@ export async function saveProduct(
         : Prisma.DbNull,
     isPerishable: data.isPerishable,
     shelfLifeNote: data.isPerishable ? data.shelfLifeNote || null : null,
+    prepTimeMinutes: data.prepTimeMinutes ?? null,
     status: data.status,
     metaTitle: data.metaTitle || null,
     metaDescription: data.metaDescription || null,

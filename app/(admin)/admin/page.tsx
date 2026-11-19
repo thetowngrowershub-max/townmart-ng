@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { DashboardTiles, GmvChart } from "@/components/analytics/dashboard-view";
+import { TwoFactorNudge } from "@/components/account/two-factor-nudge";
 import { PageHeader } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +50,7 @@ export default async function AdminOverviewPage() {
   return (
     <>
       <PageHeader title="Overview" description="What needs attention, and the last 30 days at a glance." />
+      <TwoFactorNudge userId={user.id} who="admin" />
       <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>

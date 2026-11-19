@@ -7,6 +7,7 @@ import { computeCheckout } from "@/lib/checkout/compute";
 import { toCheckoutView } from "@/lib/checkout/view";
 import { decrypt } from "@/lib/crypto";
 import { withRls, withSystemContext } from "@/lib/db";
+import { IN_SERVICE_AREA, serviceAreaOptions } from "@/lib/service-area-db";
 
 export const metadata: Metadata = { title: "Checkout", robots: { index: false } };
 
@@ -17,12 +18,11 @@ export default async function CheckoutPage() {
   const [addresses, states] = await Promise.all([
     user
       ? withRls({ userId: user.id }, (tx) =>
-          tx.address.findMany({ where: { userId: user.id }, orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }], include: { state: true, lga: true } }),
+          // Saved addresses outside the service area can't be delivered to, so they aren't offered.
+          tx.address.findMany({ where: { userId: user.id, lga: IN_SERVICE_AREA }, orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }], include: { state: true, lga: true } }),
         )
       : Promise.resolve([]),
-    withRls({ userId: null }, (tx) =>
-      tx.state.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, lgas: { orderBy: { name: "asc" }, select: { id: true, name: true } } } }),
-    ),
+    withRls({ userId: null }, (tx) => serviceAreaOptions(tx)),
   ]);
   const saved: SavedAddress[] = addresses.map((a) => ({
     id: a.id,

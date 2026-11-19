@@ -21,7 +21,7 @@ export type BuyerResult =
 const send = (m: unknown) => new Promise<void>((resolve) => process.send!(m, () => resolve()));
 
 async function buy({ cartId, stateId, lgaId }: Go): Promise<BuyerResult> {
-  const address = { recipientName: "Load Test", phone: "08031234567", line1: "1 Test Road", line2: "", landmark: "", city: "Ikeja", stateId, lgaId };
+  const address = { recipientName: "Load Test", phone: "08031234567", line1: "1 Test Road", line2: "", landmark: "", city: "Mowe", stateId, lgaId };
   const started = performance.now();
   try {
     const quote = await withSystemContext((tx) => computeCheckout(tx, { cartId, userId: null, address: { stateId, lgaId } }));

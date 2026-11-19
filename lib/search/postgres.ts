@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { withRls, type Tx } from "@/lib/db";
 import { dealFor, loadListingRules, onPromotionSql } from "@/lib/promotions/live";
+import { inServiceAreaSql } from "@/lib/service-area-db";
 import type { Page, ProductHit, SearchProvider, SearchQuery, SearchResults, ServiceHit, StoreHit } from "./provider";
 
 const empty = <T>(): Page<T> => ({ items: [], total: 0 });
@@ -11,6 +12,11 @@ const empty = <T>(): Page<T> => ({ items: [], total: 0 });
  * "samsun" still find something. Every query also filters to live listings of
  * approved businesses explicitly: RLS would let a seller see their own drafts
  * here, and search must show the same results to everyone.
+ *
+ * Only businesses based inside the service area (lib/service-area.ts) are
+ * listed, and a place filter matches where a business is based. Service
+ * providers and artisans are tied to that place: they never show up in
+ * another state or LGA.
  */
 export class PostgresSearchProvider implements SearchProvider {
   async search(query: SearchQuery): Promise<SearchResults> {
@@ -108,6 +114,7 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
          WHERE i.product_id = p.id ORDER BY i.is_cover DESC, i.sort_order LIMIT 1
       ) img ON true
      WHERE p.status = 'active' AND p.deleted_at IS NULL AND p.taken_down_at IS NULL
+       AND ${inServiceAreaSql("b.lga_id")}
        ${match}
        ${categoryFilter("p", query.categoryId)}
        ${priceFilter("p", query)}
@@ -146,12 +153,9 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
 async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined): Promise<Page<RawServiceHit>> {
   const match = q ? Prisma.sql`AND (sv.search_vector @@ ${tsq(q)} OR sv.title % ${q})` : Prisma.empty;
   const rank = q ? Prisma.sql`ts_rank_cd(sv.search_vector, ${tsq(q)}) + similarity(sv.title, ${q})` : Prisma.sql`0`;
-  // A provider "serves" a place if they're based there or list it as a covered LGA.
-  const stateFilter = query.stateId
-    ? Prisma.sql`AND (b.state_id = ${query.stateId} OR EXISTS (
-        SELECT 1 FROM lgas l WHERE l.id = ANY (sv.service_lga_ids) AND l.state_id = ${query.stateId}))`
-    : Prisma.empty;
-  const lgaFilter = query.lgaId ? Prisma.sql`AND (b.lga_id = ${query.lgaId} OR ${query.lgaId}::int = ANY (sv.service_lga_ids))` : Prisma.empty;
+  // Providers are locked to where they're based: only the business's own state and LGA match.
+  const stateFilter = query.stateId ? Prisma.sql`AND b.state_id = ${query.stateId}` : Prisma.empty;
+  const lgaFilter = query.lgaId ? Prisma.sql`AND b.lga_id = ${query.lgaId}` : Prisma.empty;
 
   const rows = await tx.$queryRaw<
     (Row & {
@@ -175,6 +179,7 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
         SELECT storage_key, alt_text FROM service_images i WHERE i.service_id = sv.id ORDER BY i.sort_order LIMIT 1
       ) img ON true
      WHERE sv.status = 'active' AND sv.deleted_at IS NULL AND sv.taken_down_at IS NULL
+       AND ${inServiceAreaSql("b.lga_id")}
        ${match}
        ${categoryFilter("sv", query.categoryId)}
        ${priceFilter("sv", query)}
@@ -230,6 +235,7 @@ async function searchStores(tx: Tx, query: SearchQuery, q: string | undefined): 
       FROM businesses b
       JOIN states s ON s.id = b.state_id
      WHERE b.status = 'approved'
+       AND ${inServiceAreaSql("b.lga_id")}
        ${match}
        ${category}
        ${ratingFilter("b", query)}

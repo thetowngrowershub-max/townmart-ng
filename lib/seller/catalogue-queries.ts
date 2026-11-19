@@ -14,11 +14,16 @@ export async function categoryOptions(tx: Tx, kind: CategoryKind) {
   const all = await tx.category.findMany({
     where: { kind, isActive: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, parentId: true },
+    select: { id: true, name: true, parentId: true, isFood: true },
   });
   return all
     .filter((c) => !c.parentId)
-    .map((c) => ({ id: c.id, name: c.name, children: all.filter((s) => s.parentId === c.id).map((s) => ({ id: s.id, name: s.name })) }));
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      isFood: c.isFood,
+      children: all.filter((s) => s.parentId === c.id).map((s) => ({ id: s.id, name: s.name, isFood: s.isFood || c.isFood })),
+    }));
 }
 
 /** Every product category's attributes, for the product form to show as the seller picks a category. */
@@ -79,6 +84,7 @@ export function productToFormValues(p: ProductForEdit): ProductFormValues {
     heightCm: dims?.heightCm ?? undefined,
     isPerishable: p.isPerishable,
     shelfLifeNote: p.shelfLifeNote ?? "",
+    prepTimeMinutes: p.prepTimeMinutes ?? undefined,
     costPrice: p.costPriceKobo !== null ? koboToNairaString(p.costPriceKobo) : "",
     status: p.status,
     slug: p.slug,
@@ -167,10 +173,11 @@ export function serviceToFormValues(s: ServiceForEdit): ServiceFormValues {
   };
 }
 
-export async function lgaGroups(tx: Tx) {
-  const states = await tx.state.findMany({
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, lgas: { orderBy: { name: "asc" }, select: { id: true, name: true } } },
+/** Where a business is registered. Its services cover this LGA only: providers are locked to their own area. */
+export async function homeArea(tx: Tx, businessId: string) {
+  const b = await tx.business.findUniqueOrThrow({
+    where: { id: businessId },
+    select: { lgaId: true, city: true, lga: { select: { name: true } }, state: { select: { name: true } } },
   });
-  return states.map((s) => ({ stateId: s.id, stateName: s.name, lgas: s.lgas }));
+  return { lgaId: b.lgaId, city: b.city, lgaName: b.lga.name, stateName: b.state.name };
 }

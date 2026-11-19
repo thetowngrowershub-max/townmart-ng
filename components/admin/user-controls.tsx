@@ -5,13 +5,15 @@ import { ActionAlert, useAction } from "@/components/admin/use-action";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Textarea } from "@/components/ui/textarea";
-import { restoreUserAction, setRoleAction, signOutEverywhereAction, suspendUserAction } from "@/lib/admin/user-actions";
+import { resetTwoFactorAction, restoreUserAction, setRoleAction, signOutEverywhereAction, suspendUserAction } from "@/lib/admin/user-actions";
 
-/** Suspend or restore, and sign out everywhere. */
-export function AccountControls({ userId, status, self }: { userId: string; status: string; self: boolean }) {
+/** Suspend or restore, sign out everywhere, and reset two-step sign-in. */
+export function AccountControls({ userId, status, self, twoFactorOn = false }: { userId: string; status: string; self: boolean; twoFactorOn?: boolean }) {
   const { result, pending, run, fieldError } = useAction();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetReason, setResetReason] = useState("");
   return (
     <div className="flex flex-col gap-3">
       <ActionAlert result={result} />
@@ -29,7 +31,38 @@ export function AccountControls({ userId, status, self }: { userId: string; stat
         <Button size="sm" variant="ghost" disabled={pending} onClick={() => window.confirm("Sign this account out on every device?") && run(() => signOutEverywhereAction({ userId }))}>
           Sign out everywhere
         </Button>
+        {twoFactorOn && !self && !resetOpen && (
+          <Button size="sm" variant="ghost" onClick={() => setResetOpen(true)}>
+            Reset two-step sign-in
+          </Button>
+        )}
       </div>
+      {resetOpen && (
+        <form
+          className="flex flex-col gap-3 rounded-xl border p-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(() => resetTwoFactorAction({ userId, reason: resetReason }), () => setResetOpen(false));
+          }}
+        >
+          <FormField
+            id="reset-2fa-reason"
+            label="How did you check it's really them?"
+            hint="Only for someone who lost their phone and backup codes. Kept in the audit log."
+            error={fieldError("reason")}
+          >
+            <Textarea rows={3} value={resetReason} onChange={(e) => setResetReason(e.target.value)} maxLength={500} />
+          </FormField>
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" variant="danger" disabled={pending}>
+              Turn off two-step sign-in
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setResetOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
       {open && (
         <form
           className="flex flex-col gap-3 rounded-xl border p-4"
