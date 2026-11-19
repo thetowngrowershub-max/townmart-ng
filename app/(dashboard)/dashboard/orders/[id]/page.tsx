@@ -18,6 +18,7 @@ import { CONTACT_RETENTION_DAYS, loadSellerOrder } from "@/lib/fulfilment/seller
 import { sellerOrderRefunds } from "@/lib/refunds/seller-view";
 import { requireSellerPage, withSellerRls } from "@/lib/seller/context";
 import { RiderPicker } from "@/components/orders/rider-picker";
+import { riderJobUrl } from "@/lib/fulfilment/rider-job";
 import { riderCandidates } from "@/lib/fulfilment/riders";
 import { VEHICLE_LABELS, type RiderVehicle } from "@/lib/fulfilment/rider-vehicles";
 import { formatDistance } from "@/lib/geo/distance";
@@ -36,7 +37,7 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
     const messages = await loadConversation(tx, { sellerOrderId: id, viewer: "seller", sellerName: ctx.business.name, customerName: order.customer.name });
     const delivery = await tx.sellerOrder.findFirst({
       where: { id, businessId: ctx.business.id },
-      select: { deliveryMethod: true, status: true, deliveryDistanceM: true, riderAssignedAt: true, pickedUpAt: true, fulfilmentContact: true, rider: { select: { id: true, name: true } } },
+      select: { id: true, riderId: true, deliveryMethod: true, status: true, deliveryDistanceM: true, riderAssignedAt: true, pickedUpAt: true, fulfilmentContact: true, rider: { select: { id: true, name: true } } },
     });
     const settings = await getCheckoutSettings(tx);
     const riders = delivery?.deliveryMethod === "delivery" ? await riderCandidates(tx, ctx.business.id, settings.riderNearbyKm) : [];
@@ -198,7 +199,14 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
                   canManage={canManage && ["paid", "processing", "shipped"].includes(delivery.status)}
                   current={
                     delivery.rider && delivery.riderAssignedAt
-                      ? { id: delivery.rider.id, name: delivery.rider.name, assigned: formatDateTime(delivery.riderAssignedAt), pickedUp: delivery.pickedUpAt ? formatDateTime(delivery.pickedUpAt) : null }
+                      ? {
+                          id: delivery.rider.id,
+                          name: delivery.rider.name,
+                          assigned: formatDateTime(delivery.riderAssignedAt),
+                          pickedUp: delivery.pickedUpAt ? formatDateTime(delivery.pickedUpAt) : null,
+                          // Lets the shop send the job again (WhatsApp, or read it out) if the text doesn't arrive.
+                          jobUrl: ["paid", "processing", "shipped"].includes(delivery.status) ? riderJobUrl(delivery) : null,
+                        }
                       : null
                   }
                   dropOffUrl={point && point.source !== "area" ? `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}` : null}

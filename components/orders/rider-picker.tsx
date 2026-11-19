@@ -30,7 +30,7 @@ export function RiderPicker({
   dropOffUrl,
 }: {
   sellerOrderId: string;
-  current: { id: string; name: string; assigned: string; pickedUp: string | null } | null;
+  current: { id: string; name: string; assigned: string; pickedUp: string | null; jobUrl?: string | null } | null;
   options: RiderOption[];
   canManage: boolean;
   dropOffUrl: string | null;
@@ -61,6 +61,14 @@ export function RiderPicker({
             Assigned {current.assigned}
             {current.pickedUp && ` · picked up ${current.pickedUp}`}
           </p>
+          {current.jobUrl && (
+            <p className="text-muted-foreground">
+              We texted {current.name} their job link. Didn&apos;t get it?{" "}
+              <a href={`https://wa.me/?text=${encodeURIComponent(`Your TownMart delivery job: ${current.jobUrl}`)}`} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                Send it on WhatsApp
+              </a>
+            </p>
+          )}
           {canManage && !changing && (
             <div className="mt-1 flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => setChanging(true)}>
