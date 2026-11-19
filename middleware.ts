@@ -63,6 +63,6 @@ export const config = {
   // Pages only: API routes, static files and images don't run scripts. A plain
   // string, because Vercel's builder refuses matcher objects with conditions.
   matcher: [
-    "/((?!api/|_next/static|_next/image|favicon.ico|icon|apple-icon|brand/|manifest.webmanifest|robots.txt|sitemap.xml).*)",
+    "/((?!api/|_next/static|_next/image|favicon.ico|icon|apple-icon|brand/|manifest.webmanifest|robots.txt|sitemap.xml|sw.js).*)",
   ],
 };

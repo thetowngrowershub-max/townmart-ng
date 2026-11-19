@@ -30,6 +30,8 @@ export const checkoutSchema = z
     marketingConsent: z.boolean().default(false),
     // The total the shopper saw; the order is refused if prices changed since.
     expectedTotalKobo: z.string().regex(/^\d{1,15}$/),
+    // Made once by the checkout page: a resend of the same tap (weak network) gets the first answer.
+    checkoutKey: z.uuid().optional(),
   })
   .superRefine((v, ctx) => {
     if (!v.addressId && !v.address) ctx.addIssue({ code: "custom", path: ["addressId"], message: "Choose or add a delivery address" });
