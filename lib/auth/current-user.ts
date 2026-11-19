@@ -4,7 +4,18 @@ import { forbidden, redirect } from "next/navigation";
 import { cache } from "react";
 import { can, type GlobalPermission } from "@/lib/authz";
 import { withRls } from "@/lib/db";
+import { isTestMode } from "@/lib/platform";
+import { DEMO_ACCOUNTS } from "@/lib/test-mode/demo-accounts";
 import { auth } from "./config";
+
+/**
+ * Two-step sign-in is compulsory for TownMart admins. The shared demo admins
+ * on a test site are the exception: testers all use them, so one person's
+ * authenticator would lock everyone else out.
+ */
+function twoFactorExempt(email: string): boolean {
+  return isTestMode() && DEMO_ACCOUNTS.some((a) => a.email === email);
+}
 
 export type CurrentUser = {
   id: string;
@@ -12,6 +23,8 @@ export type CurrentUser = {
   name: string | null;
   emailVerified: Date | null;
   roles: Role[];
+  /** An admin without two-step sign-in: admin powers stay off until it's on. See lib/authz. */
+  adminNeedsTwoFactor: boolean;
 };
 
 /** The signed-in, active user with their roles, or null. Cached per request. */
@@ -23,16 +36,19 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const user = await withRls({ userId: id }, (tx) =>
     tx.user.findUnique({
       where: { id },
-      select: { id: true, email: true, name: true, emailVerified: true, status: true, roles: { select: { role: true } } },
+      select: { id: true, email: true, name: true, emailVerified: true, status: true, twoFactorEnabledAt: true, roles: { select: { role: true } } },
     }),
   );
   if (!user || user.status !== "active") return null;
+  const roles = user.roles.map((r) => r.role);
+  const isAdmin = roles.some((r) => r === "admin" || r === "super_admin");
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     emailVerified: user.emailVerified,
-    roles: user.roles.map((r) => r.role),
+    roles,
+    adminNeedsTwoFactor: isAdmin && !user.twoFactorEnabledAt && !twoFactorExempt(user.email),
   };
 });
 

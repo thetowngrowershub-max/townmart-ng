@@ -79,3 +79,25 @@ describe("helpers", () => {
     expect(rlsScopeFor(merchant!, "admin")).toBe("user");
   });
 });
+
+describe("admins without two-step sign-in", () => {
+  const locked: Actor = { id: "u-admin", roles: ["admin"], adminNeedsTwoFactor: true };
+  const lockedSuper: Actor = { id: "u-super", roles: ["super_admin"], adminNeedsTwoFactor: true };
+
+  it("keep only customer access until they turn it on", () => {
+    for (const a of [locked, lockedSuper]) {
+      expect(can(a, "account.access")).toBe(true);
+      expect(can(a, "session.revoke", { userId: a!.id })).toBe(true);
+      expect(can(a, "admin.access")).toBe(false);
+      expect(can(a, "user.manage")).toBe(false);
+      expect(can(a, "finance.manage")).toBe(false);
+      expect(can(a, "session.revoke", { userId: "someone-else" })).toBe(false);
+      expect(isPlatformAdmin(a)).toBe(false);
+    }
+    expect(can(lockedSuper, "user.roles.manage")).toBe(false);
+  });
+
+  it("get their admin powers back once it's on", () => {
+    expect(can({ ...locked!, adminNeedsTwoFactor: false }, "admin.access")).toBe(true);
+  });
+});

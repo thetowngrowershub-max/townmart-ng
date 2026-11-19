@@ -15,7 +15,8 @@ import { requirePermission } from "@/lib/auth/current-user";
 import { currentSessionToken } from "@/lib/auth/session";
 import { decryptNullable } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
-import { maskPhone } from "@/lib/phone";
+import { maskEmail, maskPhone } from "@/lib/phone";
+import { channelsFor, FACTOR_LABELS, factorsFor, isTwoFactorOn, loadTwoFactorUser } from "@/lib/auth/two-factor-methods";
 import { formatDateTime } from "@/lib/datetime";
 
 export const metadata: Metadata = { title: "Profile & security" };
@@ -27,15 +28,17 @@ function describeAgent(ua: string | null): string {
   return `${browser} on ${os}`;
 }
 
-export default async function SecurityPage({ searchParams }: { searchParams: Promise<{ google?: string }> }) {
+export default async function SecurityPage({ searchParams }: { searchParams: Promise<{ google?: string; required?: string }> }) {
   const user = await requirePermission("account.access", "/account/security");
-  const { google } = await searchParams;
+  const { google, required } = await searchParams;
   const token = await currentSessionToken();
   const account = await prisma.user.findUniqueOrThrow({
     where: { id: user.id },
-    select: { phoneEncrypted: true, phoneVerifiedAt: true, twoFactorEnabledAt: true, passwordHash: true, accounts: { where: { provider: "google" }, select: { id: true } } },
+    select: { phoneEncrypted: true, phoneVerifiedAt: true, passwordHash: true, accounts: { where: { provider: "google" }, select: { id: true } } },
   });
   const phone = account.phoneVerifiedAt ? decryptNullable(account.phoneEncrypted) : null;
+  const twoFactor = (await loadTwoFactorUser(user.id))!;
+  const ready = channelsFor(twoFactor);
   const sessions = await prisma.session.findMany({
     where: { userId: user.id, expires: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
@@ -45,6 +48,11 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
   return (
     <>
       <PageHeader title="Profile & security" description="Your phone number, how you sign in, and where you're signed in." />
+      {(user.adminNeedsTwoFactor || (required === "admin" && !isTwoFactorOn(twoFactor))) && (
+        <Alert variant="warning" className="mb-6">
+          <strong>Turn on two-step sign-in to use the admin console.</strong> It&apos;s required for every TownMart admin account. Set it up below, then go back to the admin console.
+        </Alert>
+      )}
       {google === "connected" && <Alert variant="success" className="mb-6">Google is connected. You can now sign in with it.</Alert>}
       <Card className="mb-6">
         <CardHeader>
@@ -58,10 +66,19 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Two-step sign-in</CardTitle>
-          <CardDescription>Protect your password sign-in with a code sent to your phone.</CardDescription>
+          <CardDescription>Ask for a code from your phone or email every time you sign in, so a stolen password alone isn&apos;t enough.</CardDescription>
         </CardHeader>
         <CardContent>
-          <TwoFactorSetting enabled={account.twoFactorEnabledAt !== null} hasPhone={phone !== null} />
+          <TwoFactorSetting
+            enabled={isTwoFactorOn(twoFactor)}
+            method={twoFactor.twoFactorMethod}
+            ready={ready}
+            phoneMasked={phone ? maskPhone(phone) : null}
+            emailMasked={maskEmail(twoFactor.email)}
+            emailVerified={ready.email}
+            backupRemaining={twoFactor.twoFactorBackupCodes.length}
+            stepUpOptions={factorsFor(twoFactor, null).map((factor) => ({ factor, label: FACTOR_LABELS[factor] }))}
+          />
         </CardContent>
       </Card>
       {(googleEnabled || account.accounts.length > 0) && (

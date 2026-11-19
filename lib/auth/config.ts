@@ -24,10 +24,19 @@ const config: NextAuthConfig = {
   },
   pages: { signIn: "/auth/sign-in", error: "/auth/sign-in", verifyRequest: "/auth/verify" },
   callbacks: {
-    signIn({ user }) {
+    async signIn({ user, account }) {
       const status = (user as Partial<DbUser>).status;
       // Signing in during the deletion grace period cancels the deletion (events.signIn).
-      return status === undefined || status === "active" || status === "pending_deletion";
+      if (!(status === undefined || status === "active" || status === "pending_deletion")) return false;
+      // Two-step sign-in: an account already linked to this Google login gets no
+      // session yet; it goes to the second step, like a password sign-in. A new
+      // link (from Profile & security) needs an existing session, which already passed it.
+      if (account?.provider && account.providerAccountId) {
+        const { googleSecondStep } = await import("./google-two-factor");
+        const redirectTo = await googleSecondStep(account.provider, account.providerAccountId);
+        if (redirectTo) return redirectTo;
+      }
+      return true;
     },
     session({ session, user }) {
       session.user.id = user.id;

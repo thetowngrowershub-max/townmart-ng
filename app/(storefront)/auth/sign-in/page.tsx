@@ -17,6 +17,7 @@ const ERRORS: Record<string, string> = {
   OAuthAccountNotLinked:
     "An account with this email already exists. Sign in with your password instead.",
   AccessDenied: "This account can't sign in right now. Please contact support.",
+  TwoFactorUnavailable: "We couldn't send your two-step sign-in code. Wait a few minutes, or sign in with your email and password.",
 };
 
 export default async function SignInPage({

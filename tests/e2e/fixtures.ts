@@ -1,12 +1,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
+import { totpCode, totpStep } from "@/lib/auth/totp";
 
 export const FIXTURES_FILE = path.join(__dirname, ".cache", "fixtures.json");
 
 export type E2EFixtures = {
   password: string;
-  admin: { email: string };
+  /** Admins must use two-step sign-in; the admin gets this authenticator secret. */
+  admin: { email: string; totpSecret: string };
   customer: { email: string; name: string };
   seller: { email: string; shopName: string };
   product: { slug: string; title: string };
@@ -30,6 +32,13 @@ export async function signIn(page: Page, email: string, next = "/") {
   await page.getByRole("textbox", { name: "Email" }).fill(email);
   await page.getByRole("textbox", { name: "Password" }).or(page.getByLabel("Password", { exact: true })).first().fill(fixtures().password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.waitForURL((url) => !url.pathname.startsWith("/auth/sign-in"));
+  if (new URL(page.url()).pathname === "/auth/two-factor") {
+    const { admin } = fixtures();
+    if (email !== admin.email) throw new Error(`${email} unexpectedly has two-step sign-in on`);
+    await page.getByLabel("6-digit code").fill(totpCode(admin.totpSecret, totpStep()));
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  }
   await page.waitForURL((url) => !url.pathname.startsWith("/auth/"));
 }
 

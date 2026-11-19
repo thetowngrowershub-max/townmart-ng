@@ -1,5 +1,6 @@
 import { AlertTriangle, CalendarCheck, ClipboardList, Package, Plus, Star, Store, TrendingUp, Wallet, Wrench } from "lucide-react";
 import Link from "next/link";
+import { TwoFactorNudge } from "@/components/account/two-factor-nudge";
 import { PageHeader } from "@/components/layout/app-shell";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { SalesChart } from "@/components/seller/sales-chart";
@@ -22,7 +23,7 @@ const STATUS_NOTE: Record<string, { variant: "info" | "warning" | "danger" | "su
 };
 
 export default async function DashboardPage() {
-  await requirePermission("dashboard.access", "/dashboard");
+  const user = await requirePermission("dashboard.access", "/dashboard");
   const ctx = await getSellerContext();
   if (!ctx) {
     return (
@@ -111,6 +112,7 @@ export default async function DashboardPage() {
           </div>
         }
       />
+      <TwoFactorNudge userId={user.id} who="seller" />
       <div className="flex flex-col gap-6">
         {note && (
           <Alert variant={note.variant}>

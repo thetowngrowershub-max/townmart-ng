@@ -62,10 +62,8 @@ export function BusinessDetailsForm({
   );
   const errors = form.formState.errors;
   const stateId = Number(form.watch("stateId"));
-  const type = form.watch("type");
   const lgas = states.find((s) => s.id === stateId)?.lgas ?? [];
   const towns = lgas.find((l) => l.id === Number(form.watch("lgaId")))?.towns ?? [];
-  const cacOptional = type === "service_provider" || type === "artisan";
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-5">
@@ -108,8 +106,8 @@ export function BusinessDetailsForm({
       </div>
       <FormField
         id="cacNumber"
-        label={cacOptional ? "CAC number (optional)" : "CAC registration number"}
-        hint="As shown on your CAC certificate, e.g. RC 1234567 or BN 123456."
+        label="CAC number (optional)"
+        hint="If your business is registered, enter it as on your CAC certificate, e.g. RC 1234567 or BN 123456. You can leave this blank."
         error={errors.cacNumber?.message}
       >
         <Input {...form.register("cacNumber")} />
