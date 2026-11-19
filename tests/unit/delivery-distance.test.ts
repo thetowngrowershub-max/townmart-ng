@@ -3,6 +3,7 @@ import { quoteDistanceDelivery } from "@/lib/checkout/delivery";
 import { rankRiders } from "@/lib/fulfilment/riders";
 import { nearServiceArea, parseNearCookie, resolveCustomerPoint } from "@/lib/geo/customer-location";
 import { formatDistance, haversineMetres, priceByDistance, roadMetres } from "@/lib/geo/distance";
+import { googleRoadMetres } from "@/lib/geo/routes";
 
 const MOWE = { lat: 6.809, lng: 3.437 };
 const rates = { perKmKobo: 25_000n, roadFactor: 1.3, maxKm: 25 };
@@ -45,13 +46,37 @@ describe("priceByDistance", () => {
 });
 
 describe("quoteDistanceDelivery", () => {
-  it("quotes from the shop to the customer, same or next day", () => {
-    const customer = { lat: MOWE.lat + 0.02, lng: MOWE.lng, source: "gps" as const };
-    const q = quoteDistanceDelivery({ shop: MOWE, customer, rates })!;
-    const metres = roadMetres(MOWE, customer, 1.3);
-    expect(q.distance).toMatchObject({ metres, chargedKm: Math.ceil(metres / 1000), source: "gps" });
-    expect(q.feeKobo).toBe(BigInt(Math.ceil(metres / 1000)) * 25_000n);
+  it("prices the road distance, same or next day", () => {
+    const q = quoteDistanceDelivery({ road: { metres: 3_300, method: "road" }, source: "gps", rates })!;
+    expect(q.distance).toMatchObject({ metres: 3_300, chargedKm: 4, source: "gps", method: "road" });
+    expect(q.feeKobo).toBe(100_000n);
     expect([q.etaDaysMin, q.etaDaysMax]).toEqual([0, 1]);
+  });
+});
+
+describe("googleRoadMetres", () => {
+  const from = MOWE;
+  const to = { lat: 6.83, lng: 3.425 };
+  it("reads the driving distance from Google Routes", async () => {
+    let sent: RequestInit | undefined;
+    const fake = (async (_url: string, init?: RequestInit) => {
+      sent = init;
+      return new Response(JSON.stringify({ routes: [{ distanceMeters: 4123 }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await googleRoadMetres(from, to, "test-key", fake)).toBe(4123);
+    expect((sent?.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe("routes.distanceMeters");
+    expect(JSON.parse(String(sent?.body)).travelMode).toBe("DRIVE");
+  });
+
+  it("gives up quietly when Google fails, so checkout falls back to the estimate", async () => {
+    const denied = (async () => new Response("{}", { status: 403 })) as unknown as typeof fetch;
+    const down = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    const empty = (async () => new Response(JSON.stringify({}), { status: 200 })) as unknown as typeof fetch;
+    expect(await googleRoadMetres(from, to, "k", denied)).toBeNull();
+    expect(await googleRoadMetres(from, to, "k", down)).toBeNull();
+    expect(await googleRoadMetres(from, to, "k", empty)).toBeNull();
   });
 });
 

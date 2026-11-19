@@ -45,6 +45,8 @@ const schema = z.object({
   // SMS: "termii", "console" (logs messages; development only) or "outbox" (the test inbox; test mode only)
   SMS_PROVIDER: z.enum(["termii", "console", "outbox"]).default("console"),
   TERMII_API_KEY: z.string().optional(),
+  // Road distance for delivery fees (Google Routes API). Unset: straight line x road factor.
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
   TERMII_SENDER_ID: z.string().default("TownMart"),
   TERMII_BASE_URL: z.url().default("https://api.ng.termii.com"),
 

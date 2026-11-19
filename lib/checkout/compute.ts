@@ -8,6 +8,7 @@ import { getCheckoutSettings, type CheckoutSettings } from "@/lib/settings";
 import { DEFAULT_ITEM_WEIGHT_G, quoteDelivery, quoteDistanceDelivery, type DeliveryQuote } from "./delivery";
 import type { CustomerPoint } from "@/lib/geo/distance";
 import { loadDestination } from "./destination";
+import { roadDistance, type RoadDistance } from "@/lib/geo/routes";
 import { buildQuote, roundBps, type OrderQuote } from "./quote";
 import { openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
 
@@ -367,6 +368,17 @@ export async function computeCheckout(
     const total = pricedByKey.get(l.cartItemId)?.totalKobo ?? 0n;
     l.payLaterKobo = total - roundBps(total, l.booking!.depositPercent * 100);
   }
+  // Road distance from each shop that has pinned its location to the drop-off.
+  const point = input.address?.point ?? null;
+  const roads = new Map<string, RoadDistance>();
+  if (point) {
+    await Promise.all(
+      businessIds.map(async (id) => {
+        const b = cart!.items.find((i) => i.businessId === id)!.business;
+        if (b.latitude !== null && b.longitude !== null) roads.set(id, await roadDistance({ lat: b.latitude, lng: b.longitude }, point, settings.deliveryRoadFactor));
+      }),
+    );
+  }
   const sellers: SellerDelivery[] = businessIds.map((businessId) => {
     // Only goods are delivered; bookings happen at the address or the provider's place.
     const own = sellable.filter((l) => l.businessId === businessId && l.kind === "product");
@@ -375,13 +387,12 @@ export async function computeCheckout(
     const offersDelivery = opts.delivery !== false;
     const offersPickup = opts.pickup === true;
     const goods = own.reduce((a, l) => a + (pricedByKey.get(l.cartItemId)?.totalKobo ?? 0n), 0n);
-    const point = input.address?.point ?? null;
-    const shop = b.latitude !== null && b.longitude !== null ? { lat: b.latitude, lng: b.longitude } : null;
+    const road = roads.get(businessId);
     const delivery =
-      input.address && offersDelivery && point && shop
+      input.address && offersDelivery && point && road
         ? quoteDistanceDelivery({
-            shop,
-            customer: point,
+            road,
+            source: point.source,
             rates: { perKmKobo: settings.deliveryPerKmKobo, roadFactor: settings.deliveryRoadFactor, maxKm: settings.deliveryMaxKm },
           })
         : input.address && offersDelivery
