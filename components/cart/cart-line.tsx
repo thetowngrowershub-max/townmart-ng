@@ -63,6 +63,15 @@ export function CartLine({ line, saved = false, readOnly = false }: { line: Line
           )}
         </div>
         {!saved && line.promotions.length > 0 && <p className="text-xs font-medium text-success">{line.promotions.join(" + ")}</p>}
+        {line.nearer && !saved && (
+          <p className="text-xs text-muted-foreground">
+            Closer to you: {line.nearer.store} has{" "}
+            <Link href={line.nearer.href} className="font-medium text-primary underline">
+              {line.nearer.title}
+            </Link>{" "}
+            for {line.nearer.price}, {line.nearer.distance} away. A nearer shop means a cheaper delivery.
+          </p>
+        )}
         {line.problem && (
           <p className="text-sm font-medium text-danger" role="alert">
             {line.problem}

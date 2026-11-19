@@ -6,6 +6,7 @@ import { BrandingForm } from "@/components/seller/onboarding/branding-form";
 import { PayoutForm } from "@/components/seller/onboarding/payout-form";
 import { OpeningHoursForm } from "@/components/seller/opening-hours-form";
 import { StorePoliciesForm } from "@/components/seller/store-policies-form";
+import { ShopLocationForm } from "@/components/seller/shop-location-form";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseOpeningHours } from "@/lib/catalogue/opening-hours";
@@ -22,7 +23,7 @@ export default async function StoreSettingsPage() {
   const { business, policy, payout } = await withSellerRls(ctx, async (tx) => ({
     business: await tx.business.findUniqueOrThrow({
       where: { id: ctx.business.id },
-      select: { name: true, slug: true, status: true, type: true, description: true, logoKey: true, bannerKey: true, city: true, state: { select: { name: true } } },
+      select: { name: true, slug: true, status: true, type: true, description: true, logoKey: true, bannerKey: true, city: true, latitude: true, longitude: true, state: { select: { name: true } } },
     }),
     policy: await tx.storePolicy.findUnique({ where: { businessId: ctx.business.id } }),
     payout: await tx.payoutAccount.findUnique({ where: { businessId: ctx.business.id } }),
@@ -116,10 +117,21 @@ export default async function StoreSettingsPage() {
               )}
             </CardContent>
           </Card>
+          <Card id="shop-location">
+            <CardHeader>
+              <CardTitle>Shop location</CardTitle>
+              <CardDescription>
+                Where riders pick up your orders. With it, customers see the delivery fee for their exact distance from you, and we suggest your nearest free rider.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ShopLocationForm current={business.latitude !== null && business.longitude !== null ? { lat: business.latitude, lng: business.longitude } : null} />
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle>Delivery rates</CardTitle>
-              <CardDescription>Use TownMart&apos;s rates, or set your own fees and delivery times per area.</CardDescription>
+              <CardDescription>Used only until your shop location is set: after that, delivery is priced by distance. Use TownMart&apos;s rates, or set your own fees and delivery times per area.</CardDescription>
             </CardHeader>
             <CardContent>
               <Link href="/dashboard/settings/delivery" className="text-sm font-medium text-primary underline">

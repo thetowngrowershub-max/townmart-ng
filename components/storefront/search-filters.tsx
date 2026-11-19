@@ -35,6 +35,7 @@ export function SearchFilters({
         <Label htmlFor="f-sort">Sort by</Label>
         <Select id="f-sort" name="sort" defaultValue={query.sort}>
           <option value="relevance">{query.q ? "Best match" : "Popular"}</option>
+          <option value="nearest">Nearest to me</option>
           <option value="newest">Newest</option>
           <option value="price_asc">Price: low to high</option>
           <option value="price_desc">Price: high to low</option>

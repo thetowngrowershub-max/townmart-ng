@@ -15,6 +15,9 @@ export const newAddressSchema = z.object({
   lgaId: z.coerce.number().int().positive({ error: "Choose an LGA" }),
 });
 
+/** The shopper's phone location, sent when they say they're at the delivery address. */
+export const gpsSchema = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
+
 export const PAYMENT_CHOICES = ["online", "pay_on_delivery"] as const;
 
 export const checkoutSchema = z
@@ -23,6 +26,7 @@ export const checkoutSchema = z
     email: emailSchema.optional().or(z.literal("")),
     addressId: z.uuid().optional().or(z.literal("")),
     address: newAddressSchema.optional(),
+    gps: gpsSchema.nullish(),
     saveAddress: z.boolean().default(false),
     methods: z.record(z.uuid(), z.enum(["delivery", "pickup"])).default({}),
     payment: z.enum(PAYMENT_CHOICES),
@@ -42,5 +46,6 @@ export const quoteRequestSchema = z.object({
   addressId: z.uuid().optional().or(z.literal("")),
   stateId: z.coerce.number().int().positive().optional(),
   lgaId: z.coerce.number().int().positive().optional(),
+  gps: gpsSchema.nullish(),
   methods: z.record(z.uuid(), z.enum(["delivery", "pickup"])).default({}),
 });

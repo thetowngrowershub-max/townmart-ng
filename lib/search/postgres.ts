@@ -62,9 +62,22 @@ function ratingFilter(alias: string, query: SearchQuery) {
   return query.minRating ? Prisma.sql`AND ${Prisma.raw(`${alias}.rating_avg`)} >= ${query.minRating}` : Prisma.empty;
 }
 
+/** Metres from the shopper to the business (straight line), or NULL when either location is unknown. */
+function distanceSql(query: SearchQuery): Prisma.Sql {
+  if (!query.near) return Prisma.sql`NULL::float8`;
+  const { lat, lng } = query.near;
+  return Prisma.sql`(CASE WHEN b.latitude IS NULL THEN NULL ELSE 2 * 6371000 * asin(least(1, sqrt(
+    power(sin(radians(b.latitude - ${lat}::float8) / 2), 2)
+    + cos(radians(${lat}::float8)) * cos(radians(b.latitude)) * power(sin(radians(b.longitude - ${lng}::float8) / 2), 2)))) END)`;
+}
+
 function orderBy(alias: string, query: SearchQuery, hasQ: boolean, priceCol = "base_price_kobo") {
   const a = alias;
   switch (query.sort) {
+    case "nearest":
+      // Without a location there's nothing to measure: fall back to the default order.
+      if (!query.near) return orderBy(alias, { ...query, sort: "relevance" }, hasQ, priceCol);
+      return Prisma.raw(`dist ASC NULLS LAST, ${a}.rating_avg DESC, ${a}.id`);
     case "price_asc":
       return Prisma.raw(`${a}.${priceCol} ASC, ${a}.id`);
     case "price_desc":
@@ -95,13 +108,13 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
     (Row & {
       id: string; slug: string; title: string; base_price_kobo: bigint; compare_at_price_kobo: bigint | null; unit: string;
       cover_key: string | null; cover_alt: string | null; rating_avg: Prisma.Decimal; rating_count: number; in_stock: boolean;
-      b_name: string; b_slug: string; b_city: string; state_name: string;
+      b_name: string; b_slug: string; b_city: string; state_name: string; dist: number | null;
       business_id: string; category_id: string; parent_category_id: string | null;
     })[]
   >`
     SELECT p.id, p.slug, p.title, p.base_price_kobo, p.compare_at_price_kobo, p.unit::text AS unit,
            p.business_id, p.category_id, cat.parent_id AS parent_category_id,
-           p.rating_avg, p.rating_count, ${inStockExpr} AS in_stock, ${rank} AS rank,
+           p.rating_avg, p.rating_count, ${inStockExpr} AS in_stock, ${rank} AS rank, ${distanceSql(query)} AS dist,
            img.storage_key AS cover_key, img.alt_text AS cover_alt,
            b.name AS b_name, b.slug AS b_slug, b.city AS b_city, s.name AS state_name,
            count(*) OVER () AS total
@@ -124,7 +137,7 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
        ${query.inStock ? Prisma.sql`AND ${inStockExpr}` : Prisma.empty}
        ${query.promotion ? Prisma.sql`AND ${onPromotionSql("product", "p", query.promotion === "flash")}` : Prisma.empty}
        ${query.businessId ? Prisma.sql`AND p.business_id = ${query.businessId}::uuid` : Prisma.empty}
-     ORDER BY ${orderBy("p", query, !!q)}
+     ORDER BY ${query.sort === "nearest" && query.near ? Prisma.sql`in_stock DESC, ` : Prisma.empty}${orderBy("p", query, !!q)}
      LIMIT ${query.pageSize} OFFSET ${offset(query)}`;
 
   return {
@@ -145,7 +158,7 @@ async function searchProducts(tx: Tx, query: SearchQuery, q: string | undefined)
       businessId: r.business_id,
       categoryId: r.category_id,
       parentCategoryId: r.parent_category_id,
-      business: { name: r.b_name, slug: r.b_slug, city: r.b_city, stateName: r.state_name },
+      business: { name: r.b_name, slug: r.b_slug, city: r.b_city, stateName: r.state_name, distanceMetres: r.dist === null ? null : Math.round(r.dist) },
     })),
   };
 }
@@ -161,13 +174,13 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
     (Row & {
       id: string; slug: string; title: string; pricing_model: string; base_price_kobo: bigint; duration_minutes: number;
       cover_key: string | null; cover_alt: string | null; rating_avg: Prisma.Decimal; rating_count: number;
-      b_name: string; b_slug: string; b_city: string; state_name: string;
+      b_name: string; b_slug: string; b_city: string; state_name: string; dist: number | null;
       business_id: string; category_id: string; parent_category_id: string | null;
     })[]
   >`
     SELECT sv.id, sv.slug, sv.title, sv.pricing_model::text AS pricing_model, sv.base_price_kobo, sv.duration_minutes,
            sv.business_id, sv.category_id, cat.parent_id AS parent_category_id,
-           sv.rating_avg, sv.rating_count, ${rank} AS rank,
+           sv.rating_avg, sv.rating_count, ${rank} AS rank, ${distanceSql(query)} AS dist,
            img.storage_key AS cover_key, img.alt_text AS cover_alt,
            b.name AS b_name, b.slug AS b_slug, b.city AS b_city, s.name AS state_name,
            count(*) OVER () AS total
@@ -208,7 +221,7 @@ async function searchServices(tx: Tx, query: SearchQuery, q: string | undefined)
       businessId: r.business_id,
       categoryId: r.category_id,
       parentCategoryId: r.parent_category_id,
-      business: { name: r.b_name, slug: r.b_slug, city: r.b_city, stateName: r.state_name },
+      business: { name: r.b_name, slug: r.b_slug, city: r.b_city, stateName: r.state_name, distanceMetres: r.dist === null ? null : Math.round(r.dist) },
     })),
   };
 }
@@ -227,11 +240,11 @@ async function searchStores(tx: Tx, query: SearchQuery, q: string | undefined): 
   const rows = await tx.$queryRaw<
     (Row & {
       id: string; slug: string; name: string; type: string; logo_key: string | null; city: string; state_name: string;
-      rating_avg: Prisma.Decimal; rating_count: number;
+      rating_avg: Prisma.Decimal; rating_count: number; dist: number | null;
     })[]
   >`
     SELECT b.id, b.slug, b.name, b.type::text AS type, b.logo_key, b.city, s.name AS state_name,
-           b.rating_avg, b.rating_count, ${rank} AS rank, count(*) OVER () AS total
+           b.rating_avg, b.rating_count, ${rank} AS rank, ${distanceSql(query)} AS dist, count(*) OVER () AS total
       FROM businesses b
       JOIN states s ON s.id = b.state_id
      WHERE b.status = 'approved'
@@ -256,6 +269,7 @@ async function searchStores(tx: Tx, query: SearchQuery, q: string | undefined): 
       stateName: r.state_name,
       ratingAvg: Number(r.rating_avg),
       ratingCount: r.rating_count,
+      distanceMetres: r.dist === null ? null : Math.round(r.dist),
     })),
   };
 }

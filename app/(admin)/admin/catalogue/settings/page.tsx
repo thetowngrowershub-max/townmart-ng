@@ -29,6 +29,10 @@ export default async function PlatformSettingsPage() {
     "payouts.minimum_naira": naira(s.payoutMinimumKobo),
     "bookings.lead_minutes": String(s.bookingLeadMinutes),
     "bookings.days_ahead": String(s.bookingDaysAhead),
+    "delivery.per_km_naira": naira(s.deliveryPerKmKobo),
+    "delivery.road_factor": String(s.deliveryRoadFactor),
+    "delivery.max_km": String(s.deliveryMaxKm),
+    "riders.nearby_km": String(s.riderNearbyKm),
   };
   return (
     <>

@@ -266,7 +266,69 @@ export async function seedDemoCatalogue(prisma: PrismaClient) {
   const categoryIds = new Map((await prisma.category.findMany({ select: { slug: true, id: true } })).map((c) => [c.slug, c.id]));
   for (const seller of SELLERS) await seedSeller(prisma, seller, categoryIds);
   await moveDemoSellersIntoServiceArea(prisma);
+  await seedDemoLocationsAndRiders(prisma);
   await seedDemoPromotions(prisma, categoryIds);
+}
+
+/** Made-up spots around Mowe for the demo shops (a few km apart), so distance pricing has something to measure. */
+const DEMO_SHOP_POINTS: Record<string, { lat: number; lng: number }> = {
+  "ikeja-fresh-mart": { lat: 6.812, lng: 3.439 },
+  "ogun-harvest-farms": { lat: 6.835, lng: 3.42 },
+  "yaba-threads": { lat: 6.802, lng: 3.445 },
+  "cv-gadget-hub": { lat: 6.816, lng: 3.431 },
+  "chukwudi-fixit-plumbing": { lat: 6.798, lng: 3.43 },
+  "mama-titi-couture": { lat: 6.807, lng: 3.442 },
+  "mowe-mamas-kitchen": { lat: 6.81, lng: 3.436 },
+  "sweet-crust-bakery": { lat: 6.82, lng: 3.448 },
+};
+
+/** Fictional riders (and numbers) for the demo shops that deliver goods. */
+const DEMO_RIDERS: Record<string, { name: string; phone: string; vehicle: string; isAvailable: boolean; at?: { lat: number; lng: number } }[]> = {
+  "ikeja-fresh-mart": [
+    { name: "Musa Bello", phone: "09015550101", vehicle: "motorbike", isAvailable: true },
+    { name: "Tunde Ajayi", phone: "09015550102", vehicle: "tricycle", isAvailable: true, at: { lat: 6.83, lng: 3.425 } },
+  ],
+  "mowe-mamas-kitchen": [
+    { name: "Kunle Adebayo", phone: "09015550103", vehicle: "motorbike", isAvailable: true },
+    { name: "Emeka Obi", phone: "09015550104", vehicle: "bicycle", isAvailable: false },
+  ],
+  "sweet-crust-bakery": [{ name: "Ibrahim Sani", phone: "09015550105", vehicle: "motorbike", isAvailable: true }],
+};
+
+async function seedDemoLocationsAndRiders(prisma: PrismaClient) {
+  let pinned = 0;
+  let riders = 0;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.current_scope', 'system', true)`;
+    for (const [slug, p] of Object.entries(DEMO_SHOP_POINTS)) {
+      const r = await tx.business.updateMany({ where: { slug, latitude: null }, data: { latitude: p.lat, longitude: p.lng } });
+      pinned += r.count;
+    }
+    for (const [slug, list] of Object.entries(DEMO_RIDERS)) {
+      const b = await tx.business.findUnique({ where: { slug }, select: { id: true } });
+      if (!b) continue;
+      for (const r of list) {
+        const phone = normaliseNigerianPhone(r.phone)!;
+        const hash = phoneHash(phone);
+        if (await tx.rider.findUnique({ where: { businessId_phoneHash: { businessId: b.id, phoneHash: hash } }, select: { id: true } })) continue;
+        await tx.rider.create({
+          data: {
+            businessId: b.id,
+            name: r.name,
+            phoneEncrypted: encrypt(phone),
+            phoneHash: hash,
+            vehicle: r.vehicle,
+            isAvailable: r.isAvailable,
+            latitude: r.at?.lat ?? null,
+            longitude: r.at?.lng ?? null,
+            locationUpdatedAt: r.at ? new Date() : null,
+          },
+        });
+        riders++;
+      }
+    }
+  });
+  if (pinned || riders) console.log(`✓ pinned ${pinned} demo shops around Mowe and added ${riders} demo riders`);
 }
 
 /**

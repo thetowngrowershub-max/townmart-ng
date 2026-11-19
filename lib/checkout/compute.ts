@@ -5,7 +5,8 @@ import { toRule } from "@/lib/promotions/live";
 import { loadSchedule } from "@/lib/bookings/schedule";
 import { findSlot, type Interval } from "@/lib/bookings/slots";
 import { getCheckoutSettings, type CheckoutSettings } from "@/lib/settings";
-import { DEFAULT_ITEM_WEIGHT_G, quoteDelivery, type DeliveryQuote } from "./delivery";
+import { DEFAULT_ITEM_WEIGHT_G, quoteDelivery, quoteDistanceDelivery, type DeliveryQuote } from "./delivery";
+import type { CustomerPoint } from "@/lib/geo/distance";
 import { buildQuote, roundBps, type OrderQuote } from "./quote";
 import { openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
 
@@ -105,6 +106,8 @@ export type CheckoutComputation = {
   payOnDeliveryAvailable: boolean;
   /** Whether delivery was priced for an address (the cart page has none yet). */
   hasAddress: boolean;
+  /** The drop-off point delivery was priced from, if any. */
+  point: CustomerPoint | null;
   /** Reasons the order can't be placed as it stands. */
   blockers: string[];
 };
@@ -152,8 +155,12 @@ export async function computeCheckout(
   input: {
     cartId: string | null;
     userId: string | null;
-    /** Where it's going; null before the shopper has chosen an address. */
-    address: { stateId: number; lgaId: number } | null;
+    /**
+     * Where it's going; null before the shopper has chosen an address. `point`
+     * is the drop-off on the map (lib/geo/customer-location.ts resolves it);
+     * with it, delivery is priced by distance from each shop that has set its location.
+     */
+    address: { stateId: number; lgaId: number; point?: CustomerPoint | null } | null;
     /** The shopper's choice per seller; anything missing gets the default. */
     methods?: Readonly<Record<string, "delivery" | "pickup">>;
     now?: Date;
@@ -193,6 +200,8 @@ export async function computeCheckout(
                   city: true,
                   status: true,
                   lgaId: true,
+                  latitude: true,
+                  longitude: true,
                   state: { select: { name: true } },
                   policy: { select: { deliveryOptions: true, acceptsPayOnDelivery: true, returnWindowDays: true, openingHours: true, ordersPaused: true } },
                 },
@@ -359,8 +368,16 @@ export async function computeCheckout(
     const offersDelivery = opts.delivery !== false;
     const offersPickup = opts.pickup === true;
     const goods = own.reduce((a, l) => a + (pricedByKey.get(l.cartItemId)?.totalKobo ?? 0n), 0n);
+    const point = input.address?.point ?? null;
+    const shop = b.latitude !== null && b.longitude !== null ? { lat: b.latitude, lng: b.longitude } : null;
     const delivery =
-      input.address && offersDelivery
+      input.address && offersDelivery && point && shop
+        ? quoteDistanceDelivery({
+            shop,
+            customer: point,
+            rates: { perKmKobo: settings.deliveryPerKmKobo, roadFactor: settings.deliveryRoadFactor, maxKm: settings.deliveryMaxKm },
+          })
+        : input.address && offersDelivery
         ? quoteDelivery({
             zones: zones.map((z) => ({ id: z.id, name: z.name, stateIds: z.stateIds, lgaIds: z.lgaIds, priority: z.priority })),
             rates,
@@ -434,6 +451,7 @@ export async function computeCheckout(
     couponCode,
     payOnDeliveryAvailable: settings.payOnDeliveryEnabled && sellers.length > 0 && sellers.every((s) => s.acceptsPayOnDelivery),
     hasAddress: input.address !== null,
+    point: input.address?.point ?? null,
     blockers,
   };
 }

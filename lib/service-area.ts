@@ -16,10 +16,15 @@ export type ServiceAreaConfig = {
   stateSlug: string;
   lgaSlug: string;
   towns: readonly string[];
+  /**
+   * The middle of the area, roughly. Delivery is priced from here when a
+   * shopper hasn't shared their location or pinned their address.
+   */
+  centre: { lat: number; lng: number };
 };
 
 export const SERVICE_AREAS: readonly ServiceAreaConfig[] = [
-  { label: "Mowe, Obafemi-Owode, Ogun State", stateSlug: "ogun", lgaSlug: "obafemi-owode", towns: ["Mowe"] },
+  { label: "Mowe, Obafemi-Owode, Ogun State", stateSlug: "ogun", lgaSlug: "obafemi-owode", towns: ["Mowe"], centre: { lat: 6.809, lng: 3.437 } },
 ];
 
 /** Where TownMart works, in words: "Mowe, Obafemi-Owode, Ogun State". */
@@ -40,4 +45,9 @@ export function isAreaTown(towns: readonly string[], city: string): boolean {
 export function canonicalTown(towns: readonly string[], city: string): string {
   const c = city.trim().toLowerCase().replace(/\s+/g, " ");
   return towns.find((t) => t.toLowerCase() === c) ?? city.trim();
+}
+
+/** The centre of the area an LGA belongs to, matched by slugs; null outside the service area. */
+export function areaCentre(stateSlug: string, lgaSlug: string): { lat: number; lng: number } | null {
+  return SERVICE_AREAS.find((a) => a.stateSlug === stateSlug && a.lgaSlug === lgaSlug)?.centre ?? null;
 }
