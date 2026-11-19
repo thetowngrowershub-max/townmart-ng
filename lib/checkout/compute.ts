@@ -7,6 +7,7 @@ import { findSlot, type Interval } from "@/lib/bookings/slots";
 import { getCheckoutSettings, type CheckoutSettings } from "@/lib/settings";
 import { DEFAULT_ITEM_WEIGHT_G, quoteDelivery, quoteDistanceDelivery, type DeliveryQuote } from "./delivery";
 import type { CustomerPoint } from "@/lib/geo/distance";
+import { loadDestination } from "./destination";
 import { buildQuote, roundBps, type OrderQuote } from "./quote";
 import { openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
 
@@ -168,6 +169,12 @@ export async function computeCheckout(
 ): Promise<CheckoutComputation> {
   const now = input.now ?? new Date();
   const settings = await getCheckoutSettings(tx);
+  // A caller that gives only a state and LGA gets the same point placeOrder
+  // would resolve (the area's centre), so quotes and orders agree.
+  if (input.address && input.address.point === undefined) {
+    const { destination } = await loadDestination(tx, { userId: null, stateId: input.address.stateId, lgaId: input.address.lgaId });
+    input = { ...input, address: { ...input.address, point: destination?.point ?? null } };
+  }
   const cart = input.cartId
     ? await tx.cart.findUnique({
         where: { id: input.cartId },
