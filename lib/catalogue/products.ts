@@ -5,6 +5,7 @@ import { imagePrefix } from "@/lib/storage/uploads";
 import type { ProductData } from "@/lib/validation/catalogue";
 import { listingSlug } from "./slug";
 import { categoryAttributeDefs, checkAttributes } from "./attributes";
+import { cheapestPlateKobo, parseMealBuilder, withKeys } from "./meal-builder";
 
 /** A business-rule failure the seller can fix; `field` points at the form field. */
 export class CatalogueError extends Error {
@@ -95,6 +96,18 @@ export type SaveProductResult = { productId: string; slug: string; removedImageK
  * caller's transaction. Stock edits made in the form are recorded as manual
  * adjustments, so the stock log always explains the current quantity.
  */
+/** The seller's meal steps as stored on the product: keys added, prices in kobo. */
+function storedMealGroups(groups: NonNullable<ProductData["mealBuilder"]>) {
+  return withKeys(groups).map((g) => ({
+    key: g.key,
+    name: g.name,
+    min: g.min,
+    max: g.max,
+    withSwallow: g.withSwallow,
+    items: g.items.map((i) => ({ key: i.key, name: i.name, priceKobo: Number(i.price), unit: i.unit, maxQty: i.maxQty, defaultQty: i.defaultQty, swallow: i.swallow, available: i.available })),
+  }));
+}
+
 export async function saveProduct(
   tx: Tx,
   params: {
@@ -104,16 +117,21 @@ export async function saveProduct(
     productId?: string;
     /** How stock edits are labelled in the stock log. */
     stockSource?: { reason: StockMovementReason; note: string };
-    /** "keep" leaves attribute values alone (the CSV import has no attribute columns). */
+    /** "keep" leaves attribute values and meal choices alone (the CSV import has no columns for them). */
     attributes?: "replace" | "keep";
   },
 ): Promise<SaveProductResult> {
   const { businessId, actorUserId, data } = params;
   const source = params.stockSource;
 
-  const category = await tx.category.findUnique({ where: { id: data.categoryId }, select: { kind: true, isActive: true } });
+  const category = await tx.category.findUnique({ where: { id: data.categoryId }, select: { kind: true, isActive: true, isFood: true, parent: { select: { isFood: true } } } });
   if (!category || category.kind !== "product" || !category.isActive) {
     throw new CatalogueError("Choose a product category", "categoryId");
+  }
+  const keepMeal = params.attributes === "keep";
+  const mealGroups = keepMeal ? [] : (data.mealBuilder ?? []);
+  if (mealGroups.length && !(category.isFood || category.parent?.isFood)) {
+    throw new CatalogueError("Meal choices are for Restaurants and Confectionery items. Choose one of those categories or remove the choices.", "mealBuilder");
   }
   let attributes: Record<string, string | number> | undefined;
   if (params.attributes !== "keep") {
@@ -131,13 +149,16 @@ export async function saveProduct(
   const existing = params.productId
     ? await tx.product.findFirst({
         where: { id: params.productId, businessId, deletedAt: null },
-        select: { id: true, slug: true, publishedAt: true, images: { select: { storageKey: true } } },
+        select: { id: true, slug: true, publishedAt: true, mealBuilder: true, images: { select: { storageKey: true } } },
       })
     : null;
   if (params.productId && !existing) throw new CatalogueError("Product not found");
 
   const prices = data.variants.map((v) => v.price);
-  const basePriceKobo = prices.reduce((a, b) => (b < a ? b : a));
+  const lowestVariantKobo = prices.reduce((a, b) => (b < a ? b : a));
+  const mealGroupsStored = keepMeal ? (parseMealBuilder(existing?.mealBuilder)?.groups ?? []) : storedMealGroups(mealGroups);
+  // Build-your-plate items list at the cheapest plate's price, not just the pack.
+  const basePriceKobo = lowestVariantKobo + cheapestPlateKobo(mealGroupsStored);
   const defaultVariant = data.variants[0]!;
   const slug = data.slug || existing?.slug || listingSlug(data.title);
 
@@ -164,6 +185,7 @@ export async function saveProduct(
     isPerishable: data.isPerishable,
     shelfLifeNote: data.isPerishable ? data.shelfLifeNote || null : null,
     prepTimeMinutes: data.prepTimeMinutes ?? null,
+    ...(keepMeal ? {} : { mealBuilder: mealGroupsStored.length ? { groups: mealGroupsStored } : Prisma.DbNull }),
     status: data.status,
     metaTitle: data.metaTitle || null,
     metaDescription: data.metaDescription || null,

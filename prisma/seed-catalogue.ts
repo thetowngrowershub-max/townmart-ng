@@ -22,6 +22,7 @@ import { INITIAL_LEGAL_VERSION } from "./legal-templates";
 import { normaliseNigerianPhone } from "../lib/phone";
 import { savePromotion } from "../lib/promotions/promotions";
 import { timeToMinutes } from "../lib/catalogue/units";
+import { slugify } from "../lib/slug";
 import { storage } from "../lib/storage";
 import { productInputSchema, serviceInputSchema, type ProductInput, type ServiceInput } from "../lib/validation/catalogue";
 import { promotionInputSchema, type PromotionInput } from "../lib/validation/promotions";
@@ -99,6 +100,7 @@ function productInput(p: DemoProduct, images: ProductInput["images"]): ProductIn
     allowBackorder: false,
     weightGrams: p.weightGrams,
     prepTimeMinutes: p.prep,
+    mealBuilder: p.meal ?? [],
     isPerishable: !!p.perishable,
     shelfLifeNote: p.perishable,
     status: "active",
@@ -147,6 +149,47 @@ export async function seedCategories(prisma: PrismaClient) {
     }
   }
   console.log(`✓ ${CATEGORIES.length} categories and ${n} subcategories`);
+}
+
+async function createDemoProduct(
+  tx: Parameters<typeof saveProduct>[0],
+  o: { businessId: string; ownerId: string; seller: DemoSeller; product: DemoProduct; n: number; categoryIds: Map<string, string>; imageName?: string },
+) {
+  const { product: p, seller, businessId: id, n } = o;
+  const b = seller.business;
+  const images: ProductInput["images"] = [];
+  for (let k = 0; k < (p.images ?? 1); k++) {
+    const key = await putImage(`products/${id}/${o.imageName ?? `seed-${n}`}-${k}.webp`, await placeholder({ title: p.title, caption: b.name, colour: b.colour, width: 1200, height: 1200, variant: n + k }));
+    images.push({ key, altText: k === 0 ? p.title : `${p.title}, view ${k + 1}`, width: 1200, height: 1200, isCover: k === 0 });
+  }
+  const data = productInputSchema.parse({ ...productInput(p, images), categoryId: o.categoryIds.get(p.category) ?? "" });
+  await saveProduct(tx, { businessId: id, actorUserId: o.ownerId, data, stockSource: { reason: "manual_adjustment", note: "Opening stock (demo data)" } });
+}
+
+/**
+ * Demo products added to the data after a demo shop was first seeded (such as
+ * the restaurant's build-your-plate item). Matched by title; idempotent.
+ */
+async function addNewDemoProducts(prisma: PrismaClient, categoryIds: Map<string, string>) {
+  let added = 0;
+  for (const seller of SELLERS) {
+    const business = await prisma.business.findUnique({ where: { slug: seller.business.slug }, select: { id: true, ownerUserId: true, products: { select: { title: true } } } });
+    if (!business) continue;
+    const have = new Set(business.products.map((p) => p.title));
+    for (const [n, p] of seller.products.entries()) {
+      if (have.has(p.title)) continue;
+      await prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.current_scope', 'system', true)`;
+          // Its own image names, so the shop's existing images are never overwritten.
+          await createDemoProduct(tx, { businessId: business.id, ownerId: business.ownerUserId, seller, product: p, n, categoryIds, imageName: `seed-added-${slugify(p.title)}` });
+        },
+        { timeout: 60_000 },
+      );
+      added++;
+    }
+  }
+  if (added) console.log(`✓ added ${added} new demo products to existing demo shops`);
 }
 
 async function seedSeller(prisma: PrismaClient, seller: DemoSeller, categoryIds: Map<string, string>) {
@@ -227,17 +270,7 @@ async function seedSeller(prisma: PrismaClient, seller: DemoSeller, categoryIds:
       const bannerKey = await putImage(`banners/${id}/seed-banner.webp`, await placeholder({ title: b.name, caption: `${b.city}, ${b.state}`, colour: b.colour, width: 2400, height: 800, variant: 1 }));
       await tx.business.update({ where: { id }, data: { logoKey, bannerKey } });
 
-      for (const [n, p] of seller.products.entries()) {
-        const count = p.images ?? 1;
-        const images: ProductInput["images"] = [];
-        for (let k = 0; k < count; k++) {
-          const key = await putImage(`products/${id}/seed-${n}-${k}.webp`, await placeholder({ title: p.title, caption: b.name, colour: b.colour, width: 1200, height: 1200, variant: n + k }));
-          images.push({ key, altText: k === 0 ? p.title : `${p.title}, view ${k + 1}`, width: 1200, height: 1200, isCover: k === 0 });
-        }
-        const input = { ...productInput(p, images), categoryId: categoryIds.get(p.category) ?? "" };
-        const data = productInputSchema.parse(input);
-        await saveProduct(tx, { businessId: id, actorUserId: owner.id, data, stockSource: { reason: "manual_adjustment", note: "Opening stock (demo data)" } });
-      }
+      for (const [n, p] of seller.products.entries()) await createDemoProduct(tx, { businessId: id, ownerId: owner.id, seller, product: p, n, categoryIds });
 
       for (const [n, s] of seller.services.entries()) {
         const images: ServiceInput["images"] = [];
@@ -265,6 +298,7 @@ export async function seedDemoCatalogue(prisma: PrismaClient) {
   }
   const categoryIds = new Map((await prisma.category.findMany({ select: { slug: true, id: true } })).map((c) => [c.slug, c.id]));
   for (const seller of SELLERS) await seedSeller(prisma, seller, categoryIds);
+  await addNewDemoProducts(prisma, categoryIds);
   await moveDemoSellersIntoServiceArea(prisma);
   await seedDemoPromotions(prisma, categoryIds);
 }

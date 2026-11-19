@@ -8,6 +8,7 @@ import { getCheckoutSettings, type CheckoutSettings } from "@/lib/settings";
 import { DEFAULT_ITEM_WEIGHT_G, quoteDelivery, type DeliveryQuote } from "./delivery";
 import { buildQuote, roundBps, type OrderQuote } from "./quote";
 import { openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
+import { checkChoices, MealChoiceError, parseMealBuilder, type CheckedChoices } from "@/lib/catalogue/meal-builder";
 
 /**
  * Everything checkout needs, worked out from the database in one place: the
@@ -28,7 +29,9 @@ export type LineProblem =
   | { kind: "slot_unavailable" }
   | { kind: "outside_area" }
   /** Food from a seller that's closed or has paused orders. `label` says when they open. */
-  | { kind: "store_closed"; label: string };
+  | { kind: "store_closed"; label: string }
+  /** A built plate that no longer fits the menu (an item finished or removed). */
+  | { kind: "meal_changed"; message: string };
 
 /** A service line: one booking at a chosen time. */
 export type BookingLine = {
@@ -225,8 +228,21 @@ export async function computeCheckout(
       const v = i.variant;
       const p = v.product;
       const live = p.status === "active" && p.deletedAt === null && p.takenDownAt === null && i.business.status === "approved";
+      // Restaurants' build-your-plate items: the plate's choices add to the price, read from the menu now.
+      const builder = parseMealBuilder(p.mealBuilder);
+      let plate: CheckedChoices | null = null;
+      let plateError: string | null = null;
+      if (builder) {
+        try {
+          plate = checkChoices(builder, i.choices ?? {});
+        } catch (err) {
+          if (!(err instanceof MealChoiceError)) throw err;
+          plateError = err.message;
+        }
+      }
       let problem: LineProblem | null = null;
       if (!live) problem = { kind: "unavailable" };
+      else if (plateError) problem = { kind: "meal_changed", message: plateError };
       else if (!p.allowFractionalQty && !i.qty.isInteger()) problem = { kind: "fraction_not_allowed" };
       else if (i.qty.lessThan(p.minOrderQty)) problem = { kind: "below_minimum", minimum: p.minOrderQty.toString() };
       else if (p.trackInventory && !p.allowBackorder && i.qty.greaterThan(v.stockQty))
@@ -247,7 +263,7 @@ export async function computeCheckout(
         title: p.title,
         slug: p.slug,
         sku: v.sku,
-        optionValues: (v.optionValues ?? {}) as Record<string, string>,
+        optionValues: { ...((v.optionValues ?? {}) as Record<string, string>), ...(plate?.labels ?? {}) },
         imageKey: p.images[0]?.storageKey ?? null,
         imageAlt: p.images[0]?.altText ?? null,
         unit: p.unit,
@@ -258,7 +274,7 @@ export async function computeCheckout(
         allowBackorder: p.allowBackorder,
         stockQty: v.stockQty,
         weightG: Math.ceil((p.weightGrams ?? DEFAULT_ITEM_WEIGHT_G) * i.qty.toNumber()),
-        unitPriceKobo: v.priceKobo,
+        unitPriceKobo: v.priceKobo + (plate?.extraKobo ?? 0n),
         payLaterKobo: 0n,
         problem,
         savedForLater: i.savedForLater,

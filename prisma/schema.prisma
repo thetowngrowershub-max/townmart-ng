@@ -673,6 +673,9 @@ model Product {
   shelfLifeNote      String?                  @map("shelf_life_note")
   // Food made to order: minutes from order to ready for pickup or the rider.
   prepTimeMinutes    Int?                     @map("prep_time_minutes") @db.SmallInt
+  // Restaurants: the customer builds the plate (meal, soup, protein, drink) before
+  // adding it to the cart. See lib/catalogue/meal-builder.ts for the shape.
+  mealBuilder        Json?                    @map("meal_builder")
   status             ListingStatus            @default(draft)
   metaTitle          String?                  @map("meta_title")
   metaDescription    String?                  @map("meta_description")
@@ -1233,6 +1236,10 @@ model CartItem {
   businessId      String    @map("business_id") @db.Uuid
   qty             Decimal   @db.Decimal(12, 3)
   savedForLater   Boolean   @default(false) @map("saved_for_later")
+  // A plate from a restaurant's meal builder: { [groupKey]: { [itemKey]: qty } }.
+  choices         Json?
+  // Same plate, same key: one line per variant and plate. "" for everything else.
+  choicesKey      String    @default("") @map("choices_key")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1242,7 +1249,7 @@ model CartItem {
   package  ServicePackage? @relation(fields: [packageId], references: [id], onDelete: Cascade)
   business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  @@unique([cartId, variantId])
+  @@unique([cartId, variantId, choicesKey])
   @@index([variantId, businessId])
   @@index([serviceId, businessId])
   @@index([packageId])

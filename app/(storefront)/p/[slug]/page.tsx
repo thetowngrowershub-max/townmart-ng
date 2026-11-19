@@ -17,6 +17,7 @@ import { formatDateTime } from "@/lib/datetime";
 import { dealFor } from "@/lib/promotions/live";
 import { unitLabel } from "@/lib/catalogue/units";
 import { openState, parseOpeningHours, prepTimeLabel } from "@/lib/catalogue/opening-hours";
+import { parseMealBuilder } from "@/lib/catalogue/meal-builder";
 import { env } from "@/lib/env";
 import { koboToNairaString } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
@@ -131,6 +132,7 @@ export default async function ProductPage({ params }: Props) {
         minOrder={p.minOrderQty.toString()}
         fractional={p.allowFractionalQty}
         closedLabel={kitchen && !kitchen.open ? kitchen.label : null}
+        meal={isFood ? parseMealBuilder(p.mealBuilder) : null}
       >
         {kitchen && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
