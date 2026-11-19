@@ -1,12 +1,17 @@
-import { MapPin, Store } from "lucide-react";
+import { MapPin, Star, Store } from "lucide-react";
 import type { Metadata } from "next";
 import Image from "next/image";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { JobPhotos } from "@/components/portfolio/job-photos";
+import { ReviewList } from "@/components/reviews/review-list";
 import { CardGrid, ProductCard, ServiceCard } from "@/components/storefront/listing-cards";
 import { Rating } from "@/components/storefront/rating";
 import { PolicySummary } from "@/components/storefront/seller-card";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getPublicStore } from "@/lib/catalogue/storefront";
+import { getCurrentUser } from "@/lib/auth/current-user";
+import { getPortfolio, getProviderReviews, getPublicStore } from "@/lib/catalogue/storefront";
 import { formatDate } from "@/lib/datetime";
 import { searchProvider } from "@/lib/search";
 import { publicImageUrl } from "@/lib/storage";
@@ -29,7 +34,14 @@ export default async function StorePage({ params }: Props) {
   const b = await getPublicStore((await params).slug);
   if (!b) notFound();
   // The store's own listings, newest first, via the public search path.
-  const results = await searchProvider().search({ kind: "all", businessId: b.id, sort: "newest", page: 1, pageSize: 48 });
+  const [results, photos, ratings, viewer] = await Promise.all([
+    searchProvider().search({ kind: "all", businessId: b.id, sort: "newest", page: 1, pageSize: 48 }),
+    getPortfolio(b.id),
+    getProviderReviews(b.id),
+    getCurrentUser(),
+  ]);
+  // Anyone who offers services gets the "Rate my service" section, even before their first rating.
+  const offersServices = results.services.total > 0 || ratings.total > 0;
 
   return (
     <main id="main">
@@ -82,6 +94,34 @@ export default async function StorePage({ params }: Props) {
                   ))}
                 </CardGrid>
               </section>
+            )}
+            {photos.length > 0 && (
+              <section id="jobs" aria-labelledby="store-jobs" className="scroll-mt-24">
+                <h2 id="store-jobs" className="mb-1 text-xl font-bold">
+                  Jobs done ({photos.length})
+                </h2>
+                <p className="mb-4 text-sm text-muted-foreground">Photos of past work, shared by {b.name}.</p>
+                <JobPhotos photos={photos} />
+              </section>
+            )}
+            {offersServices && (
+              <ReviewList
+                title="Rate my service"
+                avg={ratings.avg}
+                total={ratings.total}
+                breakdown={ratings.breakdown}
+                reviews={ratings.reviews}
+                signedIn={Boolean(viewer)}
+                verifiedLabel="Booked on TownMart"
+                emptyText={`No ratings yet. Customers who book ${b.name} through TownMart can rate their service once the job is done.`}
+                action={
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/rate/${b.slug}`}>
+                      <Star aria-hidden /> Rate {b.name}
+                    </Link>
+                  </Button>
+                }
+              />
             )}
             {results.products.total + results.services.total === 0 && <p className="text-muted-foreground">This store hasn&apos;t listed anything yet.</p>}
           </div>

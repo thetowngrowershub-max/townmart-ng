@@ -409,6 +409,7 @@ model Business {
   questions       ListingQuestion[]
   invitations     StaffInvitation[]
   featured        FeaturedStore?
+  portfolioPhotos PortfolioPhoto[]
 
   @@index([ownerUserId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "businesses_name_trgm")
@@ -817,6 +818,26 @@ model Service {
   @@index([businessId, status, createdAt])
   @@index([categoryId])
   @@map("services")
+}
+
+/// Photos of jobs a provider has done (an artisan's portfolio), shown on their
+/// store page and service pages. Public while the business is approved.
+model PortfolioPhoto {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  storageKey String   @map("storage_key")
+  // What the job was ("Rewired a 3-bedroom flat in Mowe"). Also the image's alt text.
+  caption    String
+  width      Int
+  height     Int
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, sortOrder])
+  @@map("portfolio_photos")
 }
 
 model ServicePackage {

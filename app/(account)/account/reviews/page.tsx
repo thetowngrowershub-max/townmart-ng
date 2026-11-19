@@ -39,7 +39,7 @@ export default async function MyReviewsPage() {
                       </p>
                     </div>
                     <Button asChild size="sm">
-                      <Link href={`/account/reviews/new?item=${w.orderItemId}`}>Write a review</Link>
+                      <Link href={`/account/reviews/new?item=${w.orderItemId}`}>{w.kind === "service" ? "Rate my service" : "Write a review"}</Link>
                     </Button>
                   </li>
                 ))}

@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/app-shell";
+import { RateLinkCard } from "@/components/reviews/rate-link-card";
 import { ReplyForm } from "@/components/reviews/reply-form";
 import { Stars } from "@/components/reviews/review-list";
 import { Pagination } from "@/components/storefront/pagination";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { can } from "@/lib/authz";
+import { env } from "@/lib/env";
 import { sellerReviews } from "@/lib/reviews/reviews";
 import { requireSellerPage, withSellerRls } from "@/lib/seller/context";
 import { cn } from "@/lib/utils";
@@ -30,6 +32,7 @@ export default async function SellerReviewsPage({ searchParams }: { searchParams
         title="Reviews"
         description={data.count > 0 ? `${data.avg.toFixed(1)} out of 5 from ${data.count} verified review${data.count === 1 ? "" : "s"}.` : "Reviews from customers who bought from you appear here."}
       />
+      {ctx.business.sellsServices && <RateLinkCard url={`${env().APP_URL}/rate/${ctx.business.slug}`} businessName={ctx.business.name} />}
       <nav aria-label="Review filters" className="mb-4 flex flex-wrap gap-2">
         {[
           { key: "all", label: "All", href: "/dashboard/reviews" },

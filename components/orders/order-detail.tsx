@@ -74,7 +74,7 @@ export function OrderDetail({ order, token = null, conversations = {} }: { order
                       )}
                       {i.canReview && (
                         <Link href={`/account/reviews/new?item=${i.id}`} className="mt-1 inline-block text-sm font-medium text-primary underline">
-                          Write a review
+                          {i.booking ? "Rate my service" : "Write a review"}
                         </Link>
                       )}
                       {i.reviewRating !== null && <p className="mt-1 text-xs text-muted-foreground">You rated this {i.reviewRating}/5. Thank you!</p>}

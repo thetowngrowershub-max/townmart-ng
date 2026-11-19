@@ -3,7 +3,8 @@ import { cache } from "react";
 import { categoryAttributeDefs } from "@/lib/catalogue/attributes";
 import { withRls } from "@/lib/db";
 import { loadListingRules } from "@/lib/promotions/live";
-import { listingReviews } from "@/lib/reviews/reviews";
+import { listPortfolio } from "@/lib/portfolio/portfolio";
+import { listingReviews, providerReviews } from "@/lib/reviews/reviews";
 
 /** Public reads run as a guest so the storefront shows exactly what anyone can see. */
 const asGuest = <T,>(fn: Parameters<typeof withRls<T>>[1]) => withRls({ userId: null }, fn);
@@ -128,6 +129,12 @@ export const getPublicStore = cache((slug: string) =>
 
 /** A listing's public reviews (hidden ones never show to guests). */
 export const getListingReviews = (where: { productId: string } | { serviceId: string }) => asGuest((tx) => listingReviews(tx, where));
+
+/** A provider's "Rate my service" ratings across all its services. */
+export const getProviderReviews = cache((businessId: string) => asGuest((tx) => providerReviews(tx, businessId)));
+
+/** A provider's job photos, public while the shop is approved. */
+export const getPortfolio = cache((businessId: string, take?: number) => asGuest((tx) => listPortfolio(tx, businessId, take)));
 
 /** A product's attribute values with their names, in the category's order. Values for attributes the category no longer asks for aren't shown. */
 export async function getProductSpecs(categoryId: string, values: unknown): Promise<{ name: string; value: string }[]> {
