@@ -14,11 +14,16 @@ export async function categoryOptions(tx: Tx, kind: CategoryKind) {
   const all = await tx.category.findMany({
     where: { kind, isActive: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, parentId: true },
+    select: { id: true, name: true, parentId: true, isFood: true },
   });
   return all
     .filter((c) => !c.parentId)
-    .map((c) => ({ id: c.id, name: c.name, children: all.filter((s) => s.parentId === c.id).map((s) => ({ id: s.id, name: s.name })) }));
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      isFood: c.isFood,
+      children: all.filter((s) => s.parentId === c.id).map((s) => ({ id: s.id, name: s.name, isFood: s.isFood || c.isFood })),
+    }));
 }
 
 /** Every product category's attributes, for the product form to show as the seller picks a category. */
@@ -79,6 +84,7 @@ export function productToFormValues(p: ProductForEdit): ProductFormValues {
     heightCm: dims?.heightCm ?? undefined,
     isPerishable: p.isPerishable,
     shelfLifeNote: p.shelfLifeNote ?? "",
+    prepTimeMinutes: p.prepTimeMinutes ?? undefined,
     costPrice: p.costPriceKobo !== null ? koboToNairaString(p.costPriceKobo) : "",
     status: p.status,
     slug: p.slug,

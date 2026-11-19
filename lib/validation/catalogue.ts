@@ -63,6 +63,8 @@ export const productInputSchema = z
     heightCm: z.coerce.number().min(0).max(1000).optional(),
     isPerishable: z.boolean(),
     shelfLifeNote: z.string().trim().max(200).optional(),
+    /** Food made to order: minutes until it's ready. Shown on food listings. */
+    prepTimeMinutes: z.coerce.number().int("Use whole minutes").min(1, "At least 1 minute").max(1440, "At most 24 hours").optional(),
     costPrice: optionalNairaAmount,
     status: listingStatus,
     slug: slugField,

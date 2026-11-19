@@ -2,7 +2,7 @@ import { z } from "zod";
 import { emailSchema } from "./auth";
 import { nigerianPhone, otpCode } from "./common";
 
-const businessTypes = ["retailer", "supermarket", "vendor", "merchant", "producer", "service_provider", "artisan"] as const;
+const businessTypes = ["retailer", "supermarket", "vendor", "merchant", "producer", "restaurant", "confectioner", "service_provider", "artisan"] as const;
 
 export const businessDetailsSchema = z
   .object({
@@ -68,6 +68,25 @@ export const storeSettingsSchema = z.object({
   pickupAddress: z.string().trim().max(200).optional(),
 });
 export type StoreSettingsInput = z.input<typeof storeSettingsSchema>;
+
+const clockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a time like 08:00");
+
+/** Opening hours for food sellers. Days are Sunday first, times are Lagos time. */
+export const openingHoursSchema = z
+  .object({
+    useHours: z.boolean(),
+    ordersPaused: z.boolean(),
+    days: z.array(z.object({ isOpen: z.boolean(), open: clockTime, close: clockTime })).length(7),
+  })
+  .superRefine((v, ctx) => {
+    if (!v.useHours) return;
+    v.days.forEach((d, i) => {
+      // 00:00 closing means midnight; hours past midnight aren't supported.
+      if (d.isOpen && d.close !== "00:00" && d.close <= d.open) ctx.addIssue({ code: "custom", path: ["days", i, "close"], message: "Closing must be after opening" });
+    });
+    if (!v.days.some((d) => d.isOpen)) ctx.addIssue({ code: "custom", path: ["useHours"], message: "Open on at least one day" });
+  });
+export type OpeningHoursInput = z.input<typeof openingHoursSchema>;
 
 export const reviewDecisionSchema = z.discriminatedUnion("decision", [
   z.object({ businessId: z.uuid(), decision: z.literal("start_review") }),

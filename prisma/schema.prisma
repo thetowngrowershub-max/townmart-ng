@@ -325,6 +325,10 @@ enum BusinessType {
   producer
   service_provider
   artisan
+  // Restaurants and quick-service restaurants (QSRs): cooked food made to order.
+  restaurant
+  // Bakeries, cake makers and sweet shops.
+  confectioner
 
   @@map("business_type")
 }
@@ -486,6 +490,11 @@ model StorePolicy {
   // { "delivery": true, "pickup": false, "notes": "..." }
   deliveryOptions        Json     @default("{\"delivery\": true, \"pickup\": false}") @map("delivery_options")
   acceptsPayOnDelivery   Boolean  @default(false) @map("accepts_pay_on_delivery")
+  // When the store takes orders, in Lagos time. Null means any time (most shops).
+  // Seven entries, Sunday first: null (closed that day) or { "open": 480, "close": 1320 } in minutes after midnight.
+  openingHours           Json?    @map("opening_hours")
+  // A restaurant that is too busy can stop new orders for a while without changing its hours.
+  ordersPaused           Boolean  @default(false) @map("orders_paused")
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -569,6 +578,9 @@ model Category {
   icon      String?
   sortOrder Int          @default(0) @map("sort_order")
   isActive  Boolean      @default(true) @map("is_active")
+  // Cooked food, cakes and pastries: listings show the prep time, and can only be
+  // ordered while the seller is open (StorePolicy.openingHours).
+  isFood    Boolean      @default(false) @map("is_food")
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -641,6 +653,8 @@ model Product {
   dimensions         Json?
   isPerishable       Boolean                  @default(false) @map("is_perishable")
   shelfLifeNote      String?                  @map("shelf_life_note")
+  // Food made to order: minutes from order to ready for pickup or the rider.
+  prepTimeMinutes    Int?                     @map("prep_time_minutes") @db.SmallInt
   status             ListingStatus            @default(draft)
   metaTitle          String?                  @map("meta_title")
   metaDescription    String?                  @map("meta_description")

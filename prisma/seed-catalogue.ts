@@ -21,6 +21,7 @@ import { dateToLagosLocal } from "../lib/datetime";
 import { INITIAL_LEGAL_VERSION } from "./legal-templates";
 import { normaliseNigerianPhone } from "../lib/phone";
 import { savePromotion } from "../lib/promotions/promotions";
+import { timeToMinutes } from "../lib/catalogue/units";
 import { storage } from "../lib/storage";
 import { productInputSchema, serviceInputSchema, type ProductInput, type ServiceInput } from "../lib/validation/catalogue";
 import { promotionInputSchema, type PromotionInput } from "../lib/validation/promotions";
@@ -94,9 +95,10 @@ function productInput(p: DemoProduct, images: ProductInput["images"]): ProductIn
     unit: p.unit ?? "piece",
     minOrderQty: p.fractional ? "0.5" : "1",
     allowFractionalQty: !!p.fractional,
-    trackInventory: true,
+    trackInventory: p.trackStock ?? true,
     allowBackorder: false,
     weightGrams: p.weightGrams,
+    prepTimeMinutes: p.prep,
     isPerishable: !!p.perishable,
     shelfLifeNote: p.perishable,
     status: "active",
@@ -132,14 +134,14 @@ export async function seedCategories(prisma: PrismaClient) {
   for (const [i, top] of CATEGORIES.entries()) {
     const parent = await prisma.category.upsert({
       where: { slug: top.slug },
-      update: { name: top.name, kind: top.kind, icon: top.icon, sortOrder: i },
-      create: { slug: top.slug, name: top.name, kind: top.kind, icon: top.icon, sortOrder: i },
+      update: { name: top.name, kind: top.kind, icon: top.icon, sortOrder: i, isFood: !!top.isFood },
+      create: { slug: top.slug, name: top.name, kind: top.kind, icon: top.icon, sortOrder: i, isFood: !!top.isFood },
     });
     for (const [j, c] of top.children.entries()) {
       await prisma.category.upsert({
         where: { slug: c.slug },
-        update: { name: c.name, kind: top.kind, parentId: parent.id, sortOrder: j },
-        create: { slug: c.slug, name: c.name, kind: top.kind, parentId: parent.id, sortOrder: j },
+        update: { name: c.name, kind: top.kind, parentId: parent.id, sortOrder: j, isFood: !!top.isFood },
+        create: { slug: c.slug, name: c.name, kind: top.kind, parentId: parent.id, sortOrder: j, isFood: !!top.isFood },
       });
       n++;
     }
@@ -211,7 +213,10 @@ async function seedSeller(prisma: PrismaClient, seller: DemoSeller, categoryIds:
       });
       const id = business.id;
       await tx.storePolicy.create({
-        data: { businessId: id, returnWindowDays: b.returnWindowDays, deliveryOptions: { delivery: true, pickup: !!b.pickup, notes: "" }, pickupAddressEncrypted: b.pickup ? encrypt(b.address) : null, acceptsPayOnDelivery: !!b.payOnDelivery },
+        data: { businessId: id, returnWindowDays: b.returnWindowDays, deliveryOptions: { delivery: true, pickup: !!b.pickup, notes: "" }, pickupAddressEncrypted: b.pickup ? encrypt(b.address) : null,
+          acceptsPayOnDelivery: !!b.payOnDelivery,
+          ...(b.hours ? { openingHours: b.hours.map((h) => (h ? { open: timeToMinutes(h[0]), close: timeToMinutes(h[1]) } : null)) } : {}),
+        },
       });
       await tx.businessKyc.create({ data: { businessId: id, provider: "manual", verificationStatus: "verified", idDocumentType: b.cac ? "cac_certificate" : "nin_slip", verifiedAt: now, notes: "Demo seller (seed data)" } });
       await tx.payoutAccount.create({
