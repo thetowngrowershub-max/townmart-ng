@@ -218,3 +218,7 @@ Never set it on the live site.
 | `S3_PUBLIC_BASE_URL` | the public bucket's `https://pub-….r2.dev` address |
 
 `APP_URL` defaults to the deployment's own address. The public bucket needs public access turned on (its r2.dev address), and both buckets need the CORS rule from section 3 with the Vercel address as the allowed origin.
+
+**Flutterwave on the test site.** Payments stay on the pretend page until `PAYMENT_PROVIDER=flutterwave` is set. Then add `FLUTTERWAVE_SECRET_KEY` (a v3 **test** key, `FLWSECK_TEST-…`) and `FLUTTERWAVE_WEBHOOK_HASH` (the secret hash typed under Settings → Webhooks, with the URL `https://<site>/api/webhooks/flutterwave` and "Enable v3 webhooks" ticked). A test-mode site refuses live keys, because anyone with the demo sign-in could act as admin. `/api/health` shows `payments`: the provider, whether the key is a test key, whether the webhook hash is set and whether Flutterwave accepts the key (never the keys themselves).
+
+How a payment is trusted: the webhook's `verif-hash` must match (compared in constant time), the event is stored once per Flutterwave transaction, and then the transaction is fetched from Flutterwave's verify API by its id. Its `tx_ref` must be the order's payment reference, its currency NGN and its amount exactly the order total worked out on the server; a wrong amount is refunded and flagged, never accepted. The shopper's return to `/checkout/complete` and the unpaid-order expiry job check the same way, so a missed webhook doesn't lose a payment.

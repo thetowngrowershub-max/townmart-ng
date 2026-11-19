@@ -185,11 +185,14 @@ export async function applyVerifiedPayment(reference: string, verified: Verified
   return "paid";
 }
 
-/** Asks the provider about a payment and applies the answer. */
-export async function verifyAndApply(reference: string): Promise<ConfirmResult> {
+/**
+ * Asks the provider about a payment and applies the answer. `transactionId`
+ * comes from a signed webhook and only narrows which attempt is checked.
+ */
+export async function verifyAndApply(reference: string, transactionId?: string | null): Promise<ConfirmResult> {
   const payment = await withSystemContext((tx) => tx.payment.findUnique({ where: { providerReference: reference }, select: { provider: true } }));
   if (!payment || payment.provider === "pay_on_delivery") return "not_paid";
-  const verified = await paymentProvider(payment.provider as ProviderName).verify(reference);
+  const verified = await paymentProvider(payment.provider as ProviderName).verify(reference, transactionId);
   return applyVerifiedPayment(reference, verified);
 }
 
@@ -210,7 +213,8 @@ export async function processPaymentEvent(eventId: string): Promise<void> {
       if (ref) await syncPayoutByReference(ref);
     } else if (event.reference) {
       const known = await withSystemContext((tx) => tx.payment.findUnique({ where: { providerReference: event.reference! }, select: { id: true } }));
-      if (known) await verifyAndApply(event.reference);
+      const parsed = paymentProvider(event.provider as ProviderName).parseWebhook(JSON.stringify(event.payload));
+      if (known) await verifyAndApply(event.reference, parsed.providerTransactionId);
     }
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
