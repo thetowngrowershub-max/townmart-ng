@@ -107,6 +107,10 @@ export const PLATFORM_SETTINGS = [
   { key: "escrow.release_days", label: "Escrow release (days after completion)", hint: "When seller earnings become available.", min: 0, max: 60, step: 1, group: "Payouts" },
   { key: "payouts.minimum_naira", label: "Automatic payout minimum (₦)", hint: "Sellers can still ask for any positive amount.", min: 0, max: 10_000_000, step: 1, group: "Payouts" },
   { key: "bookings.lead_minutes", label: "Booking lead time (minutes)", hint: "How soon a booking can start.", min: 0, max: 10_080, step: 1, group: "Bookings" },
+  { key: "delivery.per_km_naira", label: "Delivery price per km (₦)", hint: "Delivery is priced by distance from the shop to the customer, rounded up to the next km.", min: 0, max: 100_000, step: 1, group: "Delivery" },
+  { key: "delivery.road_factor", label: "Road factor", hint: "Straight-line distance times this estimates the road distance. 1.3 suits most towns.", min: 1, max: 3, step: 0.05, group: "Delivery" },
+  { key: "delivery.max_km", label: "Furthest delivery (km)", hint: "Shops don't deliver further than this by road.", min: 1, max: 500, step: 1, group: "Delivery" },
+  { key: "riders.nearby_km", label: "Nearby rider distance (km)", hint: "Riders this close to the shop are suggested first.", min: 0.5, max: 100, step: 0.5, group: "Delivery" },
   { key: "bookings.days_ahead", label: "Booking window (days ahead)", hint: "How far ahead customers can book.", min: 1, max: 365, step: 1, group: "Bookings" },
 ] as const;
 

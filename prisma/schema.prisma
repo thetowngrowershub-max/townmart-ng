@@ -219,6 +219,9 @@ model Address {
   stateId        Int      @map("state_id") @db.SmallInt
   lgaId          Int      @map("lga_id") @db.SmallInt
   landmark       String?
+  // Where the address is on the map, pinned from the shopper's phone (GPS). Prices delivery by distance.
+  latitude       Float?
+  longitude      Float?
   isDefault      Boolean  @default(false) @map("is_default")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -390,6 +393,10 @@ model Business {
   city                      String
   stateId                   Int            @map("state_id") @db.SmallInt
   lgaId                     Int            @map("lga_id") @db.SmallInt
+  // Where orders are picked up, set by the seller from their phone at the shop.
+  // Used to find the nearest shop, price delivery by distance and find nearby riders.
+  latitude                  Float?
+  longitude                 Float?
   status                    BusinessStatus @default(draft)
   rejectionReason           String?        @map("rejection_reason")
   submittedAt               DateTime?      @map("submitted_at") @db.Timestamptz(6)
@@ -432,6 +439,7 @@ model Business {
   invitations     StaffInvitation[]
   featured        FeaturedStore?
   portfolioPhotos PortfolioPhoto[]
+  riders          Rider[]
 
   @@index([ownerUserId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "businesses_name_trgm")
@@ -1352,6 +1360,13 @@ model SellerOrder {
   etaDaysMax           Int?           @map("eta_days_max") @db.SmallInt
   trackingNumber       String?        @map("tracking_number")
   carrier              String?
+  // Straight-line distance from the shop to the drop-off times the road factor, in metres, when delivery was priced by distance.
+  deliveryDistanceM    Int?           @map("delivery_distance_m")
+  // The seller's rider taking this delivery (lib/fulfilment/riders.ts assigns them).
+  riderId              String?        @map("rider_id") @db.Uuid
+  riderAssignedAt      DateTime?      @map("rider_assigned_at") @db.Timestamptz(6)
+  // When the rider collected the parcel from the shop.
+  pickedUpAt           DateTime?      @map("picked_up_at") @db.Timestamptz(6)
   shippedAt            DateTime?      @map("shipped_at") @db.Timestamptz(6)
   deliveredAt          DateTime?      @map("delivered_at") @db.Timestamptz(6)
   completedAt          DateTime?      @map("completed_at") @db.Timestamptz(6)
@@ -1366,6 +1381,8 @@ model SellerOrder {
 
   order         Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   business      Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  // The rider must belong to the same shop.
+  rider         Rider?               @relation(fields: [riderId, businessId], references: [id, businessId], onDelete: Restrict, map: "seller_orders_rider_same_business")
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
   reservations  StockReservation[]
@@ -1377,6 +1394,7 @@ model SellerOrder {
   @@unique([orderId, businessId])
   @@unique([id, businessId], map: "seller_orders_id_business_key")
   @@index([businessId, status, createdAt])
+  @@index([riderId, businessId])
   @@map("seller_orders")
 }
 
@@ -1530,6 +1548,36 @@ model DeliveryRate {
   @@index([zoneId, businessId, minWeightG])
   @@index([businessId])
   @@map("delivery_rates")
+}
+
+// A delivery rider who works for a shop (seller-managed riders). Riders have
+// no TownMart account: the shop adds them, and they get order links by text.
+model Rider {
+  id                String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  name              String
+  phoneEncrypted    String    @map("phone_encrypted")
+  phoneHash         String    @map("phone_hash")
+  // motorbike, bicycle, tricycle (keke), car, on_foot
+  vehicle           String    @default("motorbike")
+  // Off when the rider has left the shop; kept for order history.
+  isActive          Boolean   @default(true) @map("is_active")
+  // The seller (or later the rider) switches this on when they can take a job.
+  isAvailable       Boolean   @default(true) @map("is_available")
+  // Last known position. Null means "at the shop".
+  latitude          Float?
+  longitude         Float?
+  locationUpdatedAt DateTime? @map("location_updated_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sellerOrders SellerOrder[]
+
+  @@unique([businessId, phoneHash])
+  @@unique([id, businessId], map: "riders_id_business_key")
+  @@index([businessId, isActive, isAvailable])
+  @@map("riders")
 }
 
 // ── Double-entry ledger (append-only) ────────────────────────────────────────

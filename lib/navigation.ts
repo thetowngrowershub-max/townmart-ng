@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Bike,
   Activity,
   BadgePercent,
   BarChart3,
@@ -59,6 +60,7 @@ export const dashboardNav: NavItem[] = [
   { href: "/dashboard/portfolio", label: "Job photos", icon: Images, phase: 1 },
   { href: "/dashboard/promotions", label: "Promotions", icon: BadgePercent, phase: 2 },
   { href: "/dashboard/orders", label: "Orders", icon: ClipboardList, phase: 4 },
+  { href: "/dashboard/riders", label: "Riders", icon: Bike, phase: 4 },
   { href: "/dashboard/bookings", label: "Bookings", icon: CalendarCheck, phase: 4 },
   { href: "/dashboard/refunds", label: "Refunds & disputes", icon: RotateCcw, phase: 5 },
   { href: "/dashboard/payouts", label: "Payouts", icon: Wallet, phase: 5 },

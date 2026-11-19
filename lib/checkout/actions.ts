@@ -15,24 +15,27 @@ import { checkoutSchema, quoteRequestSchema, type CheckoutInput } from "@/lib/va
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 import { devDriversAllowed, env } from "@/lib/env";
 import { computeCheckout } from "./compute";
+import { loadDestination } from "./destination";
 import { toCheckoutView, type CheckoutView } from "./view";
 
 const TOO_MANY = "Too many attempts. Please wait a minute and try again.";
 
 /** Re-prices checkout for an address and delivery choices (the page calls this as the shopper fills it in). */
-export async function quoteCheckoutAction(input: { addressId?: string; stateId?: number; lgaId?: number; methods?: Record<string, "delivery" | "pickup"> }): Promise<ActionResult<CheckoutView>> {
+export async function quoteCheckoutAction(input: {
+  addressId?: string;
+  stateId?: number;
+  lgaId?: number;
+  gps?: { lat: number; lng: number } | null;
+  methods?: Record<string, "delivery" | "pickup">;
+}): Promise<ActionResult<CheckoutView>> {
   const parsed = quoteRequestSchema.safeParse(input);
   if (!parsed.success) return validationError(parsed.error);
   const owner = await findCartOwner();
-  let address: { stateId: number; lgaId: number } | null = null;
-  if (parsed.data.addressId && owner.userId) {
-    const a = await withRls({ userId: owner.userId }, (tx) => tx.address.findFirst({ where: { id: parsed.data.addressId!, userId: owner.userId! }, select: { stateId: true, lgaId: true } }));
-    address = a;
-  } else if (parsed.data.stateId && parsed.data.lgaId) {
-    address = { stateId: parsed.data.stateId, lgaId: parsed.data.lgaId };
-  }
-  const c = await withSystemContext((tx) => computeCheckout(tx, { cartId: owner.cartId, userId: owner.userId, address, methods: parsed.data.methods }));
-  return { ok: true, data: toCheckoutView(c) };
+  const { destination, problem } = await withRls({ userId: owner.userId }, (tx) =>
+    loadDestination(tx, { userId: owner.userId, addressId: parsed.data.addressId, stateId: parsed.data.stateId, lgaId: parsed.data.lgaId, gps: parsed.data.gps }),
+  );
+  const c = await withSystemContext((tx) => computeCheckout(tx, { cartId: owner.cartId, userId: owner.userId, address: destination, methods: parsed.data.methods }));
+  return { ok: true, data: toCheckoutView(c, { locationProblem: problem }) };
 }
 
 export async function placeOrderAction(input: CheckoutInput): Promise<ActionResult<{ redirectTo: string }>> {

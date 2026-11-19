@@ -26,6 +26,47 @@ import { Input } from "@/components/ui/input";
 import { placeOrderAction, quoteCheckoutAction } from "@/lib/checkout/actions";
 import type { CheckoutView } from "@/lib/checkout/view";
 import { cn } from "@/lib/utils";
+import { UseLocationButton, type Gps } from "@/components/geo/use-location";
+
+/** Says where delivery is priced from, and offers the phone's location for an exact fee. */
+function LocationPanel({
+  source,
+  problem,
+  usingGps,
+  onLocated,
+}: {
+  source: "gps" | "pinned" | "area" | null;
+  problem: "outside_area" | null;
+  usingGps: boolean;
+  onLocated: (p: Gps) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-dashed p-3 text-sm">
+      <p className="flex items-start gap-2">
+        <MapPin className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+        <span>
+          {source === "gps" && usingGps
+            ? "Delivery is priced from your current location."
+            : source === "pinned"
+              ? "Delivery is priced from the map pin saved with this address."
+              : "Delivery is estimated from the middle of your town. For the exact fee, share your location while you're at this address."}
+        </span>
+      </p>
+      {problem === "outside_area" && (
+        <p className="text-xs text-danger" role="alert">
+          Your location is outside our delivery area, so we kept the estimate.
+          Share it only when you&apos;re at the delivery address.
+        </p>
+      )}
+      {!(source === "gps" && usingGps) && (
+        <UseLocationButton
+          onLocated={onLocated}
+          label={source === "pinned" ? "I'm here now: update the pin" : "I'm at this address: use my location"}
+        />
+      )}
+    </div>
+  );
+}
 
 export type SavedAddress = {
   id: string;
@@ -34,6 +75,8 @@ export type SavedAddress = {
   summary: string;
   stateId: number;
   lgaId: number;
+  /** The address has a saved map pin. */
+  pinned: boolean;
 };
 
 export function CheckoutForm({
@@ -57,6 +100,8 @@ export function CheckoutForm({
     recipientName: account?.name ?? "",
   });
   const [saveAddress, setSaveAddress] = useState(true);
+  // The phone's location, when the shopper says they're at the delivery address.
+  const [gps, setGps] = useState<Gps | null>(null);
   const [methods, setMethods] = useState<Record<string, "delivery" | "pickup">>(
     {},
   );
@@ -85,13 +130,14 @@ export function CheckoutForm({
           ? {
               stateId: Number(address.stateId) || undefined,
               lgaId: Number(address.lgaId) || undefined,
+              gps,
               methods,
             }
-          : { addressId, methods },
+          : { addressId, gps, methods },
       );
       if (seq === quoteSeq.current && res.ok && res.data) setView(res.data);
     });
-  }, [addressId, usingNew, address.stateId, address.lgaId, methods]);
+  }, [addressId, usingNew, address.stateId, address.lgaId, methods, gps]);
 
   useEffect(() => {
     if (payment === "pay_on_delivery" && !view.payOnDeliveryAvailable)
@@ -116,6 +162,7 @@ export function CheckoutForm({
             }
           : undefined,
         saveAddress: Boolean(account) && usingNew && saveAddress,
+        gps,
         methods,
         payment,
         acceptTerms: acceptTerms as true,
@@ -138,9 +185,10 @@ export function CheckoutForm({
             ? {
                 stateId: Number(address.stateId) || undefined,
                 lgaId: Number(address.lgaId) || undefined,
+                gps,
                 methods,
               }
-            : { addressId, methods },
+            : { addressId, gps, methods },
         );
         if (q.ok && q.data) setView(q.data);
       }
@@ -218,7 +266,11 @@ export function CheckoutForm({
                       name="addressId"
                       className="mt-1 size-4 accent-primary"
                       checked={addressId === o.id}
-                      onChange={() => setAddressId(o.id)}
+                      onChange={() => {
+                        setAddressId(o.id);
+                        // A location shared for one address doesn't belong to another.
+                        setGps(null);
+                      }}
                     />
                     <span className="text-sm">
                       <span className="font-medium">{o.title}</span>
@@ -255,6 +307,14 @@ export function CheckoutForm({
                   </div>
                 )}
               </div>
+            )}
+            {view.sellers.some((s) => s.hasGoods) && hasDestination && (
+              <LocationPanel
+                source={view.location.source}
+                problem={view.location.problem}
+                usingGps={gps !== null}
+                onLocated={setGps}
+              />
             )}
           </CardContent>
         </Card>
@@ -313,6 +373,9 @@ export function CheckoutForm({
                             {s.delivery.eta} to {s.delivery.zone}
                             {s.delivery.freeOver &&
                               ` · free over ${s.delivery.freeOver}`}
+                            {s.delivery.distance && (
+                              <span className="block">{s.delivery.distance}</span>
+                            )}
                           </span>
                         ) : (
                           <span className="block text-muted-foreground">
