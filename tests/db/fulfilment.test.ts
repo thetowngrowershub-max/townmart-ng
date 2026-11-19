@@ -6,7 +6,7 @@ import { prisma, withRls, withSystemContext } from "@/lib/db";
 import { advanceSellerOrder } from "@/lib/fulfilment/orders";
 import { OrderError, placeOrder, type PlacedOrder } from "@/lib/orders/place";
 import { findReviewable, writeReview } from "@/lib/reviews/reviews";
-import { createUser, deleteMoneyTrail, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createUser, deleteMoneyTrail, deleteUsers, moweOgun, owner } from "./helpers";
 
 /**
  * Phase 4 at the database layer: a booking slot is never oversold under
@@ -35,7 +35,7 @@ function asSystem<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) {
 async function createBusiness(label: string, type: "merchant" | "service_provider"): Promise<Seller> {
   const user = await createUser(label);
   users.push(user.id);
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   const business = await asSystem((tx) =>
     tx.business.create({
       data: {
@@ -47,7 +47,7 @@ async function createBusiness(label: string, type: "merchant" | "service_provide
         phoneEncrypted: "v1.k1.test.test.test",
         phoneHash: `${label}-${tag}`,
         addressEncrypted: "v1.k1.test.test.test",
-        city: "Ikeja",
+        city: "Mowe",
         stateId,
         lgaId,
         status: "approved",
@@ -86,13 +86,13 @@ async function cart(item: { variantId: string; businessId: string } | { serviceI
 }
 
 async function quoteTotal(cartId: string, userId: string | null) {
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   const q = await withSystemContext((tx) => computeCheckout(tx, { cartId, userId, address: { stateId, lgaId } }));
   return q.quote.totalKobo.toString();
 }
 
 async function order(cartId: string, opts: { userId?: string | null; payment?: "online" | "pay_on_delivery"; expectedTotalKobo?: string } = {}): Promise<PlacedOrder> {
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   const userId = opts.userId ?? null;
   const expectedTotalKobo = opts.expectedTotalKobo ?? (await quoteTotal(cartId, userId));
   return withSystemContext(
@@ -105,7 +105,7 @@ async function order(cartId: string, opts: { userId?: string | null; payment?: "
         ipHash: "test",
         data: {
           email: userId ? "" : `guest-${randomUUID()}@test.townmart.local`,
-          address: { recipientName: "Ada Obi", phone: "08031234567", line1: "12 Allen Avenue", line2: "", landmark: "", city: "Ikeja", stateId, lgaId },
+          address: { recipientName: "Ada Obi", phone: "08031234567", line1: "12 Allen Avenue", line2: "", landmark: "", city: "Mowe", stateId, lgaId },
           addressId: "",
           saveAddress: false,
           methods: {},

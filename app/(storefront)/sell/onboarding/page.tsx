@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/authz";
 import { withRls } from "@/lib/db";
+import { serviceAreaOptions } from "@/lib/service-area-db";
 import { env } from "@/lib/env";
 import { currentDocuments } from "@/lib/legal/documents";
 import { bankVerifier } from "@/lib/payments/banks";
@@ -56,9 +57,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
   const host = new URL(env().APP_URL).host;
   const states =
     step === "details"
-      ? await withRls({ userId: user.id }, (tx) =>
-          tx.state.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, lgas: { orderBy: { name: "asc" }, select: { id: true, name: true } } } }),
-        )
+      ? await withRls({ userId: user.id }, (tx) => serviceAreaOptions(tx))
       : [];
   const banks = step === "payout" ? await bankVerifier().listBanks().catch(() => null) : [];
 

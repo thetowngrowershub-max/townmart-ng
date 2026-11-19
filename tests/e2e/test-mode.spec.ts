@@ -9,7 +9,7 @@ test("a tester signs in as a demo seller without a password", async ({ page }) =
   await page.goto("/");
   await expect(page.getByRole("note", { name: "Test site" })).toContainText("no real money moves");
   await page.getByRole("link", { name: "Demo accounts" }).click();
-  await page.getByRole("button", { name: "Sign in as CV Gadget Hub" }).click();
+  await page.getByRole("button", { name: "Sign in as Mowe Gadget Hub" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
 });
 

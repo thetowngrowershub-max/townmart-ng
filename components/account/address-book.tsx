@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { AddressFields, EMPTY_ADDRESS, type StateOption } from "@/components/checkout/address-fields";
+import { AddressFields, emptyAddressFor, type StateOption } from "@/components/checkout/address-fields";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ export type AddressRow = { id: string; recipientName: string; lines: string[]; i
 export function AddressBook({ addresses, states }: { addresses: AddressRow[]; states: StateOption[] }) {
   const router = useRouter();
   const [adding, setAdding] = useState(addresses.length === 0);
-  const [draft, setDraft] = useState(EMPTY_ADDRESS);
+  const [draft, setDraft] = useState(() => emptyAddressFor(states));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -76,7 +76,7 @@ export function AddressBook({ addresses, states }: { addresses: AddressRow[]; st
                 run(
                   () => addAddressAction(draft),
                   () => {
-                    setDraft(EMPTY_ADDRESS);
+                    setDraft(emptyAddressFor(states));
                     setAdding(false);
                   },
                 );

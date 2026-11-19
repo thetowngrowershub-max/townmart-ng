@@ -20,6 +20,7 @@ import { requestMeta } from "@/lib/request";
 import { storage } from "@/lib/storage";
 import { finaliseDocument, imagePrefix, UploadError } from "@/lib/storage/uploads";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
+import { checkServiceArea } from "@/lib/service-area-db";
 import {
   agreementsSchema,
   brandingSchema,
@@ -88,8 +89,9 @@ export async function saveBusinessDetailsAction(input: BusinessDetailsInput): Pr
   const d = parsed.data;
   if (RESERVED_STORE_SLUGS.has(d.slug)) return { ok: false, error: "That store address is reserved.", fieldErrors: { slug: ["Choose another address"] } };
 
-  const lga = await withRls({ userId: user.id }, (tx) => tx.lga.findUnique({ where: { id: d.lgaId }, select: { stateId: true } }));
-  if (!lga || lga.stateId !== d.stateId) return { ok: false, error: "Choose an LGA in the selected state.", fieldErrors: { lgaId: ["Not in this state"] } };
+  // Businesses can only be based inside the service area (lib/service-area.ts).
+  const place = await withRls({ userId: user.id }, (tx) => checkServiceArea(tx, d));
+  if (!place.ok) return { ok: false, error: place.error, fieldErrors: place.fieldErrors };
 
   const meta = await requestMeta();
   const fields = {
@@ -101,7 +103,7 @@ export async function saveBusinessDetailsAction(input: BusinessDetailsInput): Pr
     phoneEncrypted: encrypt(d.phone),
     phoneHash: phoneHash(d.phone),
     addressEncrypted: encrypt(d.addressLine),
-    city: d.city,
+    city: place.city,
     stateId: d.stateId,
     lgaId: d.lgaId,
     sellsProducts: d.sellsProducts,
