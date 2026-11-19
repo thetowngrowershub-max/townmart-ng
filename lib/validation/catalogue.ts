@@ -179,6 +179,7 @@ export const serviceInputSchema = z
     basePrice: nairaAmount,
     durationMinutes: z.coerce.number().int().min(5, "At least 5 minutes").max(24 * 60 * 14),
     locationMode: z.enum(["on_site", "at_provider", "both"]),
+    // Ignored when saving: a service always covers its business's own LGA (lib/catalogue/services.ts).
     serviceLgaIds: z.array(z.coerce.number().int().positive()).max(100),
     radiusKm: z.coerce.number().int().min(1).max(500).optional(),
     depositPercent: z.coerce.number().int().min(0).max(100),
@@ -195,9 +196,6 @@ export const serviceInputSchema = z
   .superRefine((s, ctx) => {
     if (s.pricingModel === "packages" && s.packages.length === 0) {
       ctx.addIssue({ code: "custom", path: ["packages"], message: "Add at least one package" });
-    }
-    if (s.locationMode !== "at_provider" && s.serviceLgaIds.length === 0 && !s.radiusKm) {
-      ctx.addIssue({ code: "custom", path: ["serviceLgaIds"], message: "Choose the LGAs you cover, or a radius" });
     }
     if (s.status === "active" && s.availability.length === 0) {
       ctx.addIssue({ code: "custom", path: ["availability"], message: "Add your weekly availability before publishing" });

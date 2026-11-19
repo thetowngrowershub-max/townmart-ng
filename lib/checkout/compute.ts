@@ -189,6 +189,7 @@ export async function computeCheckout(
                   slug: true,
                   city: true,
                   status: true,
+                  lgaId: true,
                   state: { select: { name: true } },
                   policy: { select: { deliveryOptions: true, acceptsPayOnDelivery: true, returnWindowDays: true } },
                 },
@@ -265,7 +266,8 @@ export async function computeCheckout(
     const live = sv.status === "active" && sv.deletedAt === null && sv.takenDownAt === null && i.business.status === "approved" && (pkg === null || pkg.serviceId === sv.id);
     let problem: LineProblem | null = null;
     if (!live) problem = { kind: "unavailable" };
-    else if (!atProvider && input.address && sv.serviceLgaIds.length > 0 && !sv.serviceLgaIds.includes(input.address.lgaId)) problem = { kind: "outside_area" };
+    // Providers only work in the LGA they're registered in.
+    else if (!atProvider && input.address && input.address.lgaId !== i.business.lgaId) problem = { kind: "outside_area" };
     else if (!i.savedForLater && !(await slotOpen(sv.id, startsAt, durationMinutes))) problem = { kind: "slot_unavailable" };
     all.push({
       cartItemId: i.id,

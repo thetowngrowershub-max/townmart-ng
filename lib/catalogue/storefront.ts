@@ -5,11 +5,13 @@ import { withRls } from "@/lib/db";
 import { loadListingRules } from "@/lib/promotions/live";
 import { listPortfolio } from "@/lib/portfolio/portfolio";
 import { listingReviews, providerReviews } from "@/lib/reviews/reviews";
+import { IN_SERVICE_AREA } from "@/lib/service-area-db";
 
 /** Public reads run as a guest so the storefront shows exactly what anyone can see. */
 const asGuest = <T,>(fn: Parameters<typeof withRls<T>>[1]) => withRls({ userId: null }, fn);
 
-const live = { status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved" } } as const;
+// Only businesses based inside the service area (lib/service-area.ts) are public.
+const live = { status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved", lga: IN_SERVICE_AREA } } as const;
 
 export const getPublicProduct = cache((slug: string) =>
   asGuest((tx) =>
@@ -98,15 +100,10 @@ export const getPublicService = cache((slug: string) =>
 /** Live automatic promotions for these sellers (and platform-wide), as a guest sees them. */
 export const getListingRules = (businessIds: string[]) => asGuest((tx) => loadListingRules(tx, businessIds));
 
-export const getLgaNames = (ids: number[]) =>
-  ids.length
-    ? asGuest((tx) => tx.lga.findMany({ where: { id: { in: ids } }, orderBy: { name: "asc" }, select: { id: true, name: true, state: { select: { name: true } } } }))
-    : Promise.resolve([]);
-
 export const getPublicStore = cache((slug: string) =>
   asGuest((tx) =>
     tx.business.findFirst({
-      where: { slug, status: "approved" },
+      where: { slug, status: "approved", lga: IN_SERVICE_AREA },
       select: {
         id: true,
         name: true,

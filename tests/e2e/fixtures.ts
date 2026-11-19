@@ -33,15 +33,14 @@ export async function signIn(page: Page, email: string, next = "/") {
   await page.waitForURL((url) => !url.pathname.startsWith("/auth/"));
 }
 
-/** Fills a new delivery address in Ikeja, Lagos. */
+/** Fills a new delivery address in Mowe, Obafemi Owode, Ogun (the only service area for now). */
 export async function fillAddress(page: Page, name: string) {
   await page.getByLabel("Recipient's name").fill(name);
   await page.getByLabel("Phone number").fill("08031234567");
-  await page.getByLabel("Street address").fill("12 Allen Avenue");
-  await page.getByLabel("Town or city").fill("Ikeja");
-  await page.getByLabel("State").selectOption({ label: "Lagos" });
-  await expect(page.getByLabel("LGA").locator("option", { hasText: "Ikeja" })).toBeAttached();
-  await page.getByLabel("LGA").selectOption({ label: "Ikeja" });
+  await page.getByLabel("Street address").fill("12 Ofada Road");
+  await page.getByLabel("State").selectOption({ label: "Ogun" });
+  await page.getByLabel("LGA").selectOption({ label: "Obafemi Owode" });
+  await page.getByLabel("Town or city").selectOption({ label: "Mowe" });
 }
 
 /** On the test payment page, approves the payment and waits for the order page. */
@@ -51,7 +50,7 @@ export async function payWithTestCard(page: Page) {
   await page.waitForURL(/\/checkout\/complete\//);
 }
 
-/** Places the current cart's order with a new Ikeja address and pays; returns the order number and amount paid. */
+/** Places the current cart's order with a new Mowe address and pays; returns the order number and amount paid. */
 export async function checkoutAndPay(page: Page, recipient: string, guestEmail?: string) {
   await page.goto("/checkout");
   if (guestEmail) await page.getByRole("textbox", { name: "Email" }).fill(guestEmail);

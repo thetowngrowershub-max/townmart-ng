@@ -2,7 +2,6 @@
 
 import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { useFieldArray, useWatch } from "react-hook-form";
 import { useActionForm } from "@/components/auth/use-action-form";
 import { RichTextEditor } from "@/components/editor/rich-text-editor";
@@ -21,7 +20,8 @@ import { serviceInputSchema, type ServiceInput } from "@/lib/validation/catalogu
 import type { CategoryOption } from "./product-form";
 
 export type ServiceFormValues = Omit<ServiceInput, "images"> & { images: GalleryImage[] };
-export type LgaGroup = { stateId: number; stateName: string; lgas: { id: number; name: string }[] };
+/** Where the business is registered. Its services cover that LGA only (providers are locked to their area). */
+export type HomeArea = { lgaId: number; lgaName: string; stateName: string; city: string };
 
 const PRICE_LABEL: Record<ServiceInput["pricingModel"], string> = {
   fixed: "Price (₦)",
@@ -35,14 +35,12 @@ const emptyToUndefined = (v: unknown) => (v === "" || v === null ? undefined : v
 export function ServiceForm({
   serviceId,
   categories,
-  lgaGroups,
-  defaultStateId,
+  homeArea,
   initial,
 }: {
   serviceId: string | null;
   categories: CategoryOption[];
-  lgaGroups: LgaGroup[];
-  defaultStateId: number;
+  homeArea: HomeArea;
   initial: ServiceFormValues;
 }) {
   const router = useRouter();
@@ -62,22 +60,11 @@ export function ServiceForm({
   const packages = useFieldArray({ control: form.control, name: "packages" });
   const availability = useFieldArray({ control: form.control, name: "availability" });
   const blackouts = useFieldArray({ control: form.control, name: "blackouts" });
-  const [pricingModel, locationMode, images, lgaIds] = useWatch({ control: form.control, name: ["pricingModel", "locationMode", "images", "serviceLgaIds"] }) as [
+  const [pricingModel, locationMode, images] = useWatch({ control: form.control, name: ["pricingModel", "locationMode", "images"] }) as [
     ServiceInput["pricingModel"],
     ServiceInput["locationMode"],
     GalleryImage[],
-    number[],
   ];
-  const [lgaState, setLgaState] = useState(defaultStateId);
-  const selected = new Set((lgaIds ?? []).map(Number));
-  const toggleLga = (id: number) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    form.setValue("serviceLgaIds", [...next], { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
-  };
-  const visibleLgas = lgaGroups.find((g) => g.stateId === lgaState)?.lgas ?? [];
-  const lgaName = new Map(lgaGroups.flatMap((g) => g.lgas.map((l) => [l.id, `${l.name} (${g.stateName})`] as const)));
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-6 pb-24">
@@ -232,40 +219,19 @@ export function ServiceForm({
               <option value="both">Either</option>
             </Select>
           </FormField>
+          <Alert variant="info">
+            You serve customers in {homeArea.city}, {homeArea.lgaName}, {homeArea.stateName}, where your business is registered. Service providers on TownMart only
+            show up and take bookings in their own area.
+          </Alert>
           {locationMode !== "at_provider" && (
-            <>
-              <div className="grid gap-5 sm:grid-cols-2">
-                <FormField id="lgaState" label="Show LGAs in">
-                  <Select value={lgaState} onChange={(e) => setLgaState(Number(e.target.value))}>
-                    {lgaGroups.map((g) => (
-                      <option key={g.stateId} value={g.stateId}>
-                        {g.stateName}
-                      </option>
-                    ))}
-                  </Select>
-                </FormField>
-                <FormField id="radiusKm" label="Or a radius from your base (km, optional)" error={errors.radiusKm?.message}>
-                  <Input inputMode="numeric" {...form.register("radiusKm", { setValueAs: emptyToUndefined })} />
-                </FormField>
-              </div>
-              <fieldset>
-                <legend className="mb-2 text-sm font-medium">LGAs you cover</legend>
-                <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto rounded-xl border p-3 sm:grid-cols-3">
-                  {visibleLgas.map((l) => (
-                    <label key={l.id} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" className="size-4 accent-primary" checked={selected.has(l.id)} onChange={() => toggleLga(l.id)} />
-                      {l.name}
-                    </label>
-                  ))}
-                </div>
-                {selected.size > 0 && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Selected: {[...selected].map((id) => lgaName.get(id) ?? id).join(", ")}
-                  </p>
-                )}
-                {errors.serviceLgaIds?.message && <p className="mt-1 text-xs font-medium text-danger">{errors.serviceLgaIds.message}</p>}
-              </fieldset>
-            </>
+            <FormField
+              id="radiusKm"
+              label="How far you travel (km, optional)"
+              hint={`Shown to customers. You can still only take bookings in ${homeArea.lgaName}.`}
+              error={errors.radiusKm?.message}
+            >
+              <Input inputMode="numeric" className="sm:max-w-48" {...form.register("radiusKm", { setValueAs: emptyToUndefined })} />
+            </FormField>
           )}
         </CardContent>
       </Card>

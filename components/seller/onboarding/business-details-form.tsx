@@ -11,9 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { BUSINESS_TYPES } from "@/lib/catalogue/units";
 import { saveBusinessDetailsAction } from "@/lib/seller/actions";
+import { SERVICE_AREA_LABEL, type AreaState } from "@/lib/service-area";
 import { businessDetailsSchema, type BusinessDetailsInput } from "@/lib/validation/seller";
 
-export type StateOption = { id: number; name: string; lgas: { id: number; name: string }[] };
+export type StateOption = AreaState;
 
 const toSlug = (s: string) =>
   s
@@ -33,6 +34,8 @@ export function BusinessDetailsForm({
   appHost: string;
 }) {
   const router = useRouter();
+  const onlyState = states.length === 1 ? states[0] : undefined;
+  const onlyLga = onlyState?.lgas.length === 1 ? onlyState.lgas[0] : undefined;
   const [slugTouched, setSlugTouched] = useState(!!initial?.slug);
   const { form, onSubmit, pending, result } = useActionForm(
     businessDetailsSchema,
@@ -49,9 +52,10 @@ export function BusinessDetailsForm({
       email: initial?.email ?? "",
       phone: initial?.phone ?? "",
       addressLine: initial?.addressLine ?? "",
-      city: initial?.city ?? "",
-      stateId: initial?.stateId ?? ("" as unknown as number),
-      lgaId: initial?.lgaId ?? ("" as unknown as number),
+      // Only the service area can be chosen; while it's one place, it's filled in.
+      city: initial?.city ?? (onlyLga?.towns.length === 1 ? onlyLga.towns[0] : ""),
+      stateId: initial?.stateId ?? onlyState?.id ?? ("" as unknown as number),
+      lgaId: initial?.lgaId ?? onlyLga?.id ?? ("" as unknown as number),
       sellsProducts: initial?.sellsProducts ?? true,
       sellsServices: initial?.sellsServices ?? false,
     },
@@ -60,6 +64,7 @@ export function BusinessDetailsForm({
   const stateId = Number(form.watch("stateId"));
   const type = form.watch("type");
   const lgas = states.find((s) => s.id === stateId)?.lgas ?? [];
+  const towns = lgas.find((l) => l.id === Number(form.watch("lgaId")))?.towns ?? [];
   const cacOptional = type === "service_provider" || type === "artisan";
 
   return (
@@ -120,12 +125,24 @@ export function BusinessDetailsForm({
       <FormField id="addressLine" label="Street address" hint="Kept private. Shoppers only see your town and state." error={errors.addressLine?.message}>
         <Input autoComplete="street-address" {...form.register("addressLine")} />
       </FormField>
+      <Alert variant="info">TownMart is open to businesses in {SERVICE_AREA_LABEL} for now. More areas are coming.</Alert>
       <div className="grid gap-5 sm:grid-cols-3">
         <FormField id="city" label="Town / city" error={errors.city?.message}>
-          <Input autoComplete="address-level2" {...form.register("city")} />
+          {towns.length > 0 ? (
+            <Select {...form.register("city")}>
+              <option value="">Choose…</option>
+              {towns.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Input autoComplete="address-level2" {...form.register("city")} />
+          )}
         </FormField>
         <FormField id="stateId" label="State" error={errors.stateId?.message}>
-          <Select {...form.register("stateId", { onChange: () => form.setValue("lgaId", "" as unknown as number) })}>
+          <Select {...form.register("stateId", { onChange: () => (form.setValue("lgaId", "" as unknown as number), form.setValue("city", "")) })}>
             <option value="">Choose…</option>
             {states.map((s) => (
               <option key={s.id} value={s.id}>
@@ -135,7 +152,7 @@ export function BusinessDetailsForm({
           </Select>
         </FormField>
         <FormField id="lgaId" label="LGA" error={errors.lgaId?.message}>
-          <Select {...form.register("lgaId")} disabled={lgas.length === 0}>
+          <Select {...form.register("lgaId", { onChange: () => form.setValue("city", "") })} disabled={lgas.length === 0}>
             <option value="">Choose…</option>
             {lgas.map((l) => (
               <option key={l.id} value={l.id}>

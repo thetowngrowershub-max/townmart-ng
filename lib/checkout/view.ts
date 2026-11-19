@@ -73,7 +73,7 @@ function problemText(p: LineProblem | null, unit: string): string | null {
     case "slot_unavailable":
       return "This time is no longer available. Remove it and book another time.";
     case "outside_area":
-      return "The provider doesn't come to this address. Choose another address or remove it.";
+      return "This provider only works in their own LGA, and this address is outside it. Choose another address or remove it.";
   }
 }
 

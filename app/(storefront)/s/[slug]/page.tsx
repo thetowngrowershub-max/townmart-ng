@@ -21,7 +21,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { listingQuestions } from "@/lib/questions/questions";
 import {
-  getLgaNames,
   getListingReviews,
   getPortfolio,
   getListingRules,
@@ -69,7 +68,7 @@ const LOCATION_TEXT = {
 export default async function ServicePage({ params }: Props) {
   const s = await getPublicService((await params).slug);
   if (!s) notFound();
-  const [lgas, reviews, viewer, jobPhotos] = await Promise.all([getLgaNames(s.serviceLgaIds), getListingReviews({ serviceId: s.id }), getCurrentUser(), getPortfolio(s.businessId, 8)]);
+  const [reviews, viewer, jobPhotos] = await Promise.all([getListingReviews({ serviceId: s.id }), getCurrentUser(), getPortfolio(s.businessId, 8)]);
   const questions = await listingQuestions({ serviceId: s.id }, viewer?.id ?? null);
   const saved = await isSaved(viewer?.id, { serviceId: s.id });
   const now = new Date();
@@ -327,26 +326,11 @@ export default async function ServicePage({ params }: Props) {
               <CardTitle>Service area</CardTitle>
             </CardHeader>
             <CardContent className="text-sm">
-              {s.locationMode === "at_provider" ? (
-                <p>
-                  Based in {s.business.lga.name}, {s.business.state.name}.
-                </p>
-              ) : (
-                <>
-                  {lgas.length > 0 && (
-                    <p>
-                      {lgas
-                        .map((l) => `${l.name} (${l.state.name})`)
-                        .join(", ")}
-                    </p>
-                  )}
-                  {s.radiusKm && (
-                    <p className="mt-1">
-                      Within {s.radiusKm} km of {s.business.city}.
-                    </p>
-                  )}
-                </>
-              )}
+              {/* Providers are locked to the LGA they're registered in. */}
+              <p>
+                {s.locationMode === "at_provider" ? "Based in" : "Works only in"} {s.business.city}, {s.business.lga.name}, {s.business.state.name}.
+              </p>
+              {s.locationMode !== "at_provider" && s.radiusKm && <p className="mt-1">Travels up to {s.radiusKm} km from their base.</p>}
             </CardContent>
           </Card>
         </div>

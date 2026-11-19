@@ -7,6 +7,7 @@ import { CartLine } from "@/components/cart/cart-line";
 import {
   AddressFields,
   EMPTY_ADDRESS,
+  emptyAddressFor,
   type StateOption,
 } from "@/components/checkout/address-fields";
 import { OrderSummary } from "@/components/cart/order-summary";
@@ -52,7 +53,7 @@ export function CheckoutForm({
     savedAddresses[0]?.id ?? "new",
   );
   const [address, setAddress] = useState<typeof EMPTY_ADDRESS>({
-    ...EMPTY_ADDRESS,
+    ...emptyAddressFor(states),
     recipientName: account?.name ?? "",
   });
   const [saveAddress, setSaveAddress] = useState(true);

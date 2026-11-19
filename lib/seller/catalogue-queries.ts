@@ -167,10 +167,11 @@ export function serviceToFormValues(s: ServiceForEdit): ServiceFormValues {
   };
 }
 
-export async function lgaGroups(tx: Tx) {
-  const states = await tx.state.findMany({
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, lgas: { orderBy: { name: "asc" }, select: { id: true, name: true } } },
+/** Where a business is registered. Its services cover this LGA only: providers are locked to their own area. */
+export async function homeArea(tx: Tx, businessId: string) {
+  const b = await tx.business.findUniqueOrThrow({
+    where: { id: businessId },
+    select: { lgaId: true, city: true, lga: { select: { name: true } }, state: { select: { name: true } } },
   });
-  return states.map((s) => ({ stateId: s.id, stateName: s.name, lgas: s.lgas }));
+  return { lgaId: b.lgaId, city: b.city, lgaName: b.lga.name, stateName: b.state.name };
 }
