@@ -74,3 +74,43 @@ export async function roadDistance(shop: LatLng, customer: LatLng, roadFactor: n
   await withTimeout(redis.set(key, String(metres), "EX", CACHE_TTL_S), CACHE_TIMEOUT_MS);
   return { metres, method: "road" };
 }
+
+export type MapsCheck = { configured: boolean; ok: boolean; metres?: number; error?: string };
+
+/**
+ * Test-mode health check: one real Routes call between two fixed Mowe points,
+ * kept for an hour so refreshing /api/health costs at most 24 calls a day.
+ * Reports Google's own error text (never the key) when the call fails.
+ */
+export async function checkGoogleRoutes(): Promise<MapsCheck> {
+  const apiKey = env().GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return { configured: false, ok: false };
+  const key = "geo:health:v1";
+  const cached = await withTimeout(redis.get(key), CACHE_TIMEOUT_MS);
+  if (cached) return JSON.parse(cached) as MapsCheck;
+  const result = await probe(apiKey);
+  await withTimeout(redis.set(key, JSON.stringify(result), "EX", result.ok ? 3600 : 120), CACHE_TIMEOUT_MS);
+  return result;
+}
+
+async function probe(apiKey: string): Promise<MapsCheck> {
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+      headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "routes.distanceMeters" },
+      body: JSON.stringify({
+        origin: { location: { latLng: { latitude: 6.809, longitude: 3.437 } } },
+        destination: { location: { latLng: { latitude: 6.83, longitude: 3.46 } } },
+        travelMode: "DRIVE",
+        routingPreference: "TRAFFIC_UNAWARE",
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { routes?: { distanceMeters?: number }[]; error?: { status?: string; message?: string } };
+    if (!res.ok) return { configured: true, ok: false, error: `${res.status} ${body.error?.status ?? ""} ${body.error?.message ?? ""}`.trim().slice(0, 300).replaceAll(apiKey, "***") };
+    const m = body.routes?.[0]?.distanceMeters;
+    return typeof m === "number" ? { configured: true, ok: true, metres: m } : { configured: true, ok: false, error: "Google answered with no route" };
+  } catch (err) {
+    return { configured: true, ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
