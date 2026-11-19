@@ -49,8 +49,8 @@ const pct = (xs: number[], p: number) => xs.sort((x, y) => x - y)[Math.min(xs.le
 
 async function setup() {
   return withSystemContext(async (tx) => {
-    const state = await tx.state.findUniqueOrThrow({ where: { code: "LA" } });
-    const lga = await tx.lga.findFirstOrThrow({ where: { stateId: state.id, slug: "ikeja" } });
+    const state = await tx.state.findUniqueOrThrow({ where: { code: "OG" } });
+    const lga = await tx.lga.findFirstOrThrow({ where: { stateId: state.id, slug: "obafemi-owode" } });
     const category = await tx.category.findFirstOrThrow({ where: { kind: "product", isActive: true, parentId: { not: null } } });
     const owner = await tx.user.create({ data: { email: `${tag}@test.townmart.local`, name: "Load test seller", roles: { create: [{ role: "customer" }, { role: "merchant" }] } } });
     const business = await tx.business.create({
@@ -63,7 +63,7 @@ async function setup() {
         phoneEncrypted: "v1.k1.load.load.load",
         phoneHash: tag,
         addressEncrypted: "v1.k1.load.load.load",
-        city: "Ikeja",
+        city: "Mowe",
         stateId: state.id,
         lgaId: lga.id,
         status: "approved",
