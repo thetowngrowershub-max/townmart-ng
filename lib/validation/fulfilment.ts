@@ -44,3 +44,10 @@ export const reviewSchema = z.object({
 });
 export const reviewReplySchema = z.object({ reviewId: uuid, reply: z.string().trim().min(2, "Write a reply").max(1000) });
 export const reviewReportSchema = z.object({ reviewId: uuid, reason: z.string().trim().min(5, "Tell us what's wrong").max(300) });
+
+/** The rider's job link (lib/fulfilment/rider-job.ts): 34 URL-safe characters. */
+const riderToken = z.string().regex(/^[A-Za-z0-9_-]{34}$/, "This job link isn't valid.");
+export const riderTokenSchema = z.object({ token: riderToken });
+export const riderDeliveredSchema = z.object({ token: riderToken, code: z.string().trim().regex(/^\d{4}$/, "Enter the 4-digit code") });
+export const riderMessageSchema = z.object({ token: riderToken, body: z.string().trim().min(1, "Write a message").max(500, "Keep it under 500 characters") });
+export const riderLocationSchema = z.object({ token: riderToken, lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });

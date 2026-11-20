@@ -1752,17 +1752,22 @@ enum MessageSender {
   customer
   seller
   system
+  // The shop's rider, writing from their job link (no account).
+  rider
 
   @@map("message_sender")
 }
 
-/// One conversation per seller order, between the customer and the seller.
+/// One conversation per seller order, between the customer, the seller and
+/// (once one is assigned) the seller's rider.
 model Message {
   id            String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   sellerOrderId String        @map("seller_order_id") @db.Uuid
   businessId    String        @map("business_id") @db.Uuid
   senderUserId  String?       @map("sender_user_id") @db.Uuid
   sender        MessageSender
+  // The rider's name as it was when they wrote (riders have no user account).
+  senderName    String?       @map("sender_name")
   body          String
   // When the other side read it.
   readAt        DateTime?     @map("read_at") @db.Timestamptz(6)

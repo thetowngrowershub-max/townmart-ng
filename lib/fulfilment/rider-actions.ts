@@ -8,6 +8,7 @@ import { encrypt, phoneHash } from "@/lib/crypto";
 import { nearServiceArea } from "@/lib/geo/customer-location";
 import { roundCoord } from "@/lib/geo/distance";
 import { logger } from "@/lib/logger";
+import { enqueueNotice } from "@/lib/queue";
 import { getSellerContext, withSellerRls, type SellerContext } from "@/lib/seller/context";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 import { assignRiderSchema, riderAvailabilitySchema, riderIdSchema, riderSchema, shopLocationSchema, type RiderInput } from "@/lib/validation/riders";
@@ -88,13 +89,14 @@ export async function assignRiderAction(input: { sellerOrderId: string; riderId:
   if (!parsed.success) return validationError(parsed.error);
   try {
     const ctx = await seller("order.manage");
-    await withSellerRls(ctx, (tx) => assignRider(tx, { sellerOrderId: parsed.data.sellerOrderId, businessId: ctx.business.id, riderId: parsed.data.riderId, actorUserId: ctx.user.id }));
+    const r = await withSellerRls(ctx, (tx) => assignRider(tx, { sellerOrderId: parsed.data.sellerOrderId, businessId: ctx.business.id, riderId: parsed.data.riderId, actorUserId: ctx.user.id }));
+    if (r.riderId && r.assignedAt) await enqueueNotice({ type: "rider.assigned", sellerOrderId: parsed.data.sellerOrderId, at: r.assignedAt.getTime() });
   } catch (err) {
     return failure(err);
   }
   revalidatePath(`/dashboard/orders/${parsed.data.sellerOrderId}`);
   revalidatePath("/dashboard/orders");
-  return { ok: true, message: parsed.data.riderId ? "Rider assigned." : "Rider removed from this order." };
+  return { ok: true, message: parsed.data.riderId ? "Rider assigned. We've texted them the job and sent the customer their details." : "Rider removed from this order." };
 }
 
 /** The shop's pickup point, from the seller's phone while they're at the shop. */
