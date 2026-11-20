@@ -12,7 +12,7 @@ import { storage } from "./index";
  * Nothing a browser uploads is ever served without passing through step 3.
  */
 
-export const IMAGE_PURPOSES = ["product", "service", "logo", "banner", "review"] as const;
+export const IMAGE_PURPOSES = ["product", "service", "logo", "banner", "review", "portfolio"] as const;
 export type ImagePurpose = (typeof IMAGE_PURPOSES)[number];
 
 export const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -29,6 +29,7 @@ const IMAGE_LIMITS: Record<ImagePurpose, { width: number; height: number }> = {
   logo: { width: 512, height: 512 },
   banner: { width: 2400, height: 800 },
   review: { width: 1600, height: 1600 },
+  portfolio: { width: 1600, height: 1600 },
 };
 
 export class UploadError extends Error {}

@@ -5,18 +5,23 @@ export type MessageView = { id: string; mine: boolean; author: string; body: str
 
 /**
  * The conversation on one seller order, oldest first, from one side's point
- * of view. Marks the other side's messages as read. `tx` is the viewer's own
+ * of view (customer, seller or the shop's rider). Marks the other sides'
+ * messages as read, except for the rider. `tx` is the viewer's own
  * scope (seller RLS, the customer's RLS, or the system scope for a guest
  * already checked by their order link).
  */
-export async function loadConversation(tx: Tx, p: { sellerOrderId: string; viewer: "seller" | "customer"; sellerName: string; customerName: string }): Promise<MessageView[]> {
+export async function loadConversation(tx: Tx, p: { sellerOrderId: string; viewer: "seller" | "customer" | "rider"; sellerName: string; customerName: string }): Promise<MessageView[]> {
   const rows = await tx.message.findMany({ where: { sellerOrderId: p.sellerOrderId }, orderBy: { createdAt: "asc" }, take: 200 });
-  const unread = rows.filter((m) => m.sender !== p.viewer && m.readAt === null).map((m) => m.id);
-  if (unread.length) await tx.message.updateMany({ where: { id: { in: unread } }, data: { readAt: new Date() } });
+  // "Read" means read by the shop or the customer. The rider looking doesn't
+  // count, or the shop would miss the customer's messages.
+  if (p.viewer !== "rider") {
+    const unread = rows.filter((m) => m.sender !== p.viewer && m.readAt === null).map((m) => m.id);
+    if (unread.length) await tx.message.updateMany({ where: { id: { in: unread } }, data: { readAt: new Date() } });
+  }
   return rows.map((m) => ({
     id: m.id,
     mine: m.sender === p.viewer,
-    author: m.sender === "seller" ? p.sellerName : m.sender === "customer" ? p.customerName : "TownMart",
+    author: m.sender === "seller" ? p.sellerName : m.sender === "customer" ? p.customerName : m.sender === "rider" ? `${m.senderName ?? "Rider"} (rider)` : "TownMart",
     body: m.body,
     at: formatDateTime(m.createdAt),
     read: m.readAt !== null,
@@ -38,7 +43,7 @@ export async function sellerInbox(tx: Tx, businessId: string, take = 50): Promis
   const [orders, lasts, unread] = await Promise.all([
     tx.sellerOrder.findMany({ where: { id: { in: ids }, businessId }, select: { id: true, orderNumber: true, fulfilmentContact: true } }),
     tx.message.findMany({ where: { sellerOrderId: { in: ids }, businessId }, orderBy: { createdAt: "desc" }, distinct: ["sellerOrderId"], select: { sellerOrderId: true, body: true, sender: true, createdAt: true } }),
-    tx.message.groupBy({ by: ["sellerOrderId"], where: { sellerOrderId: { in: ids }, businessId, sender: "customer", readAt: null }, _count: true }),
+    tx.message.groupBy({ by: ["sellerOrderId"], where: { sellerOrderId: { in: ids }, businessId, sender: { in: ["customer", "rider"] }, readAt: null }, _count: true }),
   ]);
   return latest.flatMap((l) => {
     const so = orders.find((o) => o.id === l.seller_order_id);
@@ -50,7 +55,7 @@ export async function sellerInbox(tx: Tx, businessId: string, take = 50): Promis
         orderNumber: so.orderNumber,
         customer: (so.fulfilmentContact as { name?: string } | null)?.name ?? "Customer",
         last: m.body.length > 120 ? `${m.body.slice(0, 120)}…` : m.body,
-        lastFrom: m.sender === "customer" ? ("customer" as const) : ("seller" as const),
+        lastFrom: m.sender === "seller" || m.sender === "system" ? ("seller" as const) : ("customer" as const),
         at: formatDateTime(m.createdAt),
         unread: unread.find((u) => u.sellerOrderId === so.id)?._count ?? 0,
       },

@@ -15,7 +15,7 @@ export default async function NewCategoryPage() {
       <PageHeader title="New category" />
       <Card>
         <CardContent className="pt-6">
-          <CategoryForm initial={{ name: "", slug: "", kind: "product", parentId: "", icon: "", sortOrder: "0", isActive: true }} parents={parents} />
+          <CategoryForm initial={{ name: "", slug: "", kind: "product", parentId: "", icon: "", sortOrder: "0", isActive: true, isFood: false }} parents={parents} />
         </CardContent>
       </Card>
     </>

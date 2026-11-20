@@ -24,6 +24,11 @@ export const signUpSchema = z.object({
   password: passwordSchema,
   acceptTerms: z.literal(true, { error: "Please accept the Terms of Use and Privacy Policy" }),
   marketingEmail: z.boolean().default(false),
+  // Optional: we text it a code, so the customer can sign in with their phone too.
+  phone: z
+    .union([z.literal(""), nigerianPhone])
+    .optional()
+    .transform((v) => v || undefined),
   turnstileToken: z.string().optional(),
 });
 export type SignUpInput = z.input<typeof signUpSchema>;

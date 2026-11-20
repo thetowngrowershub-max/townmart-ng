@@ -6,6 +6,9 @@ import { decrypt, encrypt, lookupHash, sha256 } from "@/lib/crypto";
 import type { Tx } from "@/lib/db";
 import { recordAcceptances } from "@/lib/legal/documents";
 import { formatPrice } from "@/lib/money";
+import { checkServiceArea } from "@/lib/service-area-db";
+import { loadDestination } from "@/lib/checkout/destination";
+import type { CustomerPoint } from "@/lib/geo/distance";
 import type { CheckoutData } from "@/lib/validation/checkout";
 import { recordStatus } from "./status";
 
@@ -29,6 +32,8 @@ export type ShippingSnapshot = {
   stateName: string;
   lgaId: number;
   lgaName: string;
+  /** The drop-off on the map and where it came from (GPS, a pinned address, or the town centre). */
+  point?: CustomerPoint | null;
 };
 
 /**
@@ -41,6 +46,8 @@ export type FulfilmentContact = {
   name: string;
   phoneEncrypted: string;
   address: { line1Encrypted: string; line2Encrypted: string | null; landmark: string | null; city: string; lgaName: string; stateName: string } | null;
+  /** The drop-off on the map, for the rider's directions (delivery only). */
+  point?: CustomerPoint | null;
 };
 
 /** Where a booking happens. */
@@ -132,10 +139,23 @@ export async function placeOrder(
   if (!email) throw new OrderError("Enter your email address for the receipt.");
 
   const address = await resolveAddress(tx, data, userId);
+  // Orders and bookings are only delivered or done inside the service area (lib/service-area.ts).
+  const place = await checkServiceArea(tx, address.snapshot);
+  if (!place.ok) throw new OrderError(place.error);
+  address.snapshot.city = place.city;
+  const { destination } = await loadDestination(tx, {
+    userId,
+    addressId: data.addressId || null,
+    stateId: address.snapshot.stateId,
+    lgaId: address.snapshot.lgaId,
+    gps: data.gps ?? null,
+  });
+  const point = destination?.point ?? null;
+  address.snapshot.point = point;
   const c: CheckoutComputation = await computeCheckout(tx, {
     cartId: params.cartId,
     userId,
-    address: { stateId: address.snapshot.stateId, lgaId: address.snapshot.lgaId },
+    address: { stateId: address.snapshot.stateId, lgaId: address.snapshot.lgaId, point },
     methods: data.methods,
   });
   if (c.blockers.length) {
@@ -217,6 +237,7 @@ export async function placeOrder(
       name: address.recipientName,
       phoneEncrypted: a.phoneEncrypted,
       address: needsAddress ? { line1Encrypted: a.line1Encrypted, line2Encrypted: a.line2Encrypted, landmark: a.landmark, city: a.city, lgaName: a.lgaName, stateName: a.stateName } : null,
+      point: s.method === "delivery" ? (point ?? null) : null,
     };
     const so = await tx.sellerOrder.create({
       data: {
@@ -236,6 +257,7 @@ export async function placeOrder(
         fulfilmentContact: contact,
         etaDaysMin: s.method === "delivery" ? (s.delivery?.etaDaysMin ?? null) : null,
         etaDaysMax: s.method === "delivery" ? (s.delivery?.etaDaysMax ?? null) : null,
+        deliveryDistanceM: s.method === "delivery" ? (s.delivery?.distance?.metres ?? null) : null,
       },
     });
     sellerOrderIds.set(sq.businessId, so.id);
@@ -359,9 +381,15 @@ export async function placeOrder(
         city: n.city,
         stateId: n.stateId,
         lgaId: n.lgaId,
+        latitude: point?.source === "gps" ? point.lat : null,
+        longitude: point?.source === "gps" ? point.lng : null,
         isDefault: count === 0,
       },
     });
+  }
+  // "I'm at this address": remember the pin for next time.
+  if (data.addressId && userId && point?.source === "gps") {
+    await tx.address.updateMany({ where: { id: data.addressId, userId }, data: { latitude: point.lat, longitude: point.lng } });
   }
 
   // The ordered items leave the cart; saved-for-later items stay.

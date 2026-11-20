@@ -75,9 +75,10 @@ export async function shopperKit(prisma: PrismaClient, userId: string) {
       { timeout: 60_000 },
     );
 
-  const state = await prisma.state.findUniqueOrThrow({ where: { code: "LA" } });
+  // Inside the service area (lib/service-area.ts): Mowe, Obafemi-Owode, Ogun State.
+  const state = await prisma.state.findUniqueOrThrow({ where: { code: "OG" } });
   const lga = await prisma.lga.findFirstOrThrow({
-    where: { stateId: state.id, slug: "ikeja" },
+    where: { stateId: state.id, slug: "obafemi-owode" },
   });
   const address = {
     recipientName: NAME,
@@ -85,7 +86,7 @@ export async function shopperKit(prisma: PrismaClient, userId: string) {
     line1: "14 Toyin Street",
     line2: "",
     landmark: "the Mobil filling station",
-    city: "Ikeja",
+    city: "Mowe",
     stateId: state.id,
     lgaId: lga.id,
   };
@@ -204,7 +205,7 @@ export async function seedDemoOrders(prisma: PrismaClient) {
       phoneEncrypted: encrypt(address.phone),
       line1Encrypted: encrypt(address.line1),
       landmark: address.landmark,
-      city: "Ikeja",
+      city: address.city,
       stateId: state.id,
       lgaId: lga.id,
       isDefault: true,

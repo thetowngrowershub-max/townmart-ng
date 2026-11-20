@@ -26,7 +26,7 @@ type Option = { id: string; name: string };
 
 // ─── Categories ─────────────────────────────────────────────────────────────
 
-export type CategoryValues = { id?: string; name: string; slug: string; kind: "product" | "service"; parentId: string; icon: string; sortOrder: string; isActive: boolean };
+export type CategoryValues = { id?: string; name: string; slug: string; kind: "product" | "service"; parentId: string; icon: string; sortOrder: string; isActive: boolean; isFood: boolean };
 
 export function CategoryForm({ initial, parents }: { initial: CategoryValues; parents: (Option & { kind: string })[] }) {
   const router = useRouter();
@@ -78,6 +78,15 @@ export function CategoryForm({ initial, parents }: { initial: CategoryValues; pa
         </FormField>
       </div>
       <Checkbox id="cat-active" label="Shown to shoppers and sellers" hint="Hidden categories keep their listings, but sellers can't choose them for new ones." checked={v.isActive} onChange={(e) => set("isActive", e.target.checked)} />
+      {v.kind === "product" && (
+        <Checkbox
+          id="cat-food"
+          label="Food made to order"
+          hint="For restaurants and bakeries: listings show a prep time and can be ordered only while the seller is open. Subcategories of a food category are always food."
+          checked={v.isFood}
+          onChange={(e) => set("isFood", e.target.checked)}
+        />
+      )}
       <Button type="submit" className="self-start" disabled={pending}>
         {pending ? "Saving…" : v.id ? "Save category" : "Create category"}
       </Button>

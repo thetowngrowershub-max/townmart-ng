@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useFieldArray, useWatch } from "react-hook-form";
 import { useActionForm } from "@/components/auth/use-action-form";
 import { RichTextEditor } from "@/components/editor/rich-text-editor";
+import { MealBuilderEditor } from "@/components/seller/meal-builder-editor";
 import { ImageGalleryInput, type GalleryImage } from "@/components/uploads/image-gallery-input";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ import type { AttributeDef } from "@/lib/catalogue/attributes";
 import { UNITS } from "@/lib/catalogue/units";
 import { productInputSchema, type ProductInput } from "@/lib/validation/catalogue";
 
-export type CategoryOption = { id: string; name: string; children: { id: string; name: string }[] };
+export type CategoryOption = { id: string; name: string; isFood?: boolean; children: { id: string; name: string; isFood?: boolean }[] };
 export type ProductFormValues = Omit<ProductInput, "images"> & { images: GalleryImage[] };
 
 const emptyToUndefined = (v: unknown) => (v === "" || v === null ? undefined : v);
@@ -105,6 +106,7 @@ export function ProductForm({
 
   const categoryId = useWatch({ control: form.control, name: "categoryId" });
   const defs = attributeDefs[categoryId ?? ""] ?? [];
+  const isFood = categories.some((c) => (c.id === categoryId && c.isFood) || c.children.some((s) => s.id === categoryId && s.isFood));
   const attributeErrors = (errors.attributes ?? {}) as Record<string, { message?: string } | undefined>;
   const categoryError = errors.categoryId?.message;
   const optionNames = (optionValues ?? []).map((o) => o.name).filter(Boolean);
@@ -345,6 +347,35 @@ export function ProductForm({
           <Checkbox id="allowBackorder" label="Allow orders when out of stock" hint="Only if you can restock quickly." {...form.register("allowBackorder")} />
         </CardContent>
       </Card>
+
+      {isFood && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Food details</CardTitle>
+            <CardDescription>Shoppers see how long it takes to prepare. They can order only while your store is open (Store settings → Opening hours).</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5">
+            <FormField id="prepTimeMinutes" label="Preparation time (minutes)" hint="From order to ready for the rider or for pickup, e.g. 20." error={errors.prepTimeMinutes?.message}>
+              <Input inputMode="numeric" className="max-w-32" {...form.register("prepTimeMinutes", { setValueAs: emptyToUndefined })} />
+            </FormField>
+            <p className="text-xs text-muted-foreground">
+              Tip: for dishes you cook fresh, turn off &quot;Track stock&quot; above, or set today&apos;s portions as stock and update it each morning. Use options for sizes and extras, e.g. Portion: Regular, Large.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isFood && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Meal builder (optional)</CardTitle>
+            <CardDescription>Customers choose what goes on the plate before they add it to the cart, and pay for each thing they choose.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MealBuilderEditor form={form as unknown as Parameters<typeof MealBuilderEditor>[0]["form"]} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

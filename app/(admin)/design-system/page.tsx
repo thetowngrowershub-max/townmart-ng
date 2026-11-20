@@ -21,6 +21,8 @@ const COLOR_TOKENS = [
   ["primary-soft", "primary"],
   ["accent", "accent-foreground"],
   ["accent-soft", "accent-foreground"],
+  ["card", "accent-strong"],
+  ["card", "brand-teal"],
   ["secondary", "secondary-foreground"],
   ["muted", "muted-foreground"],
   ["success", "success-foreground"],
@@ -52,7 +54,7 @@ export default async function DesignSystemPage() {
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {COLOR_TOKENS.map(([bg, fg]) => (
               <li
-                key={bg}
+                key={`${bg}-${fg}`}
                 className="flex h-24 flex-col justify-end rounded-2xl border p-3 text-sm"
                 style={{ background: `var(--${bg})`, color: `var(--${fg})` }}
               >

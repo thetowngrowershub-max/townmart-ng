@@ -16,17 +16,20 @@ export function PhoneCodeFlow({
   verify,
   submitLabel,
   initialPhone = "",
+  initialSentMessage,
   onVerified,
 }: {
   send: (input: { phone: string }) => Promise<ActionResult>;
   verify: (input: { phone: string; code: string }) => Promise<ActionResult>;
   submitLabel: string;
   initialPhone?: string;
+  /** A code was already texted to initialPhone (at sign-up): start at the code step. */
+  initialSentMessage?: string;
   onVerified?: () => void;
 }) {
   const [phone, setPhone] = useState(initialPhone);
   const [code, setCode] = useState("");
-  const [sent, setSent] = useState<ActionResult | null>(null);
+  const [sent, setSent] = useState<ActionResult | null>(initialSentMessage ? { ok: true, message: initialSentMessage } : null);
   const [verified, setVerified] = useState<ActionResult | null>(null);
   const [pending, start] = useTransition();
   const codeSent = sent?.ok === true;

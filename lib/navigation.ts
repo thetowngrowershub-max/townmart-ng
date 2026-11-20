@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Bike,
   Activity,
   BadgePercent,
   BarChart3,
@@ -10,6 +11,7 @@ import {
   FileText,
   Gavel,
   Heart,
+  Images,
   LayoutDashboard,
   MapPin,
   MessageCircleQuestion,
@@ -55,8 +57,10 @@ export const dashboardNav: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, phase: 0 },
   { href: "/dashboard/products", label: "Products", icon: Package, phase: 1 },
   { href: "/dashboard/services", label: "Services", icon: Wrench, phase: 1 },
+  { href: "/dashboard/portfolio", label: "Job photos", icon: Images, phase: 1 },
   { href: "/dashboard/promotions", label: "Promotions", icon: BadgePercent, phase: 2 },
   { href: "/dashboard/orders", label: "Orders", icon: ClipboardList, phase: 4 },
+  { href: "/dashboard/riders", label: "Riders", icon: Bike, phase: 4 },
   { href: "/dashboard/bookings", label: "Bookings", icon: CalendarCheck, phase: 4 },
   { href: "/dashboard/refunds", label: "Refunds & disputes", icon: RotateCcw, phase: 5 },
   { href: "/dashboard/payouts", label: "Payouts", icon: Wallet, phase: 5 },
@@ -65,6 +69,7 @@ export const dashboardNav: NavItem[] = [
   { href: "/dashboard/messages", label: "Messages", icon: MessageSquare, phase: 4 },
   { href: "/dashboard/staff", label: "Staff", icon: Users, phase: 7 },
   { href: "/dashboard/settings", label: "Store settings", icon: Store, phase: 1 },
+  { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
 ];
 
 export const adminNav: NavItem[] = [
@@ -72,6 +77,7 @@ export const adminNav: NavItem[] = [
   { href: "/admin/sellers", label: "Seller approvals", icon: Store, phase: 1 },
   { href: "/admin/moderation", label: "Moderation", icon: Gavel, phase: 7 },
   { href: "/admin/orders", label: "Orders & disputes", icon: ClipboardList, phase: 5 },
+  { href: "/admin/deliveries", label: "Deliveries", icon: Bike, phase: 5 },
   { href: "/admin/payouts", label: "Refunds & payouts", icon: Wallet, phase: 5 },
   { href: "/admin/catalogue", label: "Catalogue & fees", icon: Tags, phase: 7 },
   { href: "/admin/content", label: "Content (CMS)", icon: FileText, phase: 7 },
@@ -80,10 +86,13 @@ export const adminNav: NavItem[] = [
   { href: "/admin/users", label: "Users & roles", icon: Users, phase: 7 },
   { href: "/admin/system", label: "System health", icon: Activity, phase: 7 },
   { href: "/design-system", label: "Design system", icon: Palette, phase: 0 },
+  { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
 ];
 
 export const storefrontCategories = [
   { slug: "groceries", label: "Groceries", emoji: "🛒" },
+  { slug: "restaurants", label: "Restaurants", emoji: "🍲" },
+  { slug: "confectionery", label: "Confectionery", emoji: "🎂" },
   { slug: "fashion", label: "Fashion", emoji: "👗" },
   { slug: "electronics", label: "Electronics", emoji: "📱" },
   { slug: "home", label: "Home", emoji: "🛋️" },

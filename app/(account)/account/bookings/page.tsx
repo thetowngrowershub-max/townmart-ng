@@ -64,7 +64,7 @@ export default async function MyBookingsPage({ searchParams }: { searchParams: P
                     </Button>
                     {b.canReview && (
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/account/reviews/new?item=${b.orderItemId}`}>Write a review</Link>
+                        <Link href={`/account/reviews/new?item=${b.orderItemId}`}>Rate my service</Link>
                       </Button>
                     )}
                   </div>

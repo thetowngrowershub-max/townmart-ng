@@ -39,7 +39,7 @@ export default async function EditCategoryPage({ params }: { params: Promise<{ i
           </CardHeader>
           <CardContent>
             <CategoryForm
-              initial={{ id: c.id, name: c.name, slug: c.slug, kind: c.kind, parentId: c.parentId ?? "", icon: c.icon ?? "", sortOrder: String(c.sortOrder), isActive: c.isActive }}
+              initial={{ id: c.id, name: c.name, slug: c.slug, kind: c.kind, parentId: c.parentId ?? "", icon: c.icon ?? "", sortOrder: String(c.sortOrder), isActive: c.isActive, isFood: c.isFood }}
               parents={data.parents}
             />
           </CardContent>

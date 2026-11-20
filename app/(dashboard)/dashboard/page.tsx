@@ -1,5 +1,6 @@
 import { AlertTriangle, CalendarCheck, ClipboardList, Package, Plus, Star, Store, TrendingUp, Wallet, Wrench } from "lucide-react";
 import Link from "next/link";
+import { TwoFactorNudge } from "@/components/account/two-factor-nudge";
 import { PageHeader } from "@/components/layout/app-shell";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { SalesChart } from "@/components/seller/sales-chart";
@@ -22,7 +23,7 @@ const STATUS_NOTE: Record<string, { variant: "info" | "warning" | "danger" | "su
 };
 
 export default async function DashboardPage() {
-  await requirePermission("dashboard.access", "/dashboard");
+  const user = await requirePermission("dashboard.access", "/dashboard");
   const ctx = await getSellerContext();
   if (!ctx) {
     return (
@@ -111,26 +112,27 @@ export default async function DashboardPage() {
           </div>
         }
       />
+      <TwoFactorNudge userId={user.id} who="seller" />
       <div className="flex flex-col gap-6">
         {note && (
           <Alert variant={note.variant}>
             {note.text} {note.link && <Link href={note.link.href}>{note.link.label}</Link>}
           </Alert>
         )}
-        <ul className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <ul className="grid grid-cols-1 gap-4 min-[400px]:grid-cols-2 lg:grid-cols-3">
           {kpiCards.map(({ label, value, sub, icon: Icon, href }) => {
             const body = (
-              <Card className="h-full p-5">
+              <Card className="h-full min-w-0 p-4 sm:p-5">
                 <Icon className="size-5 text-primary" aria-hidden />
                 <p className="mt-2 text-sm text-muted-foreground">{label}</p>
-                <p className="mt-1 font-heading text-2xl font-bold tabular-nums">{value}</p>
+                <p className="mt-1 font-heading text-xl font-bold tabular-nums [overflow-wrap:anywhere] sm:text-2xl">{value}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
               </Card>
             );
             return <li key={label}>{href ? <Link href={href} className="block h-full rounded-2xl hover:ring-2 hover:ring-primary/30">{body}</Link> : body}</li>;
           })}
         </ul>
-        <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <Card>
             <CardHeader>
               <CardTitle>Earnings, last 14 days</CardTitle>
@@ -167,7 +169,7 @@ export default async function DashboardPage() {
         <ul className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {cards.map(({ label, value, icon: Icon, href }) => {
             const body = (
-              <Card className="h-full p-5">
+              <Card className="h-full min-w-0 p-4 sm:p-5">
                 <Icon className="size-5 text-primary" aria-hidden />
                 <p className="mt-2 text-sm text-muted-foreground">{label}</p>
                 <p className="mt-1 font-heading text-2xl font-bold">{value}</p>
