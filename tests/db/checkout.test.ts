@@ -469,3 +469,59 @@ describe("food from restaurants and bakeries", () => {
     await asSystem((tx) => tx.storePolicy.update({ where: { businessId: a.businessId }, data: { openingHours: Prisma.DbNull, ordersPaused: false } }));
   });
 });
+
+describe("build-your-plate meals", () => {
+  it("prices each plate from its choices, keeps different plates apart and records them on the order", async () => {
+    const kitchen = await createSeller("co-plate", { priceKobo: 20_000n, stock: 0, payOnDelivery: true });
+    const foodCategory = await owner.category.findFirstOrThrow({ where: { isFood: true, parentId: { not: null } }, select: { id: true } });
+    const mealBuilder = {
+      groups: [
+        { key: "meal", name: "Meal", min: 1, max: 2, withSwallow: false, items: [{ key: "amala", name: "Amala", priceKobo: 30_000, unit: "wrap", maxQty: 6, defaultQty: 2, swallow: true, available: true }, { key: "rice", name: "Jollof rice", priceKobo: 150_000, unit: "portion", maxQty: 2, defaultQty: 1, swallow: false, available: true }] },
+        { key: "soup", name: "Soup", min: 1, max: 1, withSwallow: true, items: [{ key: "ewedu", name: "Ewedu", priceKobo: 50_000, unit: "portion", maxQty: 1, defaultQty: 1, swallow: false, available: true }] },
+        { key: "protein", name: "Protein", min: 1, max: 2, withSwallow: false, items: [{ key: "beef", name: "Beef", priceKobo: 50_000, unit: "piece", maxQty: 4, defaultQty: 1, swallow: false, available: true }] },
+      ],
+    };
+    await asSystem((tx) => tx.product.update({ where: { id: kitchen.productId }, data: { categoryId: foodCategory.id, trackInventory: false, mealBuilder } }));
+    const swallowPlate = { meal: { amala: 3 }, soup: { ewedu: 1 }, protein: { beef: 2 } };
+    const ricePlate = { meal: { rice: 1 }, protein: { beef: 1 } };
+    const cart = await owner.cart.create({
+      data: {
+        guestTokenHash: `test-${randomUUID()}`,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        items: {
+          create: [
+            { variantId: kitchen.variantId, businessId: kitchen.businessId, qty: 2, choices: swallowPlate, choicesKey: "swallow" },
+            { variantId: kitchen.variantId, businessId: kitchen.businessId, qty: 1, choices: ricePlate, choicesKey: "rice" },
+          ],
+        },
+      },
+    });
+    carts.push(cart.id);
+    const { stateId, lgaId } = await lagosIkeja();
+    const c = await withSystemContext((tx) => computeCheckout(tx, { cartId: cart.id, userId: null, address: { stateId, lgaId }, now: new Date("2026-11-17T11:00:00Z") }));
+    const byTitle = c.lines.map((l) => [l.unitPriceKobo, l.optionValues, l.problem]).sort((x, y) => (x[0]! > y[0]! ? -1 : 1));
+    // Pack 200 + 3 wraps × 300 + ewedu 500 + 2 × beef 500 = 2,600; pack 200 + rice 1,500 + beef 500 = 2,200.
+    expect(byTitle).toEqual([
+      [260_000n, { Meal: "Amala × 3 wraps", Soup: "Ewedu", Protein: "Beef × 2 pieces" }, null],
+      [220_000n, { Meal: "Jollof rice", Protein: "Beef" }, null],
+    ]);
+    expect(c.priced.lines.reduce((s, l) => s + l.subtotalKobo, 0n)).toBe(2n * 260_000n + 220_000n);
+
+    const placed = await order(cart.id);
+    const items = await owner.orderItem.findMany({ where: { sellerOrder: { orderId: placed.orderId } }, orderBy: { unitPriceKobo: "desc" } });
+    expect(items.map((i) => [i.unitPriceKobo, (i.snapshot as { options: unknown }).options])).toEqual([
+      [260_000n, { Meal: "Amala × 3 wraps", Soup: "Ewedu", Protein: "Beef × 2 pieces" }],
+      [220_000n, { Meal: "Jollof rice", Protein: "Beef" }],
+    ]);
+
+    // A finished item turns the plate into a problem until it's rebuilt.
+    mealBuilder.groups[2]!.items[0]!.available = false;
+    await asSystem((tx) => tx.product.update({ where: { id: kitchen.productId }, data: { mealBuilder } }));
+    const cart2 = await owner.cart.create({
+      data: { guestTokenHash: `test-${randomUUID()}`, expiresAt: new Date(Date.now() + 86_400_000), items: { create: [{ variantId: kitchen.variantId, businessId: kitchen.businessId, qty: 1, choices: ricePlate, choicesKey: "rice" }] } },
+    });
+    carts.push(cart2.id);
+    const c2 = await withSystemContext((tx) => computeCheckout(tx, { cartId: cart2.id, userId: null, address: { stateId, lgaId }, now: new Date("2026-11-17T11:00:00Z") }));
+    expect(c2.lines[0]!.problem).toEqual({ kind: "meal_changed", message: "Beef is finished for today. Please choose something else." });
+  });
+});

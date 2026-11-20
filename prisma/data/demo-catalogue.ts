@@ -1,3 +1,4 @@
+import { NIGERIAN_PLATE_TEMPLATE } from "../../lib/catalogue/meal-builder";
 /**
  * Demo catalogue for local development and review: categories, eight sellers
  * (including a restaurant and a bakery in Mowe),
@@ -169,6 +170,8 @@ export type DemoProduct = {
   prep?: number;
   /** False for dishes cooked to order with no daily limit. */
   trackStock?: boolean;
+  /** Restaurants: build-your-plate steps, as a seller types them in the dashboard. */
+  meal?: typeof NIGERIAN_PLATE_TEMPLATE;
 };
 
 export type DemoService = {
@@ -452,6 +455,18 @@ export const SELLERS: DemoSeller[] = [
       hours: [["12:00", "21:00"], ["08:00", "22:00"], ["08:00", "22:00"], ["08:00", "22:00"], ["08:00", "22:00"], ["08:00", "23:00"], ["09:00", "23:00"]],
     },
     products: [
+      {
+        title: "Build Your Plate",
+        category: "rice-local-dishes",
+        tags: "build your plate, amala, pounded yam, rice, plantain, swallow",
+        price: "200",
+        stock: "0",
+        trackStock: false,
+        prep: 20,
+        description: "Put your own plate together: rice, swallow by the wrap, yam or plantain, with soup, your choice of protein and a drink. ₦200 covers the takeaway pack.",
+        meal: NIGERIAN_PLATE_TEMPLATE,
+        images: 2,
+      },
       { title: "Jollof Rice with Chicken", category: "rice-local-dishes", tags: "jollof, rice, chicken", price: "3500", stock: "60", prep: 20, description: "Smoky party jollof with a quarter fried chicken and fried plantain (dodo).", option: { name: "Portion", values: ["Regular", "Large"], prices: ["3500", "4800"], stock: ["40", "20"] }, images: 2 },
       { title: "Fried Rice with Turkey", category: "rice-local-dishes", tags: "fried rice, turkey", price: "4500", stock: "30", prep: 20, description: "Nigerian fried rice with mixed vegetables, liver and a grilled turkey wing." },
       { title: "Ofada Rice and Ayamase", category: "rice-local-dishes", tags: "ofada, ayamase, designer stew", price: "4000", stock: "25", prep: 25, description: "Local Ofada rice with green pepper ayamase sauce, assorted meat and boiled egg." },

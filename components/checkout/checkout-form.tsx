@@ -23,7 +23,9 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { isNetworkError, useOnline } from "@/components/pwa/use-online";
 import { placeOrderAction, quoteCheckoutAction } from "@/lib/checkout/actions";
+import { STILL_PLACING } from "@/lib/checkout/messages";
 import type { CheckoutView } from "@/lib/checkout/view";
 import { cn } from "@/lib/utils";
 import { UseLocationButton, type Gps } from "@/components/geo/use-location";
@@ -114,6 +116,10 @@ export function CheckoutForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [quoting, startQuote] = useTransition();
   const [placing, startPlace] = useTransition();
+  const [attempt, setAttempt] = useState(1);
+  const online = useOnline();
+  // One key per checkout: a tap sent again on a weak connection can't place a second order.
+  const [checkoutKey] = useState(() => crypto.randomUUID());
   const quoteSeq = useRef(0);
 
   const usingNew = addressId === "new";
@@ -125,17 +131,21 @@ export function CheckoutForm({
   useEffect(() => {
     const seq = ++quoteSeq.current;
     startQuote(async () => {
-      const res = await quoteCheckoutAction(
-        usingNew
-          ? {
-              stateId: Number(address.stateId) || undefined,
-              lgaId: Number(address.lgaId) || undefined,
-              gps,
-              methods,
-            }
-          : { addressId, gps, methods },
-      );
-      if (seq === quoteSeq.current && res.ok && res.data) setView(res.data);
+      try {
+        const res = await quoteCheckoutAction(
+          usingNew
+            ? {
+                stateId: Number(address.stateId) || undefined,
+                lgaId: Number(address.lgaId) || undefined,
+                gps,
+                methods,
+              }
+            : { addressId, gps, methods },
+        );
+        if (seq === quoteSeq.current && res.ok && res.data) setView(res.data);
+      } catch {
+        // No connection: keep the last figures; they are checked again when the order is placed.
+      }
     });
   }, [addressId, usingNew, address.stateId, address.lgaId, methods, gps]);
 
@@ -151,7 +161,12 @@ export function CheckoutForm({
     setFormError(null);
     setErrors({});
     startPlace(async () => {
-      const res = await placeOrderAction({
+      if (!navigator.onLine) {
+        setFormError("You're offline. Your order hasn't been placed. Please try again when you're back online.");
+        return;
+      }
+      setAttempt(1);
+      const res = await placeWithRetry(setAttempt, {
         email: account ? "" : email,
         addressId: usingNew ? "" : addressId,
         address: usingNew
@@ -168,7 +183,14 @@ export function CheckoutForm({
         acceptTerms: acceptTerms as true,
         marketingConsent: marketing,
         expectedTotalKobo: view.totals.totalKobo,
+        checkoutKey,
       });
+      if (!res) {
+        setFormError(
+          "We couldn't reach TownMart to confirm your order. If it went through, it's in My orders and your email, so check there before you pay again. Tapping the button again is safe: it won't place a second order.",
+        );
+        return;
+      }
       if (res.ok && res.data) {
         window.location.assign(res.data.redirectTo);
         return;
@@ -189,8 +211,8 @@ export function CheckoutForm({
                 methods,
               }
             : { addressId, gps, methods },
-        );
-        if (q.ok && q.data) setView(q.data);
+        ).catch(() => null);
+        if (q?.ok && q.data) setView(q.data);
       }
     });
   };
@@ -561,15 +583,24 @@ export function CheckoutForm({
               type="submit"
               size="lg"
               className="w-full"
-              disabled={placing || quoting || !canPay || !acceptTerms}
+              disabled={placing || quoting || !canPay || !acceptTerms || !online}
             >
               <Lock aria-hidden />{" "}
               {placing
-                ? "Placing your order…"
+                ? attempt > 1
+                  ? `Slow connection, still trying (${attempt} of ${RETRY_DELAYS_MS.length + 1})…`
+                  : "Placing your order…"
                 : payment === "pay_on_delivery"
                   ? "Place order"
                   : `Pay ${view.totals.total}`}
             </Button>
+            {!online && (
+              <Alert variant="warning">
+                You&apos;re offline. Checkout needs a connection, because prices,
+                stock and payment are confirmed by TownMart. Your details stay
+                on this page.
+              </Alert>
+            )}
             {!hasDestination && (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <MapPin className="size-4" aria-hidden /> Add your address to
@@ -587,4 +618,29 @@ export function CheckoutForm({
       </aside>
     </form>
   );
+}
+
+/** Waits before each resend when the connection drops or the first try is still running. */
+const RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 15_000];
+
+/**
+ * Places the order, sending the same request again (same checkout key, so at
+ * most one order) when the connection drops. Null when every try failed to
+ * reach TownMart, so the shopper can't tell whether the order went through.
+ */
+async function placeWithRetry(
+  onAttempt: (n: number) => void,
+  input: Parameters<typeof placeOrderAction>[0],
+): Promise<Awaited<ReturnType<typeof placeOrderAction>> | null> {
+  for (let i = 0; ; i++) {
+    try {
+      const res = await placeOrderAction(input);
+      if (res.ok || res.error !== STILL_PLACING) return res;
+    } catch (err) {
+      if (!isNetworkError(err)) throw err;
+    }
+    if (i >= RETRY_DELAYS_MS.length) return null;
+    await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[i]));
+    onAttempt(i + 2);
+  }
 }

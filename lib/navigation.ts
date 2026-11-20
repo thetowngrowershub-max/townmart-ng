@@ -77,6 +77,7 @@ export const adminNav: NavItem[] = [
   { href: "/admin/sellers", label: "Seller approvals", icon: Store, phase: 1 },
   { href: "/admin/moderation", label: "Moderation", icon: Gavel, phase: 7 },
   { href: "/admin/orders", label: "Orders & disputes", icon: ClipboardList, phase: 5 },
+  { href: "/admin/deliveries", label: "Deliveries", icon: Bike, phase: 5 },
   { href: "/admin/payouts", label: "Refunds & payouts", icon: Wallet, phase: 5 },
   { href: "/admin/catalogue", label: "Catalogue & fees", icon: Tags, phase: 7 },
   { href: "/admin/content", label: "Content (CMS)", icon: FileText, phase: 7 },

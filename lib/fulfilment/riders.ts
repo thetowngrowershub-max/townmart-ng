@@ -82,12 +82,13 @@ export async function riderCandidates(tx: Tx, businessId: string, nearbyKm: numb
 /**
  * Puts a rider on a delivery (or takes them off with riderId null) and notes
  * it in the order history. Seller RLS: the rider and order must be the shop's.
- * Returns what changed, for the caller's notifications.
+ * Returns what changed: the caller queues the "rider.assigned" notice with
+ * `assignedAt` (the rider's job link and the customer's code) after commit.
  */
 export async function assignRider(
   tx: Tx,
   p: { sellerOrderId: string; businessId: string; riderId: string | null; actorUserId: string | null },
-): Promise<{ riderId: string | null; previousRiderId: string | null }> {
+): Promise<{ riderId: string | null; previousRiderId: string | null; assignedAt: Date | null }> {
   const so = await tx.sellerOrder.findFirst({
     where: { id: p.sellerOrderId, businessId: p.businessId },
     select: { id: true, status: true, deliveryMethod: true, riderId: true, deliveredAt: true },
@@ -95,7 +96,7 @@ export async function assignRider(
   if (!so) throw new FulfilmentError("Order not found.");
   if (so.deliveryMethod !== "delivery") throw new FulfilmentError("Only delivery orders need a rider.");
   if (!(RIDER_STATUSES as readonly string[]).includes(so.status)) throw new FulfilmentError("This order is past the point of changing its rider.");
-  if (so.riderId === p.riderId) return { riderId: p.riderId, previousRiderId: so.riderId };
+  if (so.riderId === p.riderId) return { riderId: p.riderId, previousRiderId: so.riderId, assignedAt: null };
 
   let note: string;
   if (p.riderId) {
@@ -105,10 +106,12 @@ export async function assignRider(
   } else {
     note = "Rider removed";
   }
+  // A new assignment time also means a new job link and delivery code (lib/fulfilment/rider-job.ts).
+  const assignedAt = p.riderId ? new Date() : null;
   await tx.sellerOrder.update({
     where: { id: so.id },
-    data: { riderId: p.riderId, riderAssignedAt: p.riderId ? new Date() : null, pickedUpAt: null },
+    data: { riderId: p.riderId, riderAssignedAt: assignedAt, pickedUpAt: null },
   });
   await recordStatus(tx, { sellerOrderId: so.id, businessId: p.businessId, from: so.status, to: so.status, actorUserId: p.actorUserId, note });
-  return { riderId: p.riderId, previousRiderId: so.riderId };
+  return { riderId: p.riderId, previousRiderId: so.riderId, assignedAt };
 }

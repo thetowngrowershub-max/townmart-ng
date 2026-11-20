@@ -6,6 +6,7 @@ import type { Tx } from "@/lib/db";
 import { koboToNairaString } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
 import { minutesToTime } from "@/lib/catalogue/units";
+import { parseMealBuilder } from "@/lib/catalogue/meal-builder";
 import { dateToLagosLocal } from "@/lib/datetime";
 import type { ProductFormValues } from "@/components/seller/product-form";
 import type { ServiceFormValues } from "@/components/seller/service-form";
@@ -85,6 +86,14 @@ export function productToFormValues(p: ProductForEdit): ProductFormValues {
     isPerishable: p.isPerishable,
     shelfLifeNote: p.shelfLifeNote ?? "",
     prepTimeMinutes: p.prepTimeMinutes ?? undefined,
+    mealBuilder: (parseMealBuilder(p.mealBuilder)?.groups ?? []).map((g) => ({
+      key: g.key,
+      name: g.name,
+      min: String(g.min),
+      max: String(g.max),
+      withSwallow: g.withSwallow,
+      items: g.items.map((i) => ({ key: i.key, name: i.name, price: koboToNairaString(BigInt(i.priceKobo)), unit: i.unit, maxQty: String(i.maxQty), defaultQty: String(i.defaultQty), swallow: i.swallow, available: i.available })),
+    })),
     costPrice: p.costPriceKobo !== null ? koboToNairaString(p.costPriceKobo) : "",
     status: p.status,
     slug: p.slug,

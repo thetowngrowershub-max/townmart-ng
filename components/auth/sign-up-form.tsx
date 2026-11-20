@@ -18,6 +18,7 @@ export function SignUpForm() {
     password: "",
     acceptTerms: false as true,
     marketingEmail: false,
+    phone: "",
   });
   const errors = form.formState.errors;
 
@@ -29,6 +30,9 @@ export function SignUpForm() {
       </FormField>
       <FormField id="email" label="Email" error={errors.email?.message}>
         <Input type="email" autoComplete="email" {...form.register("email")} />
+      </FormField>
+      <FormField id="phone" label="Phone number (optional)" hint="We'll text it a code, so you can also sign in with your phone." error={errors.phone?.message}>
+        <Input type="tel" inputMode="tel" autoComplete="tel" placeholder="0803 123 4567" {...form.register("phone")} />
       </FormField>
       <FormField id="password" label="Password" hint="At least 10 characters." error={errors.password?.message}>
         <Input type="password" autoComplete="new-password" {...form.register("password")} />

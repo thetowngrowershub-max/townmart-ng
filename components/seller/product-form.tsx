@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useFieldArray, useWatch } from "react-hook-form";
 import { useActionForm } from "@/components/auth/use-action-form";
 import { RichTextEditor } from "@/components/editor/rich-text-editor";
+import { MealBuilderEditor } from "@/components/seller/meal-builder-editor";
 import { ImageGalleryInput, type GalleryImage } from "@/components/uploads/image-gallery-input";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -360,6 +361,18 @@ export function ProductForm({
             <p className="text-xs text-muted-foreground">
               Tip: for dishes you cook fresh, turn off &quot;Track stock&quot; above, or set today&apos;s portions as stock and update it each morning. Use options for sizes and extras, e.g. Portion: Regular, Large.
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isFood && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Meal builder (optional)</CardTitle>
+            <CardDescription>Customers choose what goes on the plate before they add it to the cart, and pay for each thing they choose.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MealBuilderEditor form={form as unknown as Parameters<typeof MealBuilderEditor>[0]["form"]} />
           </CardContent>
         </Card>
       )}

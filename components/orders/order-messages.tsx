@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { sendSellerMessageAction } from "@/lib/fulfilment/actions";
 import { sendCustomerMessageAction } from "@/lib/fulfilment/customer-actions";
+import { riderMessageAction } from "@/lib/fulfilment/rider-job-actions";
 import type { MessageView } from "@/lib/fulfilment/messages";
 import { cn } from "@/lib/utils";
 
-/** The conversation between a customer and one seller about an order. */
+/** The conversation about one seller's part of an order: the customer, the seller and (once assigned) the shop's rider. */
 export function OrderMessages({
   messages,
   sellerOrderId,
@@ -22,7 +23,7 @@ export function OrderMessages({
 }: {
   messages: MessageView[];
   sellerOrderId: string;
-  side: "seller" | "customer";
+  side: "seller" | "customer" | "rider";
   orderNumber?: string;
   token?: string | null;
   otherName: string;
@@ -36,7 +37,9 @@ export function OrderMessages({
       const res =
         side === "seller"
           ? await sendSellerMessageAction({ sellerOrderId, body })
-          : await sendCustomerMessageAction({ orderNumber: orderNumber!, token, sellerOrderId, body });
+          : side === "rider"
+            ? await riderMessageAction({ token: token!, body })
+            : await sendCustomerMessageAction({ orderNumber: orderNumber!, token, sellerOrderId, body });
       if (res.ok) {
         setBody("");
         setError(null);

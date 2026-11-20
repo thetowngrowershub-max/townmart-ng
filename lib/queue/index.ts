@@ -35,6 +35,8 @@ export type FulfilmentNotice =
   /** `ref` tells repeat changes apart (a booking moved twice), so neither notice is de-duplicated away. */
   | { type: "booking.status"; bookingId: string; status: string; by: "seller" | "customer" | "system"; ref?: string }
   | { type: "message.new"; messageId: string }
+  // A rider was put on a delivery; `at` is riderAssignedAt in ms, so a rider changed twice gets both texts.
+  | { type: "rider.assigned"; sellerOrderId: string; at: number }
   | { type: "refund.update"; refundId: string; status: string }
   | { type: "dispute.update"; disputeId: string; event: "opened" | "message" | "resolved"; messageId?: string }
   | { type: "payout.update"; payoutId: string; status: string };
@@ -74,6 +76,8 @@ function noticeKey(n: FulfilmentNotice): string {
       return `booking-${n.bookingId}-${n.status}${n.ref ? `-${n.ref}` : ""}`;
     case "message.new":
       return `message-${n.messageId}`;
+    case "rider.assigned":
+      return `rider-${n.sellerOrderId}-${n.at}`;
     case "refund.update":
       return `refund-${n.refundId}-${n.status}`;
     case "dispute.update":

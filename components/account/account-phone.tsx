@@ -6,7 +6,7 @@ import { PhoneCodeFlow } from "@/components/auth/phone-code-flow";
 import { Button } from "@/components/ui/button";
 import { removeAccountPhoneAction, sendPhoneVerificationCodeAction, verifyAccountPhoneAction } from "@/lib/auth/phone-actions";
 
-export function AccountPhone({ masked }: { masked: string | null }) {
+export function AccountPhone({ masked, pendingPhone, pendingMessage }: { masked: string | null; pendingPhone?: string; pendingMessage?: string }) {
   const router = useRouter();
   const [changing, setChanging] = useState(!masked);
   const [pending, start] = useTransition();
@@ -44,6 +44,8 @@ export function AccountPhone({ masked }: { masked: string | null }) {
         send={sendPhoneVerificationCodeAction}
         verify={verifyAccountPhoneAction}
         submitLabel="Verify number"
+        initialPhone={pendingPhone}
+        initialSentMessage={pendingPhone ? pendingMessage : undefined}
         onVerified={() => {
           setChanging(false);
           router.refresh();
