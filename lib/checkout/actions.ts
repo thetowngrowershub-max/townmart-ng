@@ -6,6 +6,7 @@ import { withRls, withSystemContext } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { findViewableOrder } from "@/lib/orders/access";
 import { orderAccessToken, OrderError, placeOrder } from "@/lib/orders/place";
+import { isGatewayTestReference, isPaymentTester, liveGatewayTest } from "@/lib/payments/gateway-test";
 import { PaymentError, startOnlinePayment, verifyAndApply } from "@/lib/orders/payment";
 import { FakePaymentProvider } from "@/lib/payments/fake";
 import { enqueueOrderEvent } from "@/lib/queue";
@@ -47,6 +48,10 @@ export async function placeOrderAction(input: CheckoutInput): Promise<ActionResu
   const user = await getCurrentUser();
   const owner = await findCartOwner();
   if (!owner.cartId) return { ok: false, error: "Your cart is empty." };
+  // Live Flutterwave key on the test site: nobody but a payment tester starts a card payment (lib/payments/gateway-test.ts).
+  if (parsed.data.payment === "online" && liveGatewayTest() && !isPaymentTester(user)) {
+    return { ok: false, error: "Card payments are switched off on this test site. Please choose pay on delivery." };
+  }
 
   let placed;
   try {
@@ -105,6 +110,7 @@ export async function checkPaymentAction(input: { orderNumber: string; token: st
   if (!order) return { ok: false, error: "Order not found." };
   const latest = await withSystemContext((tx) => tx.payment.findFirst({ where: { orderId: order.id }, orderBy: { createdAt: "desc" }, select: { providerReference: true, status: true } }));
   if (!latest) return { ok: true, data: { status: "none" } };
+  if (latest.status === "success" && isGatewayTestReference(latest.providerReference)) return { ok: true, data: { status: "test_refunded" } };
   if (latest.status !== "initiated") return { ok: true, data: { status: latest.status } };
   try {
     return { ok: true, data: { status: await verifyAndApply(latest.providerReference) } };

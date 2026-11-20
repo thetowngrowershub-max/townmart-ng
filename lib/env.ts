@@ -62,6 +62,10 @@ const schema = z.object({
   FLUTTERWAVE_SECRET_KEY: z.string().optional(),
   // The "secret hash" set on the Flutterwave dashboard, sent back in the verif-hash header.
   FLUTTERWAVE_WEBHOOK_HASH: z.string().optional(),
+  // A test-mode site with a live Flutterwave key only lets these verified account emails pay (comma-separated),
+  // charges them this many naira whatever the order costs, and refunds it automatically (lib/payments/gateway-test.ts).
+  LIVE_PAYMENT_TESTERS: z.string().optional(),
+  LIVE_TEST_CHARGE_NAIRA: z.coerce.number().int().min(50).max(1000).default(100),
 
   // A staging site for clicking through (see lib/platform.ts). Fills in the pretend drivers below.
   TOWNMART_TEST_MODE: z.stringbool().default(false),

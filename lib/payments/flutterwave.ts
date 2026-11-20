@@ -7,6 +7,16 @@ type Res<T> = { status: string; message: string; data: T };
 /** Flutterwave works in naira with decimals; we convert at the edge and keep kobo inside. */
 const nairaToKobo = (amount: number) => BigInt(Math.round(amount * 100));
 
+/** Which Flutterwave mode a v3 secret key belongs to: test keys move no real money. */
+export function flutterwaveKeyMode(secretKey: string | undefined): "test" | "live" | "unknown" {
+  if (!secretKey) return "unknown";
+  if (secretKey.startsWith("FLWSECK_TEST-")) return "test";
+  if (secretKey.startsWith("FLWSECK-")) return "live";
+  return "unknown";
+}
+
+type Transaction = { id: number; status: string; amount: number; currency: string; payment_type: string | null; created_at: string; tx_ref: string };
+
 export class FlutterwaveProvider implements PaymentProvider {
   readonly name = "flutterwave" as const;
   constructor(
@@ -41,14 +51,27 @@ export class FlutterwaveProvider implements PaymentProvider {
     return { redirectUrl: res.data.link };
   }
 
-  async verify(reference: string): Promise<VerifiedPayment> {
-    const res = await this.call<{ status: string; amount: number; currency: string; payment_type: string | null; created_at: string; tx_ref: string }>(
-      `/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`,
-    );
-    if (res.status !== "success" || !res.data) return { reference, status: "pending", amountKobo: 0n, currency: "NGN", channel: null, paidAt: null, raw: res };
+  /**
+   * Asks Flutterwave about a payment. With the transaction id from a webhook,
+   * that exact transaction is checked (Flutterwave's recommended way); either
+   * way its tx_ref must be ours, so one order's payment can't pay another's.
+   */
+  async verify(reference: string, transactionId?: string | null): Promise<VerifiedPayment> {
+    const res = transactionId && /^\d+$/.test(transactionId)
+      ? await this.call<Transaction>(`/transactions/${transactionId}/verify`)
+      : await this.call<Transaction>(`/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`);
+    const pending = { reference, status: "pending" as const, amountKobo: 0n, currency: "NGN", channel: null, paidAt: null };
+    if (res.status !== "success" || !res.data) return { ...pending, raw: res };
     const d = res.data;
+    if (d.tx_ref !== reference) throw new PaymentProviderError(`Flutterwave transaction ${d.id} belongs to ${d.tx_ref}, not ${reference}`);
     const status = d.status === "successful" ? "success" : d.status === "failed" ? "failed" : "pending";
     return { reference: d.tx_ref, status, amountKobo: nairaToKobo(d.amount), currency: d.currency, channel: d.payment_type, paidAt: status === "success" ? new Date(d.created_at) : null, raw: d };
+  }
+
+  /** For the test-site health page: is the key accepted? Calls a read-only endpoint. */
+  async check(): Promise<{ ok: boolean; error?: string }> {
+    const res = await this.call<unknown>("/banks/NG");
+    return res.status === "success" ? { ok: true } : { ok: false, error: `Flutterwave said: ${res.message}` };
   }
 
   verifyWebhook(_rawBody: string, headers: Headers): boolean {
@@ -58,16 +81,21 @@ export class FlutterwaveProvider implements PaymentProvider {
   }
 
   parseWebhook(rawBody: string): WebhookEvent {
-    const body = JSON.parse(rawBody) as { event?: string; data?: { id?: number; tx_ref?: string; status?: string; reference?: string } };
-    const eventType = body.event ?? "unknown";
+    type Data = { id?: number; tx_ref?: string; txRef?: string; status?: string; reference?: string };
+    // v3 webhooks wrap the transaction in `data`; the older format (when "Enable v3 webhooks" is off on the dashboard) doesn't.
+    const body = JSON.parse(rawBody) as { event?: string; "event.type"?: string; data?: Data } & Data;
+    const legacy = !body.data && (body.txRef !== undefined || body["event.type"] !== undefined);
+    const data: Data = legacy ? { id: body.id, tx_ref: body.txRef, status: body.status } : (body.data ?? {});
+    const eventType = legacy ? "charge.completed" : (body.event ?? "unknown");
     const kind = eventType.startsWith("charge.") ? "charge" : eventType.startsWith("refund.") ? "refund" : eventType.startsWith("transfer.") ? "transfer" : "other";
     return {
-      eventId: `${eventType}:${body.data?.id ?? body.data?.tx_ref ?? "none"}${kind === "charge" ? "" : `:${body.data?.status ?? ""}`}`,
+      eventId: `${eventType}:${data.id ?? data.tx_ref ?? "none"}${kind === "charge" ? "" : `:${data.status ?? ""}`}`,
       eventType,
-      reference: body.data?.tx_ref ?? null,
-      isChargeSuccess: eventType === "charge.completed" && body.data?.status === "successful",
+      reference: data.tx_ref ?? null,
+      isChargeSuccess: eventType === "charge.completed" && data.status === "successful",
       kind,
-      transferReference: kind === "transfer" ? (body.data?.reference ?? null) : null,
+      transferReference: kind === "transfer" ? (data.reference ?? null) : null,
+      providerTransactionId: kind === "charge" && data.id !== undefined ? String(data.id) : null,
       payload: body,
     };
   }

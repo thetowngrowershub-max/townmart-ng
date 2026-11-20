@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { isTestMode } from "@/lib/platform";
 import { checkGoogleRoutes } from "@/lib/geo/routes";
+import { paymentsStatus } from "@/lib/payments";
 import { redis } from "@/lib/redis";
 import { recentPageErrors, scrub } from "@/lib/test-mode/page-errors";
 
@@ -62,6 +63,13 @@ export async function GET() {
               ok: false,
               error: scrub(e instanceof Error ? e.message : String(e)),
             })),
+            payments:
+              settings.status === "fulfilled"
+                ? await paymentsStatus().then(
+                    (p) => ({ ...p, error: p.error && scrub(p.error) }),
+                    (e: unknown) => ({ ok: false, error: scrub(e instanceof Error ? e.message : String(e)) }),
+                  )
+                : undefined,
             recentPageErrors:
               cache.status === "fulfilled"
                 ? await recentPageErrors().catch(() => [])

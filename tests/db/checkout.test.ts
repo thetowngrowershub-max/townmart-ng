@@ -290,6 +290,20 @@ describe("payment confirmation", () => {
   });
 });
 
+describe("live gateway test on the test site", () => {
+  it("refunds a gateway-test payment and never marks the order paid", async () => {
+    const placed = await order(await cartWith([{ seller: b, qty: 1 }]), { userId: buyer.id });
+    const p = await owner.payment.create({ data: { orderId: placed.orderId, provider: "fake", providerReference: `ref-${randomUUID()}-GWTEST`, amountKobo: 10_000n } });
+    expect(await applyVerifiedPayment(p.providerReference, verified(p.providerReference, 10_000n))).toBe("test_refunded");
+    expect(await applyVerifiedPayment(p.providerReference, verified(p.providerReference, 10_000n))).toBe("test_refunded");
+    expect((await owner.order.findUniqueOrThrow({ where: { id: placed.orderId } })).paymentStatus).toBe("unpaid");
+    const refunds = await owner.refund.findMany({ where: { paymentId: p.id } });
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0]).toMatchObject({ amountKobo: 10_000n, reason: "payment_problem" });
+    expect(await owner.ledgerTransaction.count({ where: { referenceId: placed.orderId, kind: "payment_captured" } })).toBe(0);
+  });
+});
+
 describe("webhooks", () => {
   const sign = (body: string) => createHmac("sha256", process.env.AUTH_SECRET!).update(body).digest("hex");
   const deliver = (body: string, signature = sign(body)) =>
