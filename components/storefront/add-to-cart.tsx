@@ -7,11 +7,29 @@ import { useState, useTransition } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { addToCartAction } from "@/lib/cart/actions";
+import type { MealChoices } from "@/lib/catalogue/meal-builder";
 
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 
 /** Quantity stepper and Add to cart for the selected variant. */
-export function AddToCart({ variantId, disabled, minOrder, fractional, unitLabel }: { variantId: string | null; disabled: boolean; minOrder: string; fractional: boolean; unitLabel: string }) {
+export function AddToCart({
+  variantId,
+  disabled,
+  minOrder,
+  fractional,
+  unitLabel,
+  choices,
+  label,
+}: {
+  variantId: string | null;
+  disabled: boolean;
+  minOrder: string;
+  fractional: boolean;
+  unitLabel: string;
+  /** A built plate (restaurants). */
+  choices?: MealChoices;
+  label?: string;
+}) {
   const router = useRouter();
   const min = Number(minOrder) || 1;
   const step = fractional ? 0.5 : 1;
@@ -23,7 +41,7 @@ export function AddToCart({ variantId, disabled, minOrder, fractional, unitLabel
   const add = () =>
     start(async () => {
       if (!variantId) return;
-      const res = await addToCartAction({ variantId, qty });
+      const res = await addToCartAction({ variantId, qty, ...(choices ? { choices } : {}) });
       setResult(res.ok ? { ok: true, message: res.message ?? "Added to your cart." } : { ok: false, message: res.fieldErrors?.qty?.[0] ?? res.error });
       if (res.ok) router.refresh();
     });
@@ -50,7 +68,7 @@ export function AddToCart({ variantId, disabled, minOrder, fractional, unitLabel
           </button>
         </div>
         <Button type="button" size="lg" className="flex-1 sm:flex-none" disabled={disabled || pending || !variantId} onClick={add}>
-          <ShoppingCart aria-hidden /> {pending ? "Adding…" : "Add to cart"}
+          <ShoppingCart aria-hidden /> {pending ? "Adding…" : (label ?? "Add to cart")}
         </Button>
       </div>
       <div aria-live="polite">

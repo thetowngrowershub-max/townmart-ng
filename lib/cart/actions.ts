@@ -9,6 +9,7 @@ import { validationError, type ActionResult } from "@/lib/validation/form-result
 import { findSlot } from "@/lib/bookings/slots";
 import { loadSchedule } from "@/lib/bookings/schedule";
 import { openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
+import { checkChoices, MealChoiceError, parseMealBuilder, type CheckedChoices, type MealChoices } from "@/lib/catalogue/meal-builder";
 import { withSystemContext } from "@/lib/db";
 import { getCheckoutSettings } from "@/lib/settings";
 import { addBookingSchema, addToCartSchema, cartItemIdSchema, couponCodeSchema, updateCartItemSchema } from "@/lib/validation/cart";
@@ -44,7 +45,7 @@ async function guard() {
   if (!(await rateLimit(`cart:${meta.ipHash}`, 120, 60)).allowed) throw new CartError("You're going a bit fast. Please wait a moment.");
 }
 
-export async function addToCartAction(input: { variantId: string; qty: string }): Promise<ActionResult<{ count: number }>> {
+export async function addToCartAction(input: { variantId: string; qty: string; choices?: MealChoices }): Promise<ActionResult<{ count: number }>> {
   const parsed = addToCartSchema.safeParse(input);
   if (!parsed.success) return validationError(parsed.error);
   try {
@@ -61,6 +62,7 @@ export async function addToCartAction(input: { variantId: string; qty: string })
               allowFractionalQty: true,
               trackInventory: true,
               allowBackorder: true,
+              mealBuilder: true,
               category: { select: { isFood: true, parent: { select: { isFood: true } } } },
               business: { select: { policy: { select: { openingHours: true, ordersPaused: true } } } },
             },
@@ -74,14 +76,29 @@ export async function addToCartAction(input: { variantId: string; qty: string })
         const state = openState(parseOpeningHours(policy?.openingHours), policy?.ordersPaused ?? false);
         if (!state.open) throw new CartError(state.reason === "paused" ? "This kitchen isn't taking orders right now. Please try again a little later." : `${state.label}. You can order once they're open.`);
       }
-      const existing = await tx.cartItem.findUnique({ where: { cartId_variantId: { cartId: owner.cartId, variantId: v.id } } });
+      // A restaurant's build-your-plate item: check the plate; each different plate is its own cart line.
+      const builder = parseMealBuilder(v.product.mealBuilder);
+      let plate: CheckedChoices | null = null;
+      if (builder) {
+        try {
+          plate = checkChoices(builder, parsed.data.choices ?? {});
+        } catch (err) {
+          if (err instanceof MealChoiceError) throw new CartError(err.message);
+          throw err;
+        }
+      }
+      const choicesKey = plate?.key ?? "";
+      const key = { cartId_variantId_choicesKey: { cartId: owner.cartId, variantId: v.id, choicesKey } };
+      const existing = await tx.cartItem.findUnique({ where: key });
       const qty = new Prisma.Decimal(parsed.data.qty).plus(existing && !existing.savedForLater ? existing.qty : 0);
-      checkQty(v.product, v.stockQty, qty);
+      // Other plates of the same item share its stock.
+      const otherPlates = await tx.cartItem.aggregate({ where: { cartId: owner.cartId, variantId: v.id, savedForLater: false, choicesKey: { not: choicesKey } }, _sum: { qty: true } });
+      checkQty(v.product, v.stockQty.minus(otherPlates._sum.qty ?? 0), qty);
       if (!existing && (await tx.cartItem.count({ where: { cartId: owner.cartId } })) >= MAX_LINES) throw new CartError("Your cart is full. Check out or remove something first.");
       await tx.cartItem.upsert({
-        where: { cartId_variantId: { cartId: owner.cartId, variantId: v.id } },
+        where: key,
         update: { qty, savedForLater: false },
-        create: { cartId: owner.cartId, variantId: v.id, businessId: v.businessId, qty },
+        create: { cartId: owner.cartId, variantId: v.id, businessId: v.businessId, qty, choicesKey, ...(plate ? { choices: plate.choices } : {}) },
       });
       return tx.cartItem.count({ where: { cartId: owner.cartId, savedForLater: false } });
     });
