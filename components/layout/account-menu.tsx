@@ -4,6 +4,7 @@ import { ChevronDown, LogOut, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
+import { clearSavedPages } from "@/components/pwa/saved-pages";
 import { signOutAction } from "@/lib/auth/actions";
 import { cn } from "@/lib/utils";
 
@@ -76,7 +77,7 @@ export function AccountMenu({ name, email, links }: { name: string; email: strin
             ))}
           </ul>
         </nav>
-        <form action={signOutAction} className="border-t pt-1">
+        <form action={signOutAction} onSubmit={clearSavedPages} className="border-t pt-1">
           <button type="submit" className={itemClass}>
             <LogOut className="size-4" aria-hidden />
             Sign out

@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { queueAdd } from "@/components/pwa/cart-queue";
+import { isNetworkError } from "@/components/pwa/use-online";
 import { addToCartAction } from "@/lib/cart/actions";
 import type { MealChoices } from "@/lib/catalogue/meal-builder";
 
@@ -19,7 +21,7 @@ export function AddToCart({
   fractional,
   unitLabel,
   choices,
-  label,
+  label = "An item",
 }: {
   variantId: string | null;
   disabled: boolean;
@@ -35,15 +37,26 @@ export function AddToCart({
   const step = fractional ? 0.5 : 1;
   const [qty, setQty] = useState(fmt(min));
   const [pending, start] = useTransition();
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; message: string; queued?: boolean } | null>(null);
 
   const bump = (d: number) => setQty((q) => fmt(Math.max(min, (Number(q) || min) + d)));
   const add = () =>
     start(async () => {
       if (!variantId) return;
-      const res = await addToCartAction({ variantId, qty, ...(choices ? { choices } : {}) });
-      setResult(res.ok ? { ok: true, message: res.message ?? "Added to your cart." } : { ok: false, message: res.fieldErrors?.qty?.[0] ?? res.error });
-      if (res.ok) router.refresh();
+      // No connection: keep the add on the phone and send it when the connection is back.
+      if (!navigator.onLine) {
+        queueAdd({ variantId, qty, label, ...(choices ? { choices } : {}) });
+        setResult({ ok: true, queued: true, message: "You're offline, so we saved this. It goes into your cart when you're back online, at the price then." });
+        return;
+      }
+      try {
+        const res = await addToCartAction({ variantId, qty, ...(choices ? { choices } : {}) });
+        setResult(res.ok ? { ok: true, message: res.message ?? "Added to your cart." } : { ok: false, message: res.fieldErrors?.qty?.[0] ?? res.error });
+        if (res.ok) router.refresh();
+      } catch (err) {
+        // The request may or may not have arrived, so it isn't sent again by itself.
+        setResult({ ok: false, message: isNetworkError(err) ? "The connection dropped. Check your cart, then try again if it isn't there." : "Something went wrong. Please try again." });
+      }
     });
 
   return (
@@ -75,9 +88,11 @@ export function AddToCart({
         {result?.ok && (
           <p className="flex items-center gap-2 text-sm font-medium text-success">
             <Check className="size-4" aria-hidden /> {result.message}{" "}
-            <Link href="/cart" className="text-primary underline">
-              View cart
-            </Link>
+            {!result.queued && (
+              <Link href="/cart" className="text-primary underline">
+                View cart
+              </Link>
+            )}
           </p>
         )}
         {result && !result.ok && <Alert variant="danger">{result.message}</Alert>}

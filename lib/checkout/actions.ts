@@ -3,6 +3,7 @@
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { findCartOwner } from "@/lib/cart";
 import { withRls, withSystemContext } from "@/lib/db";
+import { claimOnce, releaseOnce, settleOnce } from "@/lib/idempotency";
 import { logger } from "@/lib/logger";
 import { findViewableOrder } from "@/lib/orders/access";
 import { orderAccessToken, OrderError, placeOrder } from "@/lib/orders/place";
@@ -12,7 +13,8 @@ import { FakePaymentProvider } from "@/lib/payments/fake";
 import { enqueueOrderEvent } from "@/lib/queue";
 import { rateLimit } from "@/lib/rate-limit";
 import { requestMeta } from "@/lib/request";
-import { checkoutSchema, quoteRequestSchema, type CheckoutInput } from "@/lib/validation/checkout";
+import { checkoutSchema, quoteRequestSchema, type CheckoutData, type CheckoutInput } from "@/lib/validation/checkout";
+import { STILL_PLACING } from "./messages";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 import { devDriversAllowed, env } from "@/lib/env";
 import { computeCheckout } from "./compute";
@@ -53,6 +55,34 @@ export async function placeOrderAction(input: CheckoutInput): Promise<ActionResu
     return { ok: false, error: "Card payments are switched off on this test site. Please choose pay on delivery." };
   }
 
+  // The same tap sent again (the answer was lost on a weak connection) gets the first answer, never a second order.
+  const onceKey = parsed.data.checkoutKey ? `checkout:${owner.cartId}:${parsed.data.checkoutKey}` : null;
+  if (onceKey) {
+    const claim = await claimOnce<{ redirectTo: string }>(onceKey, 120);
+    if (claim.state === "done") return { ok: true, data: claim.value };
+    if (claim.state === "busy") return { ok: false, error: STILL_PLACING };
+  }
+  let result: ActionResult<{ redirectTo: string }>;
+  try {
+    result = await placeAndPay(parsed, { cartId: owner.cartId }, user, meta);
+  } catch (err) {
+    if (onceKey) await releaseOnce(onceKey);
+    throw err;
+  }
+  if (onceKey) {
+    if (result.ok && result.data) await settleOnce(onceKey, result.data, 86_400);
+    else await releaseOnce(onceKey);
+  }
+  return result;
+}
+
+/** Places the order and starts payment: the work a repeated tap must not do twice. */
+async function placeAndPay(
+  parsed: { data: CheckoutData },
+  owner: { cartId: string },
+  user: Awaited<ReturnType<typeof getCurrentUser>>,
+  meta: Awaited<ReturnType<typeof requestMeta>>,
+): Promise<ActionResult<{ redirectTo: string }>> {
   let placed;
   try {
     placed = await withSystemContext(

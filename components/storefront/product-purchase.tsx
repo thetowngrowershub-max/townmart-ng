@@ -170,6 +170,7 @@ export function ProductPurchase({
           minOrder={minOrder}
           fractional={fractional}
           unitLabel={unitLabel}
+          label={title}
         />
         {children}
       </div>

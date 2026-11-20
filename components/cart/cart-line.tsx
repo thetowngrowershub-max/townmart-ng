@@ -15,9 +15,17 @@ export function CartLine({ line, saved = false, readOnly = false }: { line: Line
   const [pending, start] = useTransition();
   const run = (fn: () => Promise<{ ok: boolean; error?: string; fieldErrors?: Record<string, string[]> }>) =>
     start(async () => {
-      const res = await fn();
-      setError(res.ok ? null : (res.fieldErrors?.qty?.[0] ?? res.error ?? "Something went wrong."));
-      router.refresh();
+      if (!navigator.onLine) {
+        setError("You're offline. Change your cart when you're back online.");
+        return;
+      }
+      try {
+        const res = await fn();
+        setError(res.ok ? null : (res.fieldErrors?.qty?.[0] ?? res.error ?? "Something went wrong."));
+        router.refresh();
+      } catch {
+        setError("The connection dropped. Please try again.");
+      }
     });
 
   return (
