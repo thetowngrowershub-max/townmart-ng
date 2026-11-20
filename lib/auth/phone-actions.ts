@@ -12,6 +12,7 @@ import { requestMeta } from "@/lib/request";
 import { phoneCodeSchema, phoneOnlySchema, type PhoneCodeInput } from "@/lib/validation/auth";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 import { getCurrentUser } from "./current-user";
+import { clearPendingPhone } from "./pending-phone";
 import { createUserSession } from "./session";
 import { loadTwoFactorUser, startSecondStep } from "./two-factor-methods";
 
@@ -103,6 +104,7 @@ export async function verifyAccountPhoneAction(input: { phone: string; code: str
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return { ok: false, error: "This number is linked to another account." };
     throw err;
   }
+  await clearPendingPhone(user.id);
   await withRls({ userId: user.id }, (tx) => writeAudit(tx, { actorUserId: user.id, action: "user.phone_verified", entityType: "user", entityId: user.id, ipHash: meta.ipHash }));
   revalidatePath("/account/security");
   return { ok: true, message: "Phone number verified. You can now sign in with it." };

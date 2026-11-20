@@ -48,7 +48,9 @@ const schema = z.object({
   // Road distance for delivery fees (Google Routes API). Unset: straight line x road factor.
   GOOGLE_MAPS_API_KEY: z.string().optional(),
   TERMII_SENDER_ID: z.string().default("TownMart"),
-  TERMII_BASE_URL: z.url().default("https://api.ng.termii.com"),
+  TERMII_BASE_URL: z.url().default("https://api.ng.termii.com").transform((u) => u.replace(/\/+$/, "")),
+  // "dnd" reaches numbers on Do-Not-Disturb (Termii support must enable it); "generic" works before that, but misses DND numbers.
+  TERMII_CHANNEL: z.enum(["dnd", "generic"]).default("dnd"),
 
   // Bank account verification and payout subaccounts: "paystack" or "fake" (development only)
   BANK_VERIFIER: z.enum(["paystack", "fake"]).default("paystack"),
