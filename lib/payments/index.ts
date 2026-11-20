@@ -20,7 +20,7 @@ export function paymentProvider(name: ProviderName): PaymentProvider {
     } else if (name === "flutterwave") {
       if (!e.FLUTTERWAVE_SECRET_KEY) throw new Error("FLUTTERWAVE_SECRET_KEY is required for Flutterwave payments");
       // A live key on a test site only runs refunded gateway tests (lib/payments/gateway-test.ts).
-      p = new FlutterwaveProvider(e.FLUTTERWAVE_SECRET_KEY, e.FLUTTERWAVE_WEBHOOK_HASH);
+      p = new FlutterwaveProvider(e.FLUTTERWAVE_SECRET_KEY.trim(), e.FLUTTERWAVE_WEBHOOK_HASH?.trim());
     } else {
       if (!devDriversAllowed()) throw new Error("The fake payment provider is for development and test sites only");
       p = new FakePaymentProvider();
@@ -48,7 +48,7 @@ export async function paymentsStatus(): Promise<{ provider: ProviderName; ok: bo
   const provider = e.PAYMENT_PROVIDER;
   if (provider === "fake") return { provider, ok: true };
   if (provider === "paystack") return { provider, ok: Boolean(e.PAYSTACK_SECRET_KEY), keyMode: e.PAYSTACK_SECRET_KEY?.startsWith("sk_test_") ? "test" : e.PAYSTACK_SECRET_KEY ? "live" : "missing" };
-  const base = { provider, liveGatewayTest: isTestMode() && flutterwaveKeyMode(e.FLUTTERWAVE_SECRET_KEY) === "live", paymentTesters: (e.LIVE_PAYMENT_TESTERS ?? "").split(",").filter((s) => s.trim()).length, keyMode: e.FLUTTERWAVE_SECRET_KEY ? flutterwaveKeyMode(e.FLUTTERWAVE_SECRET_KEY) : "missing", webhookHashSet: Boolean(e.FLUTTERWAVE_WEBHOOK_HASH) };
+  const base = { provider, liveGatewayTest: isTestMode() && flutterwaveKeyMode(e.FLUTTERWAVE_SECRET_KEY) !== "test", paymentTesters: (e.LIVE_PAYMENT_TESTERS ?? "").split(",").filter((s) => s.trim()).length, keyMode: e.FLUTTERWAVE_SECRET_KEY ? flutterwaveKeyMode(e.FLUTTERWAVE_SECRET_KEY) : "missing", webhookHashSet: Boolean(e.FLUTTERWAVE_WEBHOOK_HASH) };
   try {
     const fw = paymentProvider("flutterwave") as FlutterwaveProvider;
     const res = await fw.check();
