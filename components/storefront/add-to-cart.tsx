@@ -21,7 +21,8 @@ export function AddToCart({
   fractional,
   unitLabel,
   choices,
-  label = "An item",
+  label,
+  itemName = "An item",
 }: {
   variantId: string | null;
   disabled: boolean;
@@ -31,6 +32,8 @@ export function AddToCart({
   /** A built plate (restaurants). */
   choices?: MealChoices;
   label?: string;
+  /** Names the item in the offline queue notice. */
+  itemName?: string;
 }) {
   const router = useRouter();
   const min = Number(minOrder) || 1;
@@ -45,7 +48,7 @@ export function AddToCart({
       if (!variantId) return;
       // No connection: keep the add on the phone and send it when the connection is back.
       if (!navigator.onLine) {
-        queueAdd({ variantId, qty, label, ...(choices ? { choices } : {}) });
+        queueAdd({ variantId, qty, label: itemName, ...(choices ? { choices } : {}) });
         setResult({ ok: true, queued: true, message: "You're offline, so we saved this. It goes into your cart when you're back online, at the price then." });
         return;
       }
