@@ -12,7 +12,8 @@ import { flutterwaveKeyMode } from "./flutterwave";
  */
 export function liveGatewayTest(): boolean {
   const e = env();
-  return isTestMode() && e.PAYMENT_PROVIDER === "flutterwave" && flutterwaveKeyMode(e.FLUTTERWAVE_SECRET_KEY) === "live";
+  // Anything that isn't plainly a test key is treated as live, so an unexpected key format can't take real money.
+  return isTestMode() && e.PAYMENT_PROVIDER === "flutterwave" && flutterwaveKeyMode(e.FLUTTERWAVE_SECRET_KEY) !== "test";
 }
 
 /** Gateway-test payments carry this suffix on their reference, so they can never be applied to an order. */

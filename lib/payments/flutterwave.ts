@@ -9,6 +9,7 @@ const nairaToKobo = (amount: number) => BigInt(Math.round(amount * 100));
 
 /** Which Flutterwave mode a v3 secret key belongs to: test keys move no real money. */
 export function flutterwaveKeyMode(secretKey: string | undefined): "test" | "live" | "unknown" {
+  secretKey = secretKey?.trim();
   if (!secretKey) return "unknown";
   if (secretKey.startsWith("FLWSECK_TEST-")) return "test";
   if (secretKey.startsWith("FLWSECK-")) return "live";
