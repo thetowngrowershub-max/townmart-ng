@@ -76,8 +76,7 @@ export const dashboardNav: NavItem[] = [
 /** The TownMart rider area (pool riders, signed in). */
 export const riderNav: NavItem[] = [
   { href: "/rider", label: "Jobs", icon: Bike, phase: 0 },
-  // Built with the rider wallets (earnings and payouts).
-  { href: "/rider/wallet", label: "Wallet", icon: Wallet, phase: 8 },
+  { href: "/rider/wallet", label: "Wallet", icon: Wallet, phase: 0 },
   { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
 ];
 

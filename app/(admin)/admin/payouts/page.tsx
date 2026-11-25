@@ -1,8 +1,9 @@
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { RetryRefundButton, RunJobButton } from "@/components/admin/finance-controls";
+import { PayoutDecision, RetryRefundButton, RunJobButton } from "@/components/admin/finance-controls";
 import { PageHeader } from "@/components/layout/app-shell";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { moneyOverview } from "@/lib/admin/finance-view";
@@ -17,7 +18,12 @@ export default async function AdminPayoutsPage() {
 
   return (
     <>
-      <PageHeader title="Refunds & payouts" description="Where the money is, payouts to sellers, and refunds the payment provider hasn't confirmed." />
+      <PageHeader title="Refunds & payouts" description="Where the money is, payouts to sellers and riders, and refunds the payment provider hasn't confirmed." />
+      {m.payoutsSimulated && (
+        <Alert variant="info" className="mb-6">
+          Payouts on this site are simulated: approving one marks it paid without sending money. Real payouts need the live site with BANK_VERIFIER=flutterwave.
+        </Alert>
+      )}
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="flex flex-col gap-6">
           <Card>
@@ -52,7 +58,11 @@ export default async function AdminPayoutsPage() {
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle>Payouts</CardTitle>
-              <CardDescription>The latest 50. Sellers are paid every weekday at 10:00 once their balance reaches the minimum.</CardDescription>
+              <CardDescription>
+                {m.awaitingApproval > 0 ? `${m.awaitingApproval} waiting for your approval, then the latest 50. ` : "The latest 50. "}
+                Sellers and riders are paid every weekday at 10:00 once their balance reaches the minimum
+                {m.approvalRequired ? ", after you approve each payout." : "."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               {m.payouts.length === 0 ? (
@@ -62,7 +72,7 @@ export default async function AdminPayoutsPage() {
                   <table className="w-full text-sm">
                     <thead className="border-y bg-muted/50 text-left text-xs text-muted-foreground">
                       <tr>
-                        <th scope="col" className="px-4 py-3 font-medium">Seller</th>
+                        <th scope="col" className="px-4 py-3 font-medium">Payee</th>
                         <th scope="col" className="px-4 py-3 font-medium">To</th>
                         <th scope="col" className="px-4 py-3 text-right font-medium">Amount</th>
                         <th scope="col" className="px-4 py-3 font-medium">Status</th>
@@ -72,7 +82,7 @@ export default async function AdminPayoutsPage() {
                       {m.payouts.map((p) => (
                         <tr key={p.id}>
                           <td className="px-4 py-3">
-                            {p.shop}
+                            {p.shop} <span className="text-xs text-muted-foreground">({p.payeeKind})</span>
                             <div className="font-mono text-xs text-muted-foreground">
                               {p.reference} · {p.at}
                             </div>
@@ -82,6 +92,11 @@ export default async function AdminPayoutsPage() {
                           <td className="px-4 py-3">
                             <Badge variant={p.tone}>{p.status}</Badge>
                             {p.failureReason && <div className="text-xs text-danger">{p.failureReason}</div>}
+                            {p.waiting && (
+                              <div className="mt-2">
+                                <PayoutDecision payoutId={p.id} label={`${p.amount} to ${p.shop}`} />
+                              </div>
+                            )}
                           </td>
                         </tr>
                       ))}

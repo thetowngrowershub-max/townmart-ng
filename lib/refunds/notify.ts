@@ -1,10 +1,11 @@
+import { decrypt } from "@/lib/crypto";
 import { withSystemContext } from "@/lib/db";
 import { formatDateTime } from "@/lib/datetime";
 import { env } from "@/lib/env";
 import { customerSelect, sellerSelect, tellCustomer, tellSeller, type Customer } from "@/lib/fulfilment/notify";
 import { formatPrice } from "@/lib/money";
 import { orderAccessToken } from "@/lib/orders/place";
-import type { FulfilmentNotice } from "@/lib/queue";
+import { enqueueSms, type FulfilmentNotice } from "@/lib/queue";
 import { OUTCOME_LABELS } from "@/lib/disputes/core";
 import { REASON_LABELS } from "./math";
 
@@ -120,15 +121,38 @@ export async function sendMoneyNotice(n: MoneyNotice): Promise<void> {
       return;
     }
 
-    const p = await tx.payout.findUnique({ where: { id: n.payoutId }, include: { business: { select: sellerSelect } } });
+    const p = await tx.payout.findUnique({ where: { id: n.payoutId }, include: { business: { select: sellerSelect }, rider: { select: { phoneEncrypted: true } } } });
     if (!p || p.status !== n.status) return;
+    const amount = formatPrice(p.amountKobo);
+    const to = `${p.bankName} ••••${p.accountNumberLast4}`;
+    if (p.rider) {
+      // TownMart pool riders: a text (they may not check email).
+      const body =
+        p.status === "paid"
+          ? `TownMart: we've sent ${amount} from your wallet to ${to}.`
+          : p.status === "failed"
+            ? `TownMart: your payout of ${amount} to ${to} didn't go through. It's back in your wallet; check your bank details.`
+            : p.status === "rejected"
+              ? `TownMart: your payout of ${amount} wasn't approved (${p.failureReason ?? "see your wallet"}). It's back in your wallet.`
+              : null;
+      if (body) await enqueueSms({ to: decrypt(p.rider.phoneEncrypted), body });
+      return;
+    }
+    if (!p.business) return;
     if (p.status === "paid") {
-      await tellSeller(tx, p.business, { type: "payout.paid", title: `Payout sent: ${formatPrice(p.amountKobo)}`, lines: [`We've sent ${formatPrice(p.amountKobo)} to ${p.bankName} ••••${p.accountNumberLast4}.`], path: "/dashboard/payouts" });
+      await tellSeller(tx, p.business, { type: "payout.paid", title: `Payout sent: ${amount}`, lines: [`We've sent ${amount} to ${to}.`], path: "/dashboard/payouts" });
     } else if (p.status === "failed") {
       await tellSeller(tx, p.business, {
         type: "payout.failed",
         title: "A payout didn't go through",
-        lines: [`${formatPrice(p.amountKobo)} to ${p.bankName} ••••${p.accountNumberLast4} failed and is back in your balance.`, "Check your bank details in Store settings. We'll try again with the next payout."],
+        lines: [`${amount} to ${to} failed and is back in your balance.`, "Check your bank details in Store settings. We'll try again with the next payout."],
+        path: "/dashboard/payouts",
+      });
+    } else if (p.status === "rejected") {
+      await tellSeller(tx, p.business, {
+        type: "payout.rejected",
+        title: "A payout wasn't approved",
+        lines: [`TownMart didn't approve your payout of ${amount}: ${p.failureReason ?? "no reason given"}.`, "The money is back in your balance. Reply to this email if you have questions."],
         path: "/dashboard/payouts",
       });
     }

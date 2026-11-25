@@ -251,7 +251,7 @@ export async function savePayoutAccountAction(input: PayoutAccountInput): Promis
     // Commission is set per split at checkout (Phase 3), so the subaccount's default charge is 0.
     const sub = await verifier.createSubaccount({ businessName: own.business.name, bankCode, accountNumber, percentageCharge: 0 });
     const recipient = await verifier.createTransferRecipient({ accountName: resolved.accountName, bankCode, accountNumber });
-    // Only the last 4 digits are stored; the full number lives with the payment provider.
+    // Only the last 4 digits are shown; the full number lives with the provider (or sealed in the Flutterwave recipient code).
     const data = {
       bankCode,
       bankName: bank.name,
@@ -259,6 +259,7 @@ export async function savePayoutAccountAction(input: PayoutAccountInput): Promis
       accountName: resolved.accountName,
       providerSubaccountCode: sub.subaccountCode,
       providerRecipientCode: recipient.recipientCode,
+      recipientProvider: verifier.name,
       verifiedAt: new Date(),
     };
     await withOwnBusiness(async ({ tx, business, userId }) => {

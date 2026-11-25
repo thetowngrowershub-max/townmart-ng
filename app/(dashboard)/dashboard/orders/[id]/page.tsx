@@ -125,6 +125,7 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
                 {order.money.discount && <Row label="Discounts" value={`−${order.money.discount}`} />}
                 <Row label="Delivery" value={order.money.delivery} />
                 <Row label="TownMart commission" value={`−${order.money.commission}`} />
+                {order.money.deliveryToRider && <Row label="Delivery fee to the TownMart rider" value={`−${order.money.deliveryToRider}`} />}
                 <Row label="You earn" value={order.money.net} strong />
                 {order.money.payLater && <p className="text-xs text-muted-foreground">Includes {order.money.payLater} the customer pays you directly on the day.</p>}
               </dl>

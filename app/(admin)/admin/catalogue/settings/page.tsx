@@ -27,6 +27,7 @@ export default async function PlatformSettingsPage() {
     "refunds.late_cancel_percent": String(s.lateCancelRefundPercent),
     "escrow.release_days": String(s.escrowReleaseDays),
     "payouts.minimum_naira": naira(s.payoutMinimumKobo),
+    "payouts.require_approval": s.payoutRequireApproval,
     "bookings.lead_minutes": String(s.bookingLeadMinutes),
     "bookings.days_ahead": String(s.bookingDaysAhead),
     "delivery.per_km_naira": naira(s.deliveryPerKmKobo),

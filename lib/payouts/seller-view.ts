@@ -2,11 +2,28 @@ import type { PayoutStatus } from "@prisma/client";
 import { formatDate, formatDateTime } from "@/lib/datetime";
 import type { Tx } from "@/lib/db";
 import { formatPrice } from "@/lib/money";
+import { recipientUsable } from "@/lib/payments/transfers";
 import { getCheckoutSettings } from "@/lib/settings";
 import { businessBalances } from "./balances";
 import { lagosMonth, monthRange } from "./statement";
 
-export const PAYOUT_STATUS_LABELS: Record<PayoutStatus, string> = { pending: "Starting", processing: "On its way", paid: "Paid", failed: "Failed, back in your balance" };
+export const PAYOUT_STATUS_LABELS: Record<PayoutStatus, string> = {
+  awaiting_approval: "Waiting for TownMart to approve",
+  pending: "Starting",
+  processing: "On its way",
+  paid: "Paid",
+  failed: "Failed, back in your balance",
+  rejected: "Not approved, back in your balance",
+};
+
+export const PAYOUT_STATUS_TONE: Record<PayoutStatus, "info" | "success" | "danger" | "warning"> = {
+  awaiting_approval: "warning",
+  pending: "info",
+  processing: "info",
+  paid: "success",
+  failed: "danger",
+  rejected: "danger",
+};
 
 export type SellerPayoutsView = {
   escrow: string;
@@ -18,6 +35,8 @@ export type SellerPayoutsView = {
   bank: { name: string; last4: string; accountName: string; ready: boolean } | null;
   approved: boolean;
   inFlight: boolean;
+  /** Payouts wait for TownMart's approval before they're sent. */
+  needsApproval: boolean;
   payouts: { id: string; reference: string; amount: string; status: PayoutStatus; statusLabel: string; bank: string; createdAt: string; paidAt: string | null; failureReason: string | null }[];
   months: { value: string; label: string }[];
 };
@@ -64,9 +83,10 @@ export async function loadSellerPayouts(tx: Tx, businessId: string, now = new Da
     minimum: formatPrice(settings.payoutMinimumKobo),
     nextRelease,
     thisMonth: { sales: formatPrice(k("payment_captured")), commission: formatPrice(commission._sum.commissionKobo ?? 0n), refunds: formatPrice(-k("refund_approved")), paidOut: formatPrice(-(k("payout") + k("payout_returned"))) },
-    bank: acct ? { name: acct.bankName, last4: acct.accountNumberLast4, accountName: acct.accountName, ready: !!acct.verifiedAt && !!acct.providerRecipientCode } : null,
+    bank: acct ? { name: acct.bankName, last4: acct.accountNumberLast4, accountName: acct.accountName, ready: recipientUsable(acct) } : null,
     approved: business.status === "approved",
-    inFlight: payouts.some((p) => p.status === "pending" || p.status === "processing"),
+    inFlight: payouts.some((p) => p.status === "awaiting_approval" || p.status === "pending" || p.status === "processing"),
+    needsApproval: settings.payoutRequireApproval,
     payouts: payouts.map((p) => ({
       id: p.id,
       reference: p.reference,

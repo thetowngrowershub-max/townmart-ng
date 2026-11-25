@@ -15,13 +15,24 @@ import { postLedgerTransaction } from "@/lib/ledger/post";
  * taken from their available balance.
  */
 
-/** What's still held in escrow for a seller order: its escrow credit less refunds taken from escrow. */
+/**
+ * What's still held in escrow for a seller order: its escrow credit less
+ * refunds taken from escrow and the delivery fee paid to a TownMart pool
+ * rider from escrow (lib/wallets/rider.ts).
+ */
 export async function escrowHeld(tx: Tx, so: SellerOrder): Promise<bigint> {
   const taken = await tx.refund.aggregate({
     where: { sellerOrderId: so.id, debitedFrom: "escrow", status: { in: ["approved", "processing", "completed", "failed"] } },
     _sum: { sellerDebitKobo: true },
   });
-  return so.sellerNetKobo - so.payLaterKobo - (taken._sum.sellerDebitKobo ?? 0n);
+  const [toRider] = await tx.$queryRaw<{ kobo: bigint }[]>`
+    SELECT coalesce(sum(e.debit_kobo - e.credit_kobo), 0)::bigint AS kobo
+      FROM ledger_entries e
+      JOIN ledger_transactions t ON t.id = e.transaction_id
+      JOIN ledger_accounts a ON a.id = e.account_id
+     WHERE t.kind = 'rider_earning' AND t.reference_type = 'seller_order' AND t.reference_id = ${so.id}::uuid
+       AND a.owner_type = 'business' AND a.type = 'escrow'`;
+  return so.sellerNetKobo - so.payLaterKobo - (taken._sum.sellerDebitKobo ?? 0n) - (toRider?.kobo ?? 0n);
 }
 
 /** This seller's share of a pay-on-delivery order's service fee and VAT, in proportion to their goods. */

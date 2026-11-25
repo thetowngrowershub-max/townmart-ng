@@ -7,12 +7,11 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { loadSellerPayouts } from "@/lib/payouts/seller-view";
+import { loadSellerPayouts, PAYOUT_STATUS_TONE } from "@/lib/payouts/seller-view";
 import { requireSellerPage, withSellerRls } from "@/lib/seller/context";
 
 export const metadata: Metadata = { title: "Payouts" };
 
-const STATUS_VARIANT = { pending: "info", processing: "info", paid: "success", failed: "danger" } as const;
 
 export default async function SellerPayoutsPage() {
   const ctx = await requireSellerPage("/dashboard/payouts", "payout.manage");
@@ -72,7 +71,7 @@ export default async function SellerPayoutsPage() {
                       </p>
                       {p.failureReason && <p className="text-xs text-danger">{p.failureReason}</p>}
                     </div>
-                    <Badge variant={STATUS_VARIANT[p.status]}>{p.paidAt ? `Paid ${p.paidAt}` : p.statusLabel}</Badge>
+                    <Badge variant={PAYOUT_STATUS_TONE[p.status]}>{p.paidAt ? `Paid ${p.paidAt}` : p.statusLabel}</Badge>
                   </li>
                 ))}
               </ul>
@@ -83,19 +82,22 @@ export default async function SellerPayoutsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Pay out now</CardTitle>
-              <CardDescription>Don&apos;t want to wait for tomorrow&apos;s run? Send your whole available balance now.</CardDescription>
+              <CardDescription>
+                Don&apos;t want to wait for tomorrow&apos;s run? Ask for your whole available balance now.
+                {v.needsApproval ? " TownMart checks each payout first, usually within a working day." : ""}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {!v.approved ? (
                 <Alert variant="info">Payouts start once your store is approved.</Alert>
               ) : v.inFlight ? (
-                <Alert variant="info">A payout is on its way. You can ask for the next one when it lands.</Alert>
+                <Alert variant="info">A payout is waiting for approval or on its way. You can ask for the next one when it lands.</Alert>
               ) : !v.bank?.ready ? (
-                <Alert variant="info">Add and verify your bank account in Store settings first.</Alert>
+                <Alert variant="info">{v.bank ? "Save your bank account again in Store settings so we can pay it." : "Add and verify your bank account in Store settings first."}</Alert>
               ) : BigInt(v.availableKobo) <= 0n ? (
                 <p className="text-sm text-muted-foreground">Nothing to pay out yet. Money arrives here once orders are delivered and the hold period ends.</p>
               ) : (
-                <RequestPayout disabled={!canPay} amount={v.available} />
+                <RequestPayout disabled={!canPay} amount={v.available} approval={v.needsApproval} />
               )}
             </CardContent>
           </Card>

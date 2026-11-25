@@ -64,33 +64,33 @@ enum TwoFactorMethod {
 }
 
 model User {
-  id                  String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  email               String     @unique @db.Citext
-  emailVerified       DateTime?  @map("email_verified_at") @db.Timestamptz(6)
-  phoneEncrypted      String?    @map("phone_encrypted")
-  phoneHash           String?    @unique @map("phone_hash")
-  phoneVerifiedAt     DateTime?  @map("phone_verified_at") @db.Timestamptz(6)
-  passwordHash        String?    @map("password_hash")
-  name                String?
-  image               String?    @map("avatar_url")
-  status              UserStatus @default(active)
-  failedLoginCount    Int        @default(0) @map("failed_login_count")
-  lockedUntil         DateTime?  @map("locked_until") @db.Timestamptz(6)
-  deletionRequestedAt DateTime?  @map("deletion_requested_at") @db.Timestamptz(6)
+  id                   String           @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  email                String           @unique @db.Citext
+  emailVerified        DateTime?        @map("email_verified_at") @db.Timestamptz(6)
+  phoneEncrypted       String?          @map("phone_encrypted")
+  phoneHash            String?          @unique @map("phone_hash")
+  phoneVerifiedAt      DateTime?        @map("phone_verified_at") @db.Timestamptz(6)
+  passwordHash         String?          @map("password_hash")
+  name                 String?
+  image                String?          @map("avatar_url")
+  status               UserStatus       @default(active)
+  failedLoginCount     Int              @default(0) @map("failed_login_count")
+  lockedUntil          DateTime?        @map("locked_until") @db.Timestamptz(6)
+  deletionRequestedAt  DateTime?        @map("deletion_requested_at") @db.Timestamptz(6)
   // Two-step sign-in: every sign-in (password, phone code or Google) also asks
   // for a second code. See lib/auth/two-factor-methods.ts.
-  twoFactorEnabledAt  DateTime?  @map("two_factor_enabled_at") @db.Timestamptz(6)
-  twoFactorMethod     TwoFactorMethod? @map("two_factor_method")
+  twoFactorEnabledAt   DateTime?        @map("two_factor_enabled_at") @db.Timestamptz(6)
+  twoFactorMethod      TwoFactorMethod? @map("two_factor_method")
   // Authenticator app (TOTP, RFC 6238) secret, encrypted like other personal data.
-  totpSecretEncrypted String?    @map("totp_secret_encrypted")
+  totpSecretEncrypted  String?          @map("totp_secret_encrypted")
   // The last 30-second step accepted, so a code can't be replayed.
-  totpLastStep        Int?       @map("totp_last_step")
+  totpLastStep         Int?             @map("totp_last_step")
   // Keyed hashes of the unused one-time backup codes.
-  twoFactorBackupCodes String[]  @default([]) @map("two_factor_backup_codes")
-  anonymisedAt        DateTime?  @map("anonymised_at") @db.Timestamptz(6)
-  lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(6)
-  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  twoFactorBackupCodes String[]         @default([]) @map("two_factor_backup_codes")
+  anonymisedAt         DateTime?        @map("anonymised_at") @db.Timestamptz(6)
+  lastLoginAt          DateTime?        @map("last_login_at") @db.Timestamptz(6)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   accounts  Account[]
   sessions  Session[]
@@ -494,21 +494,26 @@ model BusinessKyc {
   @@map("business_kyc")
 }
 
+// A shop's or a TownMart pool rider's bank account (exactly one owner).
 model PayoutAccount {
   id                     String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  businessId             String    @unique @map("business_id") @db.Uuid
+  businessId             String?   @unique @map("business_id") @db.Uuid
+  riderId                String?   @unique @map("rider_id") @db.Uuid
   bankCode               String    @map("bank_code")
   bankName               String    @map("bank_name")
   accountNumberLast4     String    @map("account_number_last4") @db.Char(4)
   accountName            String    @map("account_name")
   providerSubaccountCode String?   @map("provider_subaccount_code")
-  // Paystack transfer recipient for payouts (the full account number stays with Paystack).
+  // Transfer recipient for payouts (Paystack recipient code or Flutterwave beneficiary id); the full account number stays with the provider.
   providerRecipientCode  String?   @map("provider_recipient_code")
+  // The provider the recipient code belongs to (paystack, flutterwave, fake). NULL on accounts saved before it was recorded.
+  recipientProvider      String?   @map("recipient_provider")
   verifiedAt             DateTime? @map("verified_at") @db.Timestamptz(6)
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  rider    Rider?    @relation(fields: [riderId], references: [id], onDelete: Cascade)
 
   @@map("payout_accounts")
 }
@@ -1200,6 +1205,8 @@ enum LedgerOwnerType {
   business
   customer
   provider_clearing
+  // A TownMart pool rider's wallet (owner_key is the rider id).
+  rider
 
   @@map("ledger_owner_type")
 }
@@ -1573,41 +1580,43 @@ model DeliveryRate {
 // (business_id null: signs up in the /rider area, vetted by TownMart, takes
 // any shop's deliveries, paid from the delivery fee). See lib/riders/pool.ts.
 model Rider {
-  id                String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  id                      String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   // The shop the rider works for, or null for a TownMart pool rider.
-  businessId        String?   @map("business_id") @db.Uuid
+  businessId              String?   @map("business_id") @db.Uuid
   // Pool riders sign in to TownMart (the /rider area); shop riders don't.
-  userId            String?   @unique @map("user_id") @db.Uuid
+  userId                  String?   @unique @map("user_id") @db.Uuid
   // pending (applied), approved, suspended, rejected. Shop riders are approved.
-  status            String    @default("approved")
-  plateNumber       String?   @map("plate_number")
-  ninEncrypted      String?   @map("nin_encrypted")
-  homeTown          String?   @map("home_town")
-  guarantorName     String?   @map("guarantor_name")
-  guarantorPhoneEncrypted String? @map("guarantor_phone_encrypted")
-  appliedAt         DateTime? @map("applied_at") @db.Timestamptz(6)
-  reviewedAt        DateTime? @map("reviewed_at") @db.Timestamptz(6)
-  reviewedByUserId  String?   @map("reviewed_by_user_id") @db.Uuid
-  reviewNote        String?   @map("review_note")
-  name              String
-  phoneEncrypted    String    @map("phone_encrypted")
-  phoneHash         String    @map("phone_hash")
+  status                  String    @default("approved")
+  plateNumber             String?   @map("plate_number")
+  ninEncrypted            String?   @map("nin_encrypted")
+  homeTown                String?   @map("home_town")
+  guarantorName           String?   @map("guarantor_name")
+  guarantorPhoneEncrypted String?   @map("guarantor_phone_encrypted")
+  appliedAt               DateTime? @map("applied_at") @db.Timestamptz(6)
+  reviewedAt              DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewedByUserId        String?   @map("reviewed_by_user_id") @db.Uuid
+  reviewNote              String?   @map("review_note")
+  name                    String
+  phoneEncrypted          String    @map("phone_encrypted")
+  phoneHash               String    @map("phone_hash")
   // motorbike, bicycle, tricycle (keke), car, on_foot
-  vehicle           String    @default("motorbike")
+  vehicle                 String    @default("motorbike")
   // Off when the rider has left the shop; kept for order history.
-  isActive          Boolean   @default(true) @map("is_active")
+  isActive                Boolean   @default(true) @map("is_active")
   // The seller (or later the rider) switches this on when they can take a job.
-  isAvailable       Boolean   @default(true) @map("is_available")
+  isAvailable             Boolean   @default(true) @map("is_available")
   // Last known position. Null means "at the shop".
-  latitude          Float?
-  longitude         Float?
-  locationUpdatedAt DateTime? @map("location_updated_at") @db.Timestamptz(6)
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  latitude                Float?
+  longitude               Float?
+  locationUpdatedAt       DateTime? @map("location_updated_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  business     Business?     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user         User?         @relation("RiderUser", fields: [userId], references: [id], onDelete: Restrict)
-  sellerOrders SellerOrder[]
+  business      Business?      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user          User?          @relation("RiderUser", fields: [userId], references: [id], onDelete: Restrict)
+  sellerOrders  SellerOrder[]
+  payoutAccount PayoutAccount?
+  payouts       Payout[]
 
   @@unique([businessId, phoneHash])
   @@unique([id, businessId], map: "riders_id_business_key")
@@ -2085,6 +2094,8 @@ model DisputeMessage {
 }
 
 enum PayoutStatus {
+  // Written to the ledger (the money is held); waiting for TownMart to approve it.
+  awaiting_approval
   // Written to the ledger; the transfer hasn't been sent yet.
   pending
   // Sent; waiting for the provider to confirm.
@@ -2092,14 +2103,17 @@ enum PayoutStatus {
   paid
   // The transfer failed and the money went back to the seller's available balance.
   failed
+  // TownMart turned the request down; the money went back to the available balance.
+  rejected
 
   @@map("payout_status")
 }
 
-/// A transfer of a seller's available balance to their bank account.
+/// A transfer of a seller's (or a TownMart pool rider's) available balance to their bank account.
 model Payout {
   id                   String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  businessId           String       @map("business_id") @db.Uuid
+  businessId           String?      @map("business_id") @db.Uuid
+  riderId              String?      @map("rider_id") @db.Uuid
   amountKobo           BigInt       @map("amount_kobo")
   status               PayoutStatus @default(pending)
   provider             String
@@ -2115,14 +2129,19 @@ model Payout {
   // NULL for the scheduled run.
   requestedBy          String?      @map("requested_by") @db.Uuid
   failureReason        String?      @map("failure_reason")
+  // The admin who approved or rejected it.
+  reviewedBy           String?      @map("reviewed_by") @db.Uuid
+  reviewedAt           DateTime?    @map("reviewed_at") @db.Timestamptz(6)
   sentAt               DateTime?    @map("sent_at") @db.Timestamptz(6)
   paidAt               DateTime?    @map("paid_at") @db.Timestamptz(6)
   createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  rider    Rider?    @relation(fields: [riderId], references: [id], onDelete: Restrict)
 
   @@index([businessId, createdAt])
+  @@index([riderId, createdAt])
   @@index([status, createdAt])
   @@map("payouts")
 }

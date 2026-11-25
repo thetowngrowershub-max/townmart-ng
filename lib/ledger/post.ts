@@ -5,7 +5,7 @@ function accountKey(a: AccountRef) {
   return {
     ownerType: a.ownerType,
     ownerId: a.ownerType === "business" ? a.businessId : null,
-    ownerKey: a.ownerType === "business" ? a.businessId : a.ownerType === "provider_clearing" ? a.provider : "",
+    ownerKey: a.ownerType === "business" ? a.businessId : a.ownerType === "provider_clearing" ? a.provider : a.ownerType === "rider" ? a.riderId : "",
     type: a.type,
   } as const;
 }

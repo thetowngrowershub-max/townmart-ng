@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 import { isTestMode } from "@/lib/platform";
 import { checkGoogleRoutes } from "@/lib/geo/routes";
 import { paymentsStatus } from "@/lib/payments";
+import { transferProvider } from "@/lib/payments/transfers";
 import { redis } from "@/lib/redis";
 import { channelLog } from "@/lib/notifications/delivery-log";
 import { emailStatus, smsStatus } from "@/lib/notifications/status";
@@ -71,6 +72,17 @@ export async function GET() {
                     (p) => ({ ...p, error: p.error && scrub(p.error) }),
                     (e: unknown) => ({ ok: false, error: scrub(e instanceof Error ? e.message : String(e)) }),
                   )
+                : undefined,
+            payouts:
+              settings.status === "fulfilled"
+                ? (() => {
+                    try {
+                      const t = transferProvider();
+                      return { provider: t.name, simulated: t.simulated };
+                    } catch (e) {
+                      return { provider: null, simulated: true, error: scrub(e instanceof Error ? e.message : String(e)) };
+                    }
+                  })()
                 : undefined,
             messages:
               settings.status === "fulfilled"

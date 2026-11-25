@@ -52,8 +52,9 @@ const schema = z.object({
   // "dnd" reaches numbers on Do-Not-Disturb (Termii support must enable it); "generic" works before that, but misses DND numbers.
   TERMII_CHANNEL: z.enum(["dnd", "generic"]).default("dnd"),
 
-  // Bank account verification and payout subaccounts: "paystack" or "fake" (development only)
-  BANK_VERIFIER: z.enum(["paystack", "fake"]).default("paystack"),
+  // Bank account checks and payouts (bank transfers to sellers and riders): "paystack",
+  // "flutterwave" (uses FLUTTERWAVE_SECRET_KEY), or "fake" (development only).
+  BANK_VERIFIER: z.enum(["paystack", "flutterwave", "fake"]).default("paystack"),
   PAYSTACK_SECRET_KEY: z.string().optional(),
 
   // Card/transfer/USSD payments: "paystack", "flutterwave", or "fake" (a local

@@ -26,6 +26,8 @@ export type CheckoutSettings = {
   lateCancelRefundPercent: number;
   /** Smallest available balance paid out automatically (sellers can ask for any positive amount). */
   payoutMinimumKobo: bigint;
+  /** Payouts (requested or scheduled) wait for an admin to approve them before money moves. */
+  payoutRequireApproval: boolean;
   /** Delivery priced by distance from the shop: per km, road factor and the furthest a shop delivers. */
   deliveryPerKmKobo: bigint;
   deliveryRoadFactor: number;
@@ -54,6 +56,7 @@ export const CHECKOUT_DEFAULTS: CheckoutSettings = {
   refundResponseHours: 48,
   lateCancelRefundPercent: 50,
   payoutMinimumKobo: 100_000n,
+  payoutRequireApproval: true,
   deliveryPerKmKobo: 25_000n,
   deliveryRoadFactor: 1.3,
   deliveryMaxKm: 25,
@@ -77,6 +80,7 @@ const KEYS = [
   "refunds.seller_response_hours",
   "refunds.late_cancel_percent",
   "payouts.minimum_naira",
+  "payouts.require_approval",
   "delivery.per_km_naira",
   "delivery.road_factor",
   "delivery.max_km",
@@ -110,6 +114,7 @@ export async function getCheckoutSettings(tx: Tx): Promise<CheckoutSettings> {
     refundResponseHours: num(v.get("refunds.seller_response_hours"), 1, 14 * 24) ?? d.refundResponseHours,
     lateCancelRefundPercent: num(v.get("refunds.late_cancel_percent"), 0, 100) ?? d.lateCancelRefundPercent,
     payoutMinimumKobo: payoutMin === undefined ? d.payoutMinimumKobo : BigInt(Math.round(payoutMin * 100)),
+    payoutRequireApproval: typeof v.get("payouts.require_approval") === "boolean" ? (v.get("payouts.require_approval") as boolean) : d.payoutRequireApproval,
     deliveryPerKmKobo: perKm === undefined ? d.deliveryPerKmKobo : BigInt(Math.round(perKm * 100)),
     deliveryRoadFactor: num(v.get("delivery.road_factor"), 1, 3) ?? d.deliveryRoadFactor,
     deliveryMaxKm: num(v.get("delivery.max_km"), 1, 500) ?? d.deliveryMaxKm,

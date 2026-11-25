@@ -75,7 +75,7 @@ In `.env`, set at least:
 | `AUTH_SECRET`, `DATA_ENCRYPTION_KEY`, `DATA_HASH_KEY` | each `openssl rand -base64 32` |
 | `POSTGRES_PASSWORD`, `TOWNMART_MIGRATOR_PASSWORD`, `TOWNMART_APP_PASSWORD`, `TOWNMART_READONLY_PASSWORD`, `REDIS_PASSWORD` | each `openssl rand -base64 24 \| tr -d '/+='` |
 | `PAYMENT_PROVIDER`, `PAYSTACK_SECRET_KEY` (and Flutterwave keys if used) | live keys from the provider dashboards |
-| `BANK_VERIFIER` | `paystack` |
+| `BANK_VERIFIER` | `flutterwave` (seller and rider payouts by Flutterwave transfer, using `FLUTTERWAVE_SECRET_KEY`) or `paystack`. Turn on Transfers in the Flutterwave dashboard, keep an NGN balance there, and point its webhook at `/api/webhooks/flutterwave` (the same one payments use) so transfer results come back. Accounts saved under another provider must be saved again before they can be paid |
 | `SMS_PROVIDER`, `TERMII_API_KEY`, `TERMII_SENDER_ID`, `TERMII_BASE_URL` | `termii`, the approved sender ID, and the Base URL from the Termii dashboard. `TERMII_CHANNEL` stays `dnd` once Termii has enabled the DND route. Check both with **Admin → System health → Send test text** |
 | `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM` | `resend`, the key, and an address on a domain verified in Resend (SPF, DKIM, DMARC) |
 | `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | from Cloudflare Turnstile |
