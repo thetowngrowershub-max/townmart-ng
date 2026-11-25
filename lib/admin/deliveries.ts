@@ -31,7 +31,11 @@ export type DeliveryRow = {
   area: string;
   stage: DeliveryStage;
   status: string;
-  rider: { name: string; phone: string; seen: string | null; mapUrl: string | null } | null;
+  rider: { name: string; phone: string; seen: string | null; mapUrl: string | null; townmart: boolean } | null;
+  /** Offered to the TownMart rider pool (waiting for a rider to take it, while there's none). */
+  pooled: boolean;
+  /** TownMart can still put a pool rider on it (no pickup yet). */
+  canAssignPool: boolean;
   payOnDelivery: boolean;
   /** Since the stage began, for the board's "waiting" column. */
   since: Date;
@@ -78,12 +82,13 @@ export async function deliveryBoard(tx: Tx, now = new Date()): Promise<{ rows: D
       fulfilmentContact: true,
       riderId: true,
       riderAssignedAt: true,
+      riderPoolOpenedAt: true,
       pickedUpAt: true,
       shippedAt: true,
       deliveredAt: true,
       createdAt: true,
       business: { select: { name: true } },
-      rider: { select: { name: true, phoneEncrypted: true, latitude: true, longitude: true, locationUpdatedAt: true } },
+      rider: { select: { name: true, phoneEncrypted: true, latitude: true, longitude: true, locationUpdatedAt: true, businessId: true } },
       order: { select: { paidAt: true } },
     },
   });
@@ -110,8 +115,11 @@ export async function deliveryBoard(tx: Tx, now = new Date()): Promise<{ rows: D
             phone: decrypt(r.phoneEncrypted),
             seen: r.locationUpdatedAt ? formatTime(r.locationUpdatedAt) : null,
             mapUrl: r.latitude !== null && r.longitude !== null ? `https://www.google.com/maps/search/?api=1&query=${r.latitude},${r.longitude}` : null,
+            townmart: r.businessId === null,
           }
         : null,
+      pooled: so.riderPoolOpenedAt !== null,
+      canAssignPool: !so.pickedUpAt && (so.status === "paid" || so.status === "processing"),
       payOnDelivery: so.payOnDelivery,
       since,
       late,

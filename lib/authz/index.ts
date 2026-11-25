@@ -68,7 +68,8 @@ export type GlobalPermission =
   | "catalogue.manage"
   | "content.manage"
   | "user.manage"
-  | "jobs.retry";
+  | "jobs.retry"
+  | "rider.manage";
 
 type AnyPermission = `${OwnedPermission | BusinessPermission}:any`;
 
@@ -108,6 +109,8 @@ const ADMIN: Grant[] = [
   "user.manage",
   // Retry failed background jobs from the system health page.
   "jobs.retry",
+  // Vet TownMart pool riders and put them on deliveries.
+  "rider.manage",
 ];
 
 export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {

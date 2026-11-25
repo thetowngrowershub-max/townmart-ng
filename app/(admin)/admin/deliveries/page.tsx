@@ -2,12 +2,16 @@ import { AlertTriangle, Bike, MapPin, Phone } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AutoRefresh } from "@/components/admin/auto-refresh";
+import { PoolDeliveryActions } from "@/components/admin/pool-delivery-actions";
 import { PageHeader } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { deliveryActivity, deliveryBoard, LATE_AFTER_MS, STAGE_LABELS, type DeliveryStage } from "@/lib/admin/deliveries";
 import { requirePermission } from "@/lib/auth/current-user";
+import { decrypt } from "@/lib/crypto";
 import { withRls } from "@/lib/db";
+import { poolCandidates } from "@/lib/riders/pool";
+import { getCheckoutSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Deliveries" };
@@ -28,7 +32,11 @@ export default async function AdminDeliveriesPage({ searchParams }: { searchPara
   const stage = sp.stage && sp.stage in STAGE_LABELS ? (sp.stage as DeliveryStage) : null;
   const lateOnly = sp.late === "1";
   const now = new Date();
-  const { board, activity } = await withRls({ scope: "admin", userId: user.id }, async (tx) => ({ board: await deliveryBoard(tx, now), activity: await deliveryActivity(tx) }));
+  const { board, activity, pool } = await withRls({ scope: "admin", userId: user.id }, async (tx) => {
+    const s = await getCheckoutSettings(tx);
+    return { board: await deliveryBoard(tx, now), activity: await deliveryActivity(tx), pool: await poolCandidates(tx, null, s.riderPoolMaxJobs, now) };
+  });
+  const poolOptions = pool.map((r) => ({ id: r.id, label: `${r.name} (${decrypt(r.phoneEncrypted)})${r.activeJobs > 0 ? `, ${r.activeJobs} in hand` : ""}` }));
   const rows = board.rows.filter((r) => (!stage || r.stage === stage) && (!lateOnly || r.late));
   const hours = (ms: number) => ms / 3600_000;
 
@@ -81,6 +89,7 @@ export default async function AdminDeliveriesPage({ searchParams }: { searchPara
                       <>
                         <span className="flex items-center gap-1 text-foreground">
                           <Bike className="size-4" aria-hidden /> {r.rider.name}
+                          {r.rider.townmart && <Badge variant="info">TownMart rider</Badge>}
                         </span>
                         <a href={`tel:${r.rider.phone}`} className="flex items-center gap-1 text-primary underline">
                           <Phone className="size-3.5" aria-hidden /> {r.rider.phone}
@@ -94,11 +103,12 @@ export default async function AdminDeliveriesPage({ searchParams }: { searchPara
                         )}
                       </>
                     ) : (
-                      <span>{r.stage === "needs_rider" ? "No rider yet" : "No rider (the shop sent it another way)"}</span>
+                      <span>{r.stage === "needs_rider" ? (r.pooled ? "Offered to TownMart riders, no one has taken it yet" : "No rider yet (the shop uses its own riders)") : "No rider (the shop sent it another way)"}</span>
                     )}
                     {r.stage !== "delivered" && <span>Waiting {waited(r.since, now)}</span>}
                   </div>
                   <p className="text-xs text-muted-foreground">{r.times.map((t) => `${t.label} ${t.at}`).join(" · ")}</p>
+                  {r.canAssignPool && (r.stage === "needs_rider" || r.rider?.townmart) && <PoolDeliveryActions sellerOrderId={r.sellerOrderId} riders={poolOptions} canOffer={!r.rider} />}
                 </li>
               ))}
             </ul>

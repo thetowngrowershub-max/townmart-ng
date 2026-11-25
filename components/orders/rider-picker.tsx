@@ -7,7 +7,7 @@ import { useState, useTransition } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { assignRiderAction } from "@/lib/fulfilment/rider-actions";
+import { assignRiderAction, requestPoolRiderAction } from "@/lib/fulfilment/rider-actions";
 import { cn } from "@/lib/utils";
 
 export type RiderOption = {
@@ -28,12 +28,16 @@ export function RiderPicker({
   options,
   canManage,
   dropOffUrl,
+  pool = null,
 }: {
   sellerOrderId: string;
-  current: { id: string; name: string; assigned: string; pickedUp: string | null; jobUrl?: string | null } | null;
+  /** `townmart` is set for a TownMart pool rider (with their number): the shop can switch to its own rider but not remove them. */
+  current: { id: string; name: string; assigned: string; pickedUp: string | null; jobUrl?: string | null; townmart?: { phone: string } | null } | null;
   options: RiderOption[];
   canManage: boolean;
   dropOffUrl: string | null;
+  /** No rider yet: "waiting" for a TownMart rider to take it, or the shop "can_request" one. */
+  pool?: "waiting" | "can_request" | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -54,9 +58,15 @@ export function RiderPicker({
     <div className="flex flex-col gap-3 text-sm">
       {current && (
         <div className="flex flex-col gap-1 rounded-xl border border-primary bg-primary-soft p-3">
-          <p className="flex items-center gap-2 font-medium">
+          <p className="flex flex-wrap items-center gap-2 font-medium">
             <Bike className="size-4" aria-hidden /> {current.name}
+            {current.townmart && <Badge variant="info">TownMart rider</Badge>}
           </p>
+          {current.townmart && (
+            <a href={`tel:${current.townmart.phone}`} className="text-primary underline">
+              {current.townmart.phone}
+            </a>
+          )}
           <p className="text-muted-foreground">
             Assigned {current.assigned}
             {current.pickedUp && ` · picked up ${current.pickedUp}`}
@@ -72,14 +82,38 @@ export function RiderPicker({
           {canManage && !changing && (
             <div className="mt-1 flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => setChanging(true)}>
-                Change rider
+                {current.townmart ? "Use my own rider instead" : "Change rider"}
               </Button>
-              <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => assign(null)}>
-                <UserX aria-hidden /> Remove
-              </Button>
+              {!current.townmart && (
+                <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => assign(null)}>
+                  <UserX aria-hidden /> Remove
+                </Button>
+              )}
             </div>
           )}
         </div>
+      )}
+      {!current && pool === "waiting" && (
+        <Alert variant="info">Waiting for a TownMart rider. Nearby riders have been texted, and TownMart steps in if nobody takes it.</Alert>
+      )}
+      {!current && pool === "can_request" && canManage && (
+        <Button
+          type="button"
+          variant="outline"
+          className="self-start"
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const res = await requestPoolRiderAction({ sellerOrderId });
+              if (res.ok) {
+                setError(null);
+                router.refresh();
+              } else setError(res.error ?? "Something went wrong.");
+            })
+          }
+        >
+          <Bike aria-hidden /> Get a TownMart rider
+        </Button>
       )}
       {dropOffUrl && (
         <a href={dropOffUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary underline">
@@ -90,7 +124,7 @@ export function RiderPicker({
         <>
           {options.length === 0 ? (
             <p className="text-muted-foreground">
-              You haven&apos;t added any riders yet.{" "}
+              You haven&apos;t added any of your own riders.{" "}
               <Link href="/dashboard/riders" className="text-primary underline">
                 Add your riders
               </Link>{" "}
