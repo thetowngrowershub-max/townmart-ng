@@ -1,0 +1,47 @@
+# TownMart reverse proxy. Caddy gets and renews HTTPS certificates itself.
+# DOMAIN (e.g. townmart.ng) and ACME_EMAIL come from the environment.
+{
+	email {$ACME_EMAIL}
+	servers {
+		# Behind Cloudflare or another proxy, list its ranges here so the
+		# visitor's real IP reaches rate limiting:  trusted_proxies static <ranges>
+	}
+}
+
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		-Server
+	}
+	@static path /_next/static/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	request_body {
+		max_size 25MB
+	}
+
+	reverse_proxy web:3000 {
+		health_uri /api/health
+		health_interval 15s
+		lb_try_duration 10s
+	}
+}
+
+# Object storage, when MinIO runs on this server: set S3_ENDPOINT and
+# S3_PUBLIC_BASE_URL (https://MEDIA_DOMAIN/townmart-public) in .env. Browsers
+# upload straight to it with presigned URLs; every request is signed except
+# reads from the public bucket, so KYC documents and exports stay private.
+{$MEDIA_DOMAIN:media.localhost} {
+	@public path /townmart-public/*
+	header @public Cache-Control "public, max-age=2592000"
+	request_body {
+		max_size 25MB
+	}
+	reverse_proxy minio:9000
+}

@@ -8,8 +8,10 @@ import { RefundList } from "@/components/refunds/refund-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { loadAdminDispute } from "@/lib/admin/finance-view";
+import { logPersonalDataView } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/current-user";
 import { withRls } from "@/lib/db";
+import { requestMeta } from "@/lib/request";
 
 export const metadata: Metadata = { title: "Dispute" };
 
@@ -17,7 +19,12 @@ export default async function AdminDisputePage({ params }: { params: Promise<{ i
   const { id } = await params;
   const user = await requirePermission("dispute.manage", `/admin/disputes/${id}`);
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const d = await withRls({ scope: "admin", userId: user.id }, (tx) => loadAdminDispute(tx, id));
+  const meta = await requestMeta();
+  const d = await withRls({ scope: "admin", userId: user.id }, async (tx) => {
+    const d = await loadAdminDispute(tx, id);
+    if (d) await logPersonalDataView(tx, { actorUserId: user.id, entityType: "dispute", entityId: id, fields: ["customer name", "messages", "evidence"], ipHash: meta.ipHash });
+    return d;
+  });
   if (!d) notFound();
 
   return (

@@ -23,6 +23,7 @@ import {
 import { afterBookingEnded, BookingError, cancelBooking, rescheduleBooking, sellerBookingStep } from "./manage";
 import { openSlots } from "./schedule";
 import { lagosMidnight } from "./slots";
+import { IN_SERVICE_AREA } from "@/lib/service-area-db";
 
 export type SlotDay = { date: string; label: string; times: { startsAt: string; label: string; remaining: number }[] };
 
@@ -40,7 +41,7 @@ export async function serviceSlotsAction(input: { serviceId: string; packageId?:
 
   return withSystemContext(async (tx) => {
     const service = await tx.service.findFirst({
-      where: { id: parsed.data.serviceId, status: "active", deletedAt: null, business: { status: "approved" } },
+      where: { id: parsed.data.serviceId, status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved", lga: IN_SERVICE_AREA } },
       select: { id: true, durationMinutes: true, packages: { select: { id: true, durationMinutes: true } } },
     });
     if (!service) return { ok: false as const, error: "This service is no longer available." };

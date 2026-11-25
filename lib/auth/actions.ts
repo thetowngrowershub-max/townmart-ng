@@ -4,13 +4,15 @@ import { Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { writeAudit } from "@/lib/audit";
 import { assertCan } from "@/lib/authz";
-import { randomToken, sha256 } from "@/lib/crypto";
+import { phoneHash, sha256 } from "@/lib/crypto";
 import { prisma, withRls } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { resetPasswordTemplate, verifyEmailTemplate } from "@/lib/notifications/email/templates";
+import { issueOtp } from "@/lib/otp";
 import { enqueueEmail } from "@/lib/queue";
 import { rateLimit } from "@/lib/rate-limit";
+import { recordAcceptances } from "@/lib/legal/documents";
 import { requestMeta } from "@/lib/request";
 import { verifyTurnstile } from "@/lib/turnstile";
 import {
@@ -34,31 +36,15 @@ import {
   VERIFY_EMAIL_TTL_HOURS,
 } from "./constants";
 import { signIn as authJsSignIn } from "./config";
+import { completeSignIn } from "./complete-sign-in";
+import { consumeToken, issueToken } from "./tokens";
+import { loadTwoFactorUser, startSecondStep } from "./two-factor-methods";
 import { getCurrentUser } from "./current-user";
+import { setPendingPhone } from "./pending-phone";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "./password";
 import { createUserSession, currentSessionToken, destroyCurrentSession } from "./session";
 
 const TOO_MANY = "Too many attempts. Please wait a few minutes and try again.";
-
-/** Replaces any outstanding token of this kind and returns the raw token for the email link. */
-async function issueToken(identifier: string, ttlMs: number): Promise<string> {
-  const token = randomToken(32);
-  await prisma.$transaction([
-    prisma.verificationToken.deleteMany({ where: { identifier } }),
-    prisma.verificationToken.create({
-      data: { identifier, token: sha256(token), expires: new Date(Date.now() + ttlMs) },
-    }),
-  ]);
-  return token;
-}
-
-/** Deletes and returns true if a matching, unexpired token exists (single use). */
-async function consumeToken(identifier: string, token: string): Promise<boolean> {
-  const { count } = await prisma.verificationToken.deleteMany({
-    where: { identifier, token: sha256(token), expires: { gt: new Date() } },
-  });
-  return count === 1;
-}
 
 async function sendVerificationEmail(user: { email: string; name: string | null }): Promise<void> {
   const token = await issueToken(tokenIdentifier.verifyEmail(user.email), VERIFY_EMAIL_TTL_HOURS * 3600_000);
@@ -68,12 +54,21 @@ async function sendVerificationEmail(user: { email: string; name: string | null 
   await enqueueEmail(verifyEmailTemplate({ to: user.email, name: user.name, url: url.toString() }));
 }
 
+/** Texts a code to the number typed at sign-up, unless another account already has it. */
+async function textSignUpCode(userId: string, phone: string): Promise<void> {
+  const hash = phoneHash(phone);
+  const owner = await prisma.user.findUnique({ where: { phoneHash: hash }, select: { id: true } });
+  if (owner) return;
+  const sent = await issueOtp({ phoneE164: phone, phoneHash: hash, purpose: "verify_phone", userId });
+  if (sent.ok) await setPendingPhone(userId, phone);
+}
+
 // ─── Sign up ────────────────────────────────────────────────────────────────
 
 export async function signUpAction(input: SignUpInput): Promise<ActionResult> {
   const parsed = signUpSchema.safeParse(input);
   if (!parsed.success) return validationError(parsed.error);
-  const { name, email, password, turnstileToken } = parsed.data;
+  const { name, email, password, turnstileToken, marketingEmail, phone } = parsed.data;
   const meta = await requestMeta();
 
   if (!(await rateLimit(`auth:sign-up:ip:${meta.ipHash}`, 5, 3600)).allowed) return { ok: false, error: TOO_MANY };
@@ -95,13 +90,16 @@ export async function signUpAction(input: SignUpInput): Promise<ActionResult> {
 
   await withRls({ userId }, async (tx) => {
     await tx.userRole.create({ data: { userId, role: "customer" } });
+    const accepted = await recordAcceptances(tx, { context: "sign_up", userId, ipHash: meta.ipHash, userAgent: meta.userAgent });
+    // Offers are opt-in, separate from the terms.
+    if (marketingEmail) await tx.notificationPreference.create({ data: { userId, marketingEmail: true, marketingEmailAt: new Date() } });
     await writeAudit(tx, {
       actorUserId: userId,
       actorRole: "customer",
       action: "user.sign_up",
       entityType: "user",
       entityId: userId,
-      after: { name, method: "password" },
+      after: { name, method: "password", accepted, marketingEmail },
       ipHash: meta.ipHash,
     });
   });
@@ -111,6 +109,15 @@ export async function signUpAction(input: SignUpInput): Promise<ActionResult> {
   } catch (err) {
     // The account exists; the user can resend from their account page.
     logger.error({ err, userId }, "failed to queue verification email");
+  }
+
+  if (phone) {
+    try {
+      await textSignUpCode(userId, phone);
+    } catch (err) {
+      // The account exists; they can add the phone from their account page.
+      logger.error({ err, userId }, "failed to send the sign-up phone code");
+    }
   }
 
   await createUserSession(userId, meta);
@@ -134,7 +141,7 @@ export async function signInAction(input: SignInInput): Promise<ActionResult> {
   const invalid: ActionResult = { ok: false, error: "Incorrect email or password." };
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, passwordHash: true, status: true, lockedUntil: true, failedLoginCount: true },
+    select: { id: true, passwordHash: true, status: true, lockedUntil: true, failedLoginCount: true, twoFactorEnabledAt: true },
   });
 
   if (!user?.passwordHash) {
@@ -163,21 +170,47 @@ export async function signInAction(input: SignInInput): Promise<ActionResult> {
     return invalid;
   }
 
-  if (user.status !== "active") {
+  if (user.status !== "active" && user.status !== "pending_deletion") {
     return { ok: false, error: "This account is not active. Please contact support." };
   }
+  await prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil: null } });
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() },
-  });
-  await createUserSession(user.id, meta);
-  redirect(next ?? "/account");
+  // Two-step sign-in: a second code before any session exists.
+  if (user.twoFactorEnabledAt) {
+    const twoFactorUser = await loadTwoFactorUser(user.id);
+    if (twoFactorUser) {
+      const started = await startSecondStep(twoFactorUser, next ?? null, "password");
+      if (!started.ok) return { ok: false, error: started.error };
+      redirect("/auth/two-factor");
+    }
+  }
+  redirect(await completeSignIn(user.id, next ?? null, meta));
 }
 
 export async function signInWithGoogleAction(formData: FormData): Promise<void> {
   const next = safeNextPath.parse(formData.get("next")?.toString());
   await authJsSignIn("google", { redirectTo: next ?? "/account" });
+}
+
+/** Links Google to the signed-in account: Auth.js links a new provider to the current session's user. */
+export async function connectGoogleAction(): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/auth/sign-in?next=/account/security");
+  await authJsSignIn("google", { redirectTo: "/account/security?google=connected" });
+}
+
+export async function disconnectGoogleAction(): Promise<ActionResult> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Please sign in again." };
+  const account = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { passwordHash: true, phoneVerifiedAt: true } });
+  // Keep at least one way to sign in.
+  if (!account.passwordHash && !account.phoneVerifiedAt) {
+    return { ok: false, error: "Set a password (Forgot password) or verify a phone number first, so you can still sign in." };
+  }
+  const meta = await requestMeta();
+  await prisma.account.deleteMany({ where: { userId: user.id, provider: "google" } });
+  await withRls({ userId: user.id }, (tx) => writeAudit(tx, { actorUserId: user.id, action: "user.google_disconnected", entityType: "user", entityId: user.id, ipHash: meta.ipHash }));
+  return { ok: true, message: "Google is disconnected." };
 }
 
 export async function signOutAction(): Promise<void> {

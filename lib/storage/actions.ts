@@ -13,6 +13,7 @@ import {
   ACCEPTED_CSV_TYPES,
   ACCEPTED_DOCUMENT_TYPES,
   ACCEPTED_IMAGE_TYPES,
+  CMS_OWNER,
   customerOwner,
   finaliseEvidence,
   finaliseImage,
@@ -26,12 +27,13 @@ import {
 } from "./uploads";
 
 // Seller uploads. Review photos have their own actions below (customers, not sellers).
-const UPLOAD_KINDS = ["product", "service", "logo", "banner", "kyc", "csv"] as const;
+const UPLOAD_KINDS = ["product", "service", "portfolio", "logo", "banner", "kyc", "csv"] as const;
 type UploadKind = (typeof UPLOAD_KINDS)[number];
 
 const RULES: Record<UploadKind, { types: readonly string[]; maxBytes: number; permission: "listing.write" | "store.manage" | "import.manage" }> = {
   product: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "listing.write" },
   service: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "listing.write" },
+  portfolio: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "listing.write" },
   logo: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "store.manage" },
   banner: { types: ACCEPTED_IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, permission: "store.manage" },
   kyc: { types: ACCEPTED_DOCUMENT_TYPES, maxBytes: MAX_DOCUMENT_BYTES, permission: "store.manage" },
@@ -66,7 +68,7 @@ export async function requestUploadAction(input: z.input<typeof requestSchema>):
   return { ok: true, data: { tmpKey, target } };
 }
 
-const SELLER_IMAGE_PURPOSES = ["product", "service", "logo", "banner"] as const satisfies readonly ImagePurpose[];
+const SELLER_IMAGE_PURPOSES = ["product", "service", "portfolio", "logo", "banner"] as const satisfies readonly ImagePurpose[];
 const finaliseSchema = z.object({ tmpKey: z.string().max(200), purpose: z.enum(SELLER_IMAGE_PURPOSES) });
 
 /** Step 2 for images: re-encode to WebP (stripping EXIF/GPS) into the public bucket. */
@@ -152,5 +154,36 @@ export async function finaliseEvidenceAction(input: { orderNumber: string; token
     if (err instanceof UploadError) return { ok: false, error: err.message };
     logger.error({ err }, "evidence finalise failed");
     return { ok: false, error: "We couldn't process that photo. Please try another." };
+  }
+}
+
+/**
+ * Homepage banners uploaded from the admin console. They're owned by `cms`
+ * (keys under banners/cms/), so no seller can claim or replace them.
+ */
+export async function requestCmsUploadAction(input: z.input<typeof reviewRequestSchema>): Promise<ActionResult<{ tmpKey: string; target: UploadTarget }>> {
+  const parsed = reviewRequestSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid upload request." };
+  const user = await getCurrentUser();
+  if (!can(user, "content.manage")) return { ok: false, error: "You can't upload files here." };
+  if (!(ACCEPTED_IMAGE_TYPES as readonly string[]).includes(parsed.data.contentType)) return { ok: false, error: "That file type isn't supported." };
+  if (parsed.data.size > MAX_IMAGE_BYTES) return { ok: false, error: `File is too large (max ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB).` };
+  const tmpKey = newTmpKey(CMS_OWNER);
+  const target = await storage().createUploadUrl({ bucket: "private", key: tmpKey, contentType: parsed.data.contentType, expiresInSeconds: 300 });
+  return { ok: true, data: { tmpKey, target } };
+}
+
+export async function finaliseCmsImageAction(input: { tmpKey: string }): Promise<ActionResult<{ key: string; width: number; height: number; url: string }>> {
+  const tmpKey = z.string().max(200).safeParse(input.tmpKey);
+  if (!tmpKey.success) return { ok: false, error: "Invalid upload." };
+  const user = await getCurrentUser();
+  if (!can(user, "content.manage")) return { ok: false, error: "You can't upload files here." };
+  try {
+    const img = await finaliseImage(CMS_OWNER, tmpKey.data, "banner");
+    return { ok: true, data: { ...img, url: storage().publicUrl(img.key) } };
+  } catch (err) {
+    if (err instanceof UploadError) return { ok: false, error: err.message };
+    logger.error({ err }, "cms image finalise failed");
+    return { ok: false, error: "We couldn't process that image. Please try another." };
   }
 }

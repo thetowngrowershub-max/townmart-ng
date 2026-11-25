@@ -9,6 +9,7 @@ import { orderUrl } from "@/lib/orders/notify";
 import { ORDER_STATUS_LABELS } from "@/lib/orders/labels";
 import { enqueueEmail, enqueueSms, type FulfilmentNotice } from "@/lib/queue";
 import { sendMoneyNotice } from "@/lib/refunds/notify";
+import { deliveryCode, riderJobUrl } from "./rider-job";
 
 export type Customer = { id: string; orderNumber: string; isGuest: boolean; userId: string | null; contactEmail: string; contactPhoneEncrypted: string; customerName: string };
 export type Seller = { name: string; email: string; ownerUserId: string };
@@ -22,10 +23,20 @@ async function inApp(tx: Tx, n: { userId: string; type: string; title: string; b
 /** The customer's way back to their order: their account page, or the guest link. */
 const customerLink = (o: Customer) => ({ url: orderUrl(o), path: `/account/orders/${o.orderNumber}` });
 
+/**
+ * Email, SMS and in-app, within the customer's notification settings: the
+ * optional channels (texts, emails about messages) can be switched off;
+ * guests get the defaults.
+ */
 export async function tellCustomer(tx: Tx, o: Customer, p: { type: string; title: string; lines: string[]; sms: string | null; link?: { url: string; path: string }; buttonLabel?: string }) {
   const link = p.link ?? customerLink(o);
-  await enqueueEmail(noticeTemplate({ to: o.contactEmail, subject: `${p.title} · ${o.orderNumber}`, title: p.title, lines: [`Hi ${o.customerName},`, ...p.lines], url: link.url, buttonLabel: p.buttonLabel ?? "View your order" }));
-  if (p.sms) await enqueueSms({ to: decrypt(o.contactPhoneEncrypted), body: `TownMart: ${p.sms}` });
+  const prefs = o.userId ? await tx.notificationPreference.findUnique({ where: { userId: o.userId } }) : null;
+  const emailOk = p.type !== "message.new" || (prefs?.emailMessages ?? true);
+  const smsOk = p.type.startsWith("booking.reminder") ? (prefs?.smsBookingReminders ?? true) : (prefs?.smsOrderUpdates ?? true);
+  if (emailOk) {
+    await enqueueEmail(noticeTemplate({ to: o.contactEmail, subject: `${p.title} · ${o.orderNumber}`, title: p.title, lines: [`Hi ${o.customerName},`, ...p.lines], url: link.url, buttonLabel: p.buttonLabel ?? "View your order" }));
+  }
+  if (p.sms && smsOk) await enqueueSms({ to: decrypt(o.contactPhoneEncrypted), body: `TownMart: ${p.sms}` });
   if (o.userId) await inApp(tx, { userId: o.userId, type: p.type, title: p.title, body: p.lines[0] ?? "", link: link.path });
 }
 
@@ -45,10 +56,29 @@ export const sellerSelect = { name: true, email: true, ownerUserId: true } as co
 export async function sendFulfilmentNotice(n: FulfilmentNotice): Promise<void> {
   if (n.type === "refund.update" || n.type === "dispute.update" || n.type === "payout.update") return sendMoneyNotice(n);
   await withSystemContext(async (tx) => {
+    if (n.type === "rider.assigned") return sendRiderAssigned(tx, n.sellerOrderId, n.at);
+
     if (n.type === "order.status") {
-      const so = await tx.sellerOrder.findUnique({ where: { id: n.sellerOrderId }, include: { order: { select: customerSelect }, business: { select: sellerSelect } } });
+      const so = await tx.sellerOrder.findUnique({ where: { id: n.sellerOrderId }, include: { order: { select: customerSelect }, business: { select: sellerSelect }, rider: { select: { name: true, phoneEncrypted: true } } } });
       if (!so || so.status !== n.status) return;
       const shop = so.business.name;
+      const rider = so.rider && so.pickedUpAt ? so.rider : null;
+      if (rider && (so.status === "shipped" || so.status === "delivered")) {
+        // The shop's own rider: name, number and the code, so the customer knows who's coming.
+        const code = deliveryCode(so);
+        if (so.status === "shipped") {
+          await tellCustomer(tx, so.order, {
+            type: "order.shipped",
+            title: `On its way: ${shop}`,
+            lines: [`${rider.name} has picked up your items from ${shop} and is on the way.`, `Rider's phone: ${decrypt(rider.phoneEncrypted)}`, `Give the rider this code when your items arrive: ${code}`],
+            sms: `${rider.name} (${decrypt(rider.phoneEncrypted)}) is on the way with order ${so.orderNumber}. Delivery code: ${code}`,
+          });
+        } else {
+          await tellCustomer(tx, so.order, { type: "order.delivered", title: `Delivered: ${shop}`, lines: [`${rider.name} delivered your items from ${shop}. If something's wrong, tell us from your order page.`], sms: null });
+          await tellSeller(tx, so.business, { type: "order.delivered", title: `Delivered: ${so.orderNumber}`, lines: [`${rider.name} delivered order ${so.orderNumber} and the customer's code matched.`], path: `/dashboard/orders/${so.id}` });
+        }
+        return;
+      }
       const copy: Partial<Record<string, { lines: string[]; sms: string | null }>> = {
         processing: { lines: [`${shop} is preparing your items.`], sms: null },
         shipped: {
@@ -90,24 +120,41 @@ export async function sendFulfilmentNotice(n: FulfilmentNotice): Promise<void> {
         confirmed: `${b.business.name} confirmed your booking: ${what}.`,
         cancelled: `${b.business.name} cancelled your booking for ${what}.${b.cancelReason ? ` Reason: ${b.cancelReason}` : ""}`,
         rescheduled: `${b.business.name} moved your booking for ${b.service.title}${before ? ` from ${before}` : ""} to ${when}.`,
-        completed: `${b.business.name} marked ${b.service.title} as done. We'd love a review.`,
+        completed: `${b.business.name} marked ${b.service.title} as done. How did they do? Rate their service to help your neighbours choose.`,
         no_show: `${b.business.name} marked ${what} as missed.`,
       };
       const line = lines[status];
       if (!line) return;
       const sms = ["confirmed", "cancelled", "rescheduled"].includes(status) ? line : null;
-      await tellCustomer(tx, b.sellerOrder.order, { type: `booking.${status}`, title, lines: [line], sms });
+      // A done booking asks a signed-in customer to rate the provider, straight to the form.
+      const rate = status === "completed" && b.sellerOrder.order.userId ? { path: `/account/reviews/new?item=${b.orderItemId}` } : null;
+      await tellCustomer(tx, b.sellerOrder.order, {
+        type: `booking.${status}`,
+        title,
+        lines: [line],
+        sms,
+        ...(rate ? { link: { url: `${env().APP_URL}${rate.path}`, path: rate.path }, buttonLabel: "Rate my service" } : {}),
+      });
       return;
     }
 
     const m = await tx.message.findUnique({ where: { id: n.messageId }, include: { sellerOrder: { select: { id: true, orderNumber: true, order: { select: customerSelect }, business: { select: sellerSelect } } } } });
     if (!m || m.readAt) return;
     const preview = m.body.length > 140 ? `${m.body.slice(0, 140)}…` : m.body;
+    const sellerPath = `/dashboard/orders/${m.sellerOrder.id}#messages`;
+    if (m.sender === "rider") {
+      const who = m.senderName ?? "Your rider";
+      await tellSeller(tx, m.sellerOrder.business, { type: "message.new", title: `Rider message about ${m.sellerOrder.orderNumber}`, lines: [`${who} (rider): “${preview}”`], path: sellerPath });
+      // Riders write when it matters on the day ("I'm at the gate"), so the customer gets a text too.
+      await tellCustomer(tx, m.sellerOrder.order, { type: "message.new", title: `${who} (your rider) sent a message`, lines: [`“${preview}”`], sms: `Rider ${who}: ${m.body.length > 90 ? `${m.body.slice(0, 90)}…` : m.body}` });
+      return;
+    }
     if (m.sender === "customer") {
-      await tellSeller(tx, m.sellerOrder.business, { type: "message.new", title: `New message about ${m.sellerOrder.orderNumber}`, lines: [`${m.sellerOrder.order.customerName}: “${preview}”`], path: `/dashboard/orders/${m.sellerOrder.id}#messages` });
+      await tellSeller(tx, m.sellerOrder.business, { type: "message.new", title: `New message about ${m.sellerOrder.orderNumber}`, lines: [`${m.sellerOrder.order.customerName}: “${preview}”`], path: sellerPath });
     } else {
       await tellCustomer(tx, m.sellerOrder.order, { type: "message.new", title: `${m.sellerOrder.business.name} sent you a message`, lines: [`“${preview}”`], sms: null });
     }
+    await textRiderAboutMessage(tx, m.sellerOrder.id, m.sender === "customer" ? m.sellerOrder.order.customerName : m.sellerOrder.business.name, m.body);
   });
 }
 
@@ -140,4 +187,43 @@ export async function sendBookingReminder(tx: Tx, bookingId: string, which: "day
     lines: [`${b.sellerOrder.order.customerName} is booked for ${when} (${b.sellerOrder.order.orderNumber}).`],
     path: `/dashboard/orders/${b.sellerOrder.id}`,
   });
+}
+
+/** Where the rider is going, in a few words for a text: landmark or city, then the LGA. */
+function dropOffArea(contact: unknown): string {
+  const a = (contact as { address?: { landmark: string | null; city: string; lgaName: string } | null } | null)?.address;
+  if (!a) return "the customer";
+  return [a.landmark ? `near ${a.landmark}` : a.city, a.lgaName].filter(Boolean).join(", ").slice(0, 50);
+}
+
+/**
+ * A rider was put on a delivery: the rider gets one text with their job
+ * link, the customer gets the rider's name and number and the delivery code.
+ * Skipped if the rider has since been changed (a newer notice covers it).
+ */
+async function sendRiderAssigned(tx: Tx, sellerOrderId: string, at: number): Promise<void> {
+  const so = await tx.sellerOrder.findUnique({
+    where: { id: sellerOrderId },
+    include: { order: { select: customerSelect }, business: { select: sellerSelect }, rider: { select: { name: true, phoneEncrypted: true } } },
+  });
+  if (!so?.rider || so.riderAssignedAt?.getTime() !== at || !["paid", "processing", "shipped"].includes(so.status)) return;
+  const url = riderJobUrl(so)!;
+  const collect = so.payOnDelivery ? " Pay on delivery." : "";
+  await enqueueSms({ to: decrypt(so.rider.phoneEncrypted), body: `TownMart job from ${so.business.name}: order ${so.orderNumber} to ${dropOffArea(so.fulfilmentContact)}.${collect} Open: ${url}` });
+  const phone = decrypt(so.rider.phoneEncrypted);
+  const code = deliveryCode(so);
+  await tellCustomer(tx, so.order, {
+    type: "order.rider",
+    title: `Rider assigned: ${so.business.name}`,
+    lines: [`${so.rider.name} will deliver your items from ${so.business.name}.`, `Rider's phone: ${phone}`, `When your items arrive, give the rider this code: ${code}. Only share it once you have your items.`],
+    sms: `${so.rider.name} (${phone}) will deliver order ${so.orderNumber} from ${so.business.name}. Give them code ${code} on arrival.`,
+  });
+}
+
+/** The customer or shop wrote while a rider is on the delivery: the rider has no inbox, so they get a short text. */
+async function textRiderAboutMessage(tx: Tx, sellerOrderId: string, from: string, body: string): Promise<void> {
+  const so = await tx.sellerOrder.findUnique({ where: { id: sellerOrderId }, include: { rider: { select: { phoneEncrypted: true } } } });
+  if (!so?.rider || !["paid", "processing", "shipped"].includes(so.status)) return;
+  const text = body.length > 60 ? `${body.slice(0, 60)}…` : body;
+  await enqueueSms({ to: decrypt(so.rider.phoneEncrypted), body: `TownMart ${so.orderNumber}, ${from.slice(0, 30)}: ${text} Reply: ${riderJobUrl(so)}` });
 }

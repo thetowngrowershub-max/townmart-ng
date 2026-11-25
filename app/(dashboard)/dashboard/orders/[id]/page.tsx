@@ -17,6 +17,13 @@ import { loadConversation } from "@/lib/fulfilment/messages";
 import { CONTACT_RETENTION_DAYS, loadSellerOrder } from "@/lib/fulfilment/seller-view";
 import { sellerOrderRefunds } from "@/lib/refunds/seller-view";
 import { requireSellerPage, withSellerRls } from "@/lib/seller/context";
+import { RiderPicker } from "@/components/orders/rider-picker";
+import { riderJobUrl } from "@/lib/fulfilment/rider-job";
+import { riderCandidates } from "@/lib/fulfilment/riders";
+import { VEHICLE_LABELS, type RiderVehicle } from "@/lib/fulfilment/rider-vehicles";
+import { formatDistance } from "@/lib/geo/distance";
+import { formatDateTime } from "@/lib/datetime";
+import { getCheckoutSettings } from "@/lib/settings";
 
 export const metadata: Metadata = { title: "Order" };
 
@@ -28,10 +35,18 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
     const order = await loadSellerOrder(tx, ctx.business.id, id);
     if (!order) return null;
     const messages = await loadConversation(tx, { sellerOrderId: id, viewer: "seller", sellerName: ctx.business.name, customerName: order.customer.name });
-    return { order, messages, money: await sellerOrderRefunds(tx, ctx.business.id, id) };
+    const delivery = await tx.sellerOrder.findFirst({
+      where: { id, businessId: ctx.business.id },
+      select: { id: true, riderId: true, deliveryMethod: true, status: true, deliveryDistanceM: true, riderAssignedAt: true, pickedUpAt: true, fulfilmentContact: true, rider: { select: { id: true, name: true } } },
+    });
+    const settings = await getCheckoutSettings(tx);
+    const riders = delivery?.deliveryMethod === "delivery" ? await riderCandidates(tx, ctx.business.id, settings.riderNearbyKm) : [];
+    return { order, messages, money: await sellerOrderRefunds(tx, ctx.business.id, id), delivery, riders };
   });
   if (!data) notFound();
-  const { order, messages, money } = data;
+  const { order, messages, money, delivery, riders } = data;
+  const point = (delivery?.fulfilmentContact as { point?: { lat: number; lng: number; source: string } | null } | null)?.point ?? null;
+  const showRiders = delivery?.deliveryMethod === "delivery" && ["paid", "processing", "shipped", "delivered", "completed"].includes(delivery.status);
   const canManage = can(ctx.user, "order.manage", { businessId: ctx.business.id });
   const canBook = can(ctx.user, "booking.manage", { businessId: ctx.business.id });
 
@@ -166,6 +181,45 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
               </CardHeader>
               <CardContent>
                 <SellerOrderActions order={order} />
+              </CardContent>
+            </Card>
+          )}
+          {showRiders && delivery && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Delivery rider</CardTitle>
+                <CardDescription>
+                  {delivery.deliveryDistanceM !== null ? `About ${formatDistance(delivery.deliveryDistanceM)} by road from your shop. ` : ""}
+                  {delivery.rider ? "" : "Your nearest free rider is listed first."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RiderPicker
+                  sellerOrderId={order.id}
+                  canManage={canManage && ["paid", "processing", "shipped"].includes(delivery.status)}
+                  current={
+                    delivery.rider && delivery.riderAssignedAt
+                      ? {
+                          id: delivery.rider.id,
+                          name: delivery.rider.name,
+                          assigned: formatDateTime(delivery.riderAssignedAt),
+                          pickedUp: delivery.pickedUpAt ? formatDateTime(delivery.pickedUpAt) : null,
+                          // Lets the shop send the job again (WhatsApp, or read it out) if the text doesn't arrive.
+                          jobUrl: ["paid", "processing", "shipped"].includes(delivery.status) ? riderJobUrl(delivery) : null,
+                        }
+                      : null
+                  }
+                  dropOffUrl={point && point.source !== "area" ? `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}` : null}
+                  options={riders.map((r) => ({
+                    id: r.id,
+                    name: r.name,
+                    vehicle: VEHICLE_LABELS[r.vehicle as RiderVehicle] ?? r.vehicle,
+                    where: r.metresToShop === null ? "At the shop" : `${formatDistance(r.metresToShop)} from the shop`,
+                    available: r.isAvailable,
+                    busy: r.activeJobs > 0 ? `${r.activeJobs} deliver${r.activeJobs === 1 ? "y" : "ies"} in hand` : null,
+                    suggested: r.suggested,
+                  }))}
+                />
               </CardContent>
             </Card>
           )}

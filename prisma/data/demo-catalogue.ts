@@ -1,10 +1,20 @@
+import { NIGERIAN_PLATE_TEMPLATE } from "../../lib/catalogue/meal-builder";
 /**
- * Demo catalogue for local development and review: categories, six sellers,
+ * Demo catalogue for local development and review: categories, eight sellers
+ * (including a restaurant and a bakery in Mowe),
  * their products and services. Prices are in naira strings, as a seller would
  * type them; the seed runs them through the same validation as the dashboard.
  */
 
-export type DemoCategory = { slug: string; name: string; kind: "product" | "service"; icon?: string; children: { slug: string; name: string }[] };
+export type DemoCategory = {
+  slug: string;
+  name: string;
+  kind: "product" | "service";
+  icon?: string;
+  /** Cooked food, cakes and pastries: shows prep times and follows the seller's opening hours. */
+  isFood?: boolean;
+  children: { slug: string; name: string }[];
+};
 
 export const CATEGORIES: DemoCategory[] = [
   {
@@ -19,6 +29,35 @@ export const CATEGORIES: DemoCategory[] = [
       { slug: "beverages", name: "Beverages" },
       { slug: "spices-seasoning", name: "Spices & seasoning" },
       { slug: "snacks", name: "Snacks & biscuits" },
+    ],
+  },
+  {
+    slug: "restaurants",
+    name: "Restaurants",
+    kind: "product",
+    icon: "🍲",
+    isFood: true,
+    children: [
+      { slug: "rice-local-dishes", name: "Rice & local dishes" },
+      { slug: "swallow-soups", name: "Swallow & soups" },
+      { slug: "grills-suya", name: "Grills, suya & barbecue" },
+      { slug: "fast-food", name: "Burgers, pizza & fast food" },
+      { slug: "small-chops", name: "Small chops & finger food" },
+      { slug: "drinks-smoothies", name: "Drinks & smoothies" },
+    ],
+  },
+  {
+    slug: "confectionery",
+    name: "Confectionery",
+    kind: "product",
+    icon: "🎂",
+    isFood: true,
+    children: [
+      { slug: "cakes", name: "Cakes" },
+      { slug: "pastries", name: "Pastries & meat pies" },
+      { slug: "bread-buns", name: "Bread & buns" },
+      { slug: "sweets-chocolates", name: "Sweets & chocolates" },
+      { slug: "desserts", name: "Ice cream & desserts" },
     ],
   },
   {
@@ -127,6 +166,12 @@ export type DemoProduct = {
   /** A second option (e.g. Colour) multiplied with the first. */
   option2?: { name: string; values: string[] };
   images?: number;
+  /** Food: minutes to prepare. */
+  prep?: number;
+  /** False for dishes cooked to order with no daily limit. */
+  trackStock?: boolean;
+  /** Restaurants: build-your-plate steps, as a seller types them in the dashboard. */
+  meal?: typeof NIGERIAN_PLATE_TEMPLATE;
 };
 
 export type DemoService = {
@@ -151,7 +196,7 @@ export type DemoSeller = {
   business: {
     name: string;
     slug: string;
-    type: "retailer" | "supermarket" | "vendor" | "merchant" | "producer" | "service_provider" | "artisan";
+    type: "retailer" | "supermarket" | "vendor" | "merchant" | "producer" | "restaurant" | "confectioner" | "service_provider" | "artisan";
     cac?: string;
     state: string;
     lga: string;
@@ -165,6 +210,8 @@ export type DemoSeller = {
     pickup?: boolean;
     /** Accepts pay on delivery. */
     payOnDelivery?: boolean;
+    /** Opening hours, Sunday first: ["HH:MM", "HH:MM"] or null when closed. */
+    hours?: ([string, string] | null)[];
   };
   serviceLgas?: string[];
   products: DemoProduct[];
@@ -178,15 +225,15 @@ export const SELLERS: DemoSeller[] = [
     key: "ikeja-supermarket",
     owner: { email: "adaeze@ikejafreshmart.ng", name: "Adaeze Okafor", phone: "08031234501" },
     business: {
-      name: "Ikeja Fresh Mart",
+      name: "Mowe Fresh Mart",
       slug: "ikeja-fresh-mart",
       type: "supermarket",
       cac: "RC 1458230",
-      state: "Lagos",
-      lga: "Ikeja",
-      city: "Ikeja",
-      address: "14 Obafemi Awolowo Way, Ikeja",
-      description: "Neighbourhood supermarket on Awolowo Way since 2012. Groceries, household essentials and toiletries, delivered same day across Ikeja, Maryland and Ogba.",
+      state: "Ogun",
+      lga: "Obafemi Owode",
+      city: "Mowe",
+      address: "14 Lagos-Ibadan Expressway, beside the Mowe bus stop",
+      description: "Neighbourhood supermarket in Mowe since 2012. Groceries, household essentials and toiletries, delivered same day across Mowe.",
       colour: "#0F6B3E",
       sellsProducts: true,
       sellsServices: false,
@@ -232,7 +279,7 @@ export const SELLERS: DemoSeller[] = [
       lga: "Obafemi Owode",
       city: "Mowe",
       address: "Km 4 Ofada Road, Mowe",
-      description: "Family farm in Mowe growing vegetables, tubers and catfish. We harvest to order and deliver to Lagos and Ogun three times a week.",
+      description: "Family farm in Mowe growing vegetables, tubers and catfish. We harvest to order and deliver across Mowe three times a week.",
       colour: "#2E7D32",
       sellsProducts: true,
       sellsServices: false,
@@ -261,15 +308,15 @@ export const SELLERS: DemoSeller[] = [
     key: "yaba-fashion",
     owner: { email: "bisola@yabathreads.ng", name: "Bisola Martins", phone: "08091234503" },
     business: {
-      name: "Yaba Threads",
+      name: "Mowe Threads",
       slug: "yaba-threads",
       type: "vendor",
       cac: "BN 3317429",
-      state: "Lagos",
-      lga: "Lagos Mainland",
-      city: "Yaba",
-      address: "Shop 22, Tejuosho Market, Yaba",
-      description: "Ankara, adire and everyday fashion from Tejuosho Market. Ready-to-wear in UK sizes 8 to 18, plus bags and shoes.",
+      state: "Ogun",
+      lga: "Obafemi Owode",
+      city: "Mowe",
+      address: "Shop 22, Mowe Market",
+      description: "Ankara, adire and everyday fashion from Mowe Market. Ready-to-wear in UK sizes 8 to 18, plus bags and shoes.",
       colour: "#B4235A",
       sellsProducts: true,
       sellsServices: false,
@@ -295,15 +342,15 @@ export const SELLERS: DemoSeller[] = [
     key: "computer-village",
     owner: { email: "emeka@cvgadgets.ng", name: "Emeka Nwosu", phone: "08061234504" },
     business: {
-      name: "CV Gadget Hub",
+      name: "Mowe Gadget Hub",
       slug: "cv-gadget-hub",
       type: "retailer",
       cac: "RC 1873304",
-      state: "Lagos",
-      lga: "Ikeja",
-      city: "Computer Village, Ikeja",
-      address: "Suite 8, 11 Otigba Street, Computer Village",
-      description: "Phones, laptops and accessories from Otigba Street. Brand-new, sealed stock only, with a 6-month shop warranty on phones.",
+      state: "Ogun",
+      lga: "Obafemi Owode",
+      city: "Mowe",
+      address: "Suite 8, Ofada Road Plaza, Mowe",
+      description: "Phones, laptops and accessories in Mowe. Brand-new, sealed stock only, with a 6-month shop warranty on phones.",
       colour: "#1D4ED8",
       sellsProducts: true,
       sellsServices: false,
@@ -333,17 +380,16 @@ export const SELLERS: DemoSeller[] = [
       name: "Chukwudi FixIt Plumbing",
       slug: "chukwudi-fixit-plumbing",
       type: "service_provider",
-      state: "Lagos",
-      lga: "Surulere",
-      city: "Surulere",
-      address: "7 Adeniran Ogunsanya Street, Surulere",
-      description: "Licensed plumber with 12 years' experience in homes and offices across Lagos Mainland. Leaks, blockages, water heaters and pumping machines.",
+      state: "Ogun",
+      lga: "Obafemi Owode",
+      city: "Mowe",
+      address: "7 Church Street, Mowe",
+      description: "Licensed plumber with 12 years' experience in homes and offices across Mowe. Leaks, blockages, water heaters and pumping machines.",
       colour: "#0E7490",
       sellsProducts: false,
       sellsServices: true,
       returnWindowDays: 0,
     },
-    serviceLgas: ["Surulere", "Lagos Mainland", "Ikeja", "Eti Osa"],
     products: [],
     services: [
       { title: "Leaking Pipe and Tap Repair", category: "plumbing", pricing: "from", price: "8000", duration: 60, location: "on_site", deposit: 0, description: "Fix dripping taps, leaking pipes and joints. Price covers labour; parts are quoted on site.", hours: [...WEEKDAYS_9_TO_5, [6, "10:00", "14:00", 60, 1]] },
@@ -364,17 +410,16 @@ export const SELLERS: DemoSeller[] = [
       name: "Mama Titi Couture",
       slug: "mama-titi-couture",
       type: "artisan",
-      state: "Oyo",
-      lga: "Ibadan North",
-      city: "Bodija, Ibadan",
-      address: "3 Awolowo Avenue, Bodija",
-      description: "Bespoke native wear and alterations in Bodija. Aso-ebi for weddings, corporate natives and children's outfits. Fittings at the shop or at your home in Ibadan.",
+      state: "Ogun",
+      lga: "Obafemi Owode",
+      city: "Mowe",
+      address: "3 Redemption Camp Road, Mowe",
+      description: "Bespoke native wear and alterations in Mowe. Aso-ebi for weddings, corporate natives and children's outfits. Fittings at the shop or at your home in Mowe.",
       colour: "#7C3AED",
       sellsProducts: false,
       sellsServices: true,
       returnWindowDays: 0,
     },
-    serviceLgas: ["Ibadan North", "Ibadan North-East", "Ibadan North-West"],
     products: [],
     services: [
       { title: "Custom Native Outfit", category: "tailoring", pricing: "packages", price: "15000", duration: 60 * 24 * 7, location: "both", deposit: 50, description: "Made-to-measure buba and sokoto, iro and buba, or kaftan. You bring the fabric.", packages: [
@@ -385,8 +430,87 @@ export const SELLERS: DemoSeller[] = [
       { title: "Clothing Alterations", category: "tailoring", pricing: "from", price: "2500", duration: 30, location: "at_provider", deposit: 0, confirm: false, description: "Taking in, letting out, hemming and zip replacement. Most jobs ready in 2 days.", hours: [[1, "09:00", "18:00", 30, 3], [2, "09:00", "18:00", 30, 3], [3, "09:00", "18:00", 30, 3], [4, "09:00", "18:00", 30, 3], [5, "09:00", "18:00", 30, 3]] },
       { title: "Aso-ebi Group Sewing (per outfit)", category: "tailoring", pricing: "from", price: "18000", duration: 60 * 24 * 14, location: "both", deposit: 50, description: "Wedding and party aso-ebi for groups of 5 or more. Measurements taken at one sitting.", hours: [[6, "10:00", "16:00", 60, 1]] },
       { title: "Children's Native Wear", category: "tailoring", pricing: "fixed", price: "9000", duration: 60 * 24 * 5, location: "at_provider", deposit: 50, description: "Matching outfits for children aged 1 to 12.", hours: WEEKDAYS_9_TO_5 },
-      { title: "Home Fitting Visit", category: "tailoring", pricing: "fixed", price: "5000", duration: 45, location: "on_site", deposit: 100, description: "We come to you for measurements or a final fitting anywhere in north Ibadan.", hours: [[2, "16:00", "19:00", 60, 1], [4, "16:00", "19:00", 60, 1], [6, "09:00", "13:00", 60, 1]], radiusKm: 15 },
+      { title: "Home Fitting Visit", category: "tailoring", pricing: "fixed", price: "5000", duration: 45, location: "on_site", deposit: 100, description: "We come to you for measurements or a final fitting anywhere in Mowe.", hours: [[2, "16:00", "19:00", 60, 1], [4, "16:00", "19:00", 60, 1], [6, "09:00", "13:00", 60, 1]], radiusKm: 15 },
     ],
+  },
+  {
+    key: "mowe-restaurant",
+    owner: { email: "kitchen@demo.townmart.ng", name: "Funmilayo Ogunleye", phone: "08061234507" },
+    business: {
+      name: "Mowe Mama's Kitchen",
+      slug: "mowe-mamas-kitchen",
+      type: "restaurant",
+      cac: "BN 3318452",
+      state: "Ogun",
+      lga: "Obafemi Owode",
+      city: "Mowe",
+      address: "22 Lagos-Ibadan Expressway service road, Mowe",
+      description: "Home-style Nigerian food in Mowe: jollof and fried rice, amala and ewedu, pounded yam, grills and small chops. Cooked fresh every day and delivered hot around Mowe, Ofada and Redemption Camp.",
+      colour: "#C2410C",
+      sellsProducts: true,
+      sellsServices: false,
+      returnWindowDays: 0,
+      pickup: true,
+      payOnDelivery: true,
+      hours: [["12:00", "21:00"], ["08:00", "22:00"], ["08:00", "22:00"], ["08:00", "22:00"], ["08:00", "22:00"], ["08:00", "23:00"], ["09:00", "23:00"]],
+    },
+    products: [
+      {
+        title: "Build Your Plate",
+        category: "rice-local-dishes",
+        tags: "build your plate, amala, pounded yam, rice, plantain, swallow",
+        price: "200",
+        stock: "0",
+        trackStock: false,
+        prep: 20,
+        description: "Put your own plate together: rice, swallow by the wrap, yam or plantain, with soup, your choice of protein and a drink. ₦200 covers the takeaway pack.",
+        meal: NIGERIAN_PLATE_TEMPLATE,
+        images: 2,
+      },
+      { title: "Jollof Rice with Chicken", category: "rice-local-dishes", tags: "jollof, rice, chicken", price: "3500", stock: "60", prep: 20, description: "Smoky party jollof with a quarter fried chicken and fried plantain (dodo).", option: { name: "Portion", values: ["Regular", "Large"], prices: ["3500", "4800"], stock: ["40", "20"] }, images: 2 },
+      { title: "Fried Rice with Turkey", category: "rice-local-dishes", tags: "fried rice, turkey", price: "4500", stock: "30", prep: 20, description: "Nigerian fried rice with mixed vegetables, liver and a grilled turkey wing." },
+      { title: "Ofada Rice and Ayamase", category: "rice-local-dishes", tags: "ofada, ayamase, designer stew", price: "4000", stock: "25", prep: 25, description: "Local Ofada rice with green pepper ayamase sauce, assorted meat and boiled egg." },
+      { title: "Amala, Ewedu and Gbegiri", category: "swallow-soups", tags: "amala, ewedu, gbegiri, abula", price: "3000", stock: "40", prep: 15, description: "Soft amala with ewedu, gbegiri and stew (abula), with your choice of protein.", option: { name: "Protein", values: ["Beef", "Goat meat", "Assorted"], prices: ["3000", "3800", "4200"], stock: ["15", "15", "10"] } },
+      { title: "Pounded Yam and Egusi", category: "swallow-soups", tags: "pounded yam, egusi, iyan", price: "3800", stock: "30", prep: 20, description: "Freshly pounded yam with egusi soup, stockfish and beef." },
+      { title: "Beef Suya", category: "grills-suya", tags: "suya, beef, grill", price: "2500", stock: "0", trackStock: false, prep: 15, description: "Thin-sliced beef grilled over charcoal with yaji spice, onions and tomatoes. Grilled to order from 5 pm.", option: { name: "Size", values: ["Small", "Large"], prices: ["2500", "5000"] } },
+      { title: "Peppered Chicken", category: "grills-suya", tags: "chicken, peppered, grill", price: "3000", stock: "35", prep: 15, description: "Two pieces of chicken, fried then tossed in spicy pepper sauce." },
+      { title: "Small Chops Pack", category: "small-chops", tags: "small chops, puff puff, samosa, spring rolls", price: "4500", stock: "20", prep: 30, description: "Puff puff, samosa, spring rolls, peppered gizzard and chicken wings. Order ahead for parties.", option: { name: "Pack", values: ["For 2", "For 5", "For 10"], prices: ["4500", "10000", "19000"], stock: ["10", "6", "4"] } },
+      { title: "Chapman", category: "drinks-smoothies", tags: "chapman, drink, mocktail", price: "1500", stock: "0", trackStock: false, prep: 5, description: "Our house Chapman with cucumber and orange slices, served chilled." },
+      { title: "Zobo Drink, 1 litre", category: "drinks-smoothies", tags: "zobo, hibiscus, drink", price: "1200", stock: "40", prep: 5, description: "Chilled hibiscus drink with ginger and pineapple, no added colour." },
+    ],
+    services: [],
+  },
+  {
+    key: "mowe-bakery",
+    owner: { email: "bakery@demo.townmart.ng", name: "Kemi Adesanya", phone: "08071234508" },
+    business: {
+      name: "Sweet Crust Bakery",
+      slug: "sweet-crust-bakery",
+      type: "confectioner",
+      state: "Ogun",
+      lga: "Obafemi Owode",
+      city: "Mowe",
+      address: "5 Ofada Road, Mowe",
+      description: "Bakery and cake studio in Mowe. Fresh bread every morning, meat pies and doughnuts, and celebration cakes made to order for birthdays, weddings and naming ceremonies.",
+      colour: "#9D174D",
+      sellsProducts: true,
+      sellsServices: false,
+      returnWindowDays: 0,
+      pickup: true,
+      payOnDelivery: true,
+      hours: [["10:00", "18:00"], ["07:00", "20:00"], ["07:00", "20:00"], ["07:00", "20:00"], ["07:00", "20:00"], ["07:00", "20:00"], ["07:00", "20:00"]],
+    },
+    products: [
+      { title: "Birthday Cake, buttercream", category: "cakes", tags: "cake, birthday, celebration", price: "25000", stock: "0", trackStock: false, prep: 1440, description: "Vanilla, chocolate or red velvet sponge with buttercream and your message. Order a day ahead.", option: { name: "Size", values: ["6 inch", "8 inch", "10 inch"], prices: ["25000", "38000", "55000"] }, images: 2 },
+      { title: "Chocolate Fudge Cake Slice", category: "cakes", tags: "cake, chocolate, slice", price: "2500", stock: "24", prep: 5, description: "A thick slice of moist chocolate cake with fudge frosting." },
+      { title: "Meat Pie", category: "pastries", tags: "meat pie, pastry, snack", price: "1000", stock: "80", prep: 5, description: "Buttery shortcrust filled with minced beef, potato and carrot. Baked every morning.", option: { name: "Pack", values: ["Single", "Box of 6"], prices: ["1000", "5500"], stock: ["50", "30"] } },
+      { title: "Sausage Roll", category: "pastries", tags: "sausage roll, pastry", price: "800", stock: "60", prep: 5, description: "Flaky puff pastry wrapped round a seasoned sausage." },
+      { title: "Doughnuts, box of 6", category: "pastries", tags: "doughnut, sugar, box", price: "3600", stock: "20", prep: 10, description: "Soft jam or sugar-coated doughnuts, fried fresh." },
+      { title: "Agege Bread, family loaf", category: "bread-buns", tags: "bread, agege, loaf", price: "1500", stock: "50", prep: 5, description: "Soft, dense Agege-style bread, baked before 7 am every day." },
+      { title: "Chin Chin, 500 g jar", category: "sweets-chocolates", tags: "chin chin, snack, crunchy", price: "2500", stock: "40", prep: 5, description: "Crunchy, lightly sweet chin chin with a hint of nutmeg. Keeps for weeks.", weightGrams: 500 },
+      { title: "Parfait Cup", category: "desserts", tags: "parfait, yoghurt, dessert", price: "2800", stock: "15", prep: 5, description: "Greek yoghurt layered with granola, fresh fruit and honey. Served chilled." },
+    ],
+    services: [],
   },
 ];
 
@@ -413,7 +537,7 @@ export type DemoPromotion = {
 export const PROMOTIONS: Record<string, DemoPromotion[]> = {
   "ikeja-fresh-mart": [
     { name: "Rice and grains flash sale", description: "15% off every bag of rice, semovita and grains.", type: "percentage", value: "15", scope: "category", categories: ["rice-grains"], hours: 48, flash: true },
-    { name: "Welcome to Ikeja Fresh Mart", description: "10% off your first order of ₦20,000 or more.", type: "percentage", value: "10", scope: "store", hours: 24 * 30, coupon: "IKEJAFRESH10", minOrder: "20000", perCustomerLimit: "1" },
+    { name: "Welcome to Mowe Fresh Mart", description: "10% off your first order of ₦20,000 or more.", type: "percentage", value: "10", scope: "store", hours: 24 * 30, coupon: "IKEJAFRESH10", minOrder: "20000", perCustomerLimit: "1" },
   ],
   "ogun-harvest-farms": [
     { name: "Tomato harvest deal", description: "Fresh from this morning's harvest.", type: "percentage", value: "20", scope: "product", products: ["Fresh Tomatoes"], hours: 24, flash: true, usageLimit: "100" },

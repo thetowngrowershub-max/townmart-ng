@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Forbidden } from "@/components/layout/forbidden";
@@ -10,7 +11,9 @@ export const metadata: Metadata = { title: { default: "Admin", template: "%s · 
 
 /** Wraps /admin/* and /design-system: TownMart staff only. */
 export default async function AdminLayout({ children }: { children: ReactNode }) {
-  const { allowed } = await requireUser("admin.access", "/admin");
+  const { user, allowed } = await requireUser("admin.access", "/admin");
+  // Admins must turn on two-step sign-in before using the console.
+  if (user.adminNeedsTwoFactor) redirect("/account/security?required=admin");
   return (
     <>
       <SiteHeader />

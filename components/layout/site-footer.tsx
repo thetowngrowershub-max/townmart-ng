@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CookieSettingsButton } from "@/components/consent/cookie-settings-button";
 import { footerLinks } from "@/lib/navigation";
 import { Logo } from "./logo";
 
@@ -26,9 +27,10 @@ export function SiteFooter() {
         ))}
       </div>
       <div className="border-t">
-        <p className="mx-auto max-w-7xl px-4 py-6 text-xs text-muted-foreground">
-          © {new Date().getFullYear()} TownMart. Prices in Naira (₦). Times shown in West Africa Time.
-        </p>
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted-foreground">
+          <p>© {new Date().getFullYear()} TownMart. Prices in Naira (₦). Times shown in West Africa Time.</p>
+          <CookieSettingsButton className="font-medium underline-offset-2 hover:text-foreground hover:underline" />
+        </div>
       </div>
     </footer>
   );

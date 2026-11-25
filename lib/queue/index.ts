@@ -1,7 +1,9 @@
-import { Queue } from "bullmq";
+import { Queue, type JobsOptions } from "bullmq";
+import { runInline } from "@/lib/jobs/inline";
 import { logger } from "@/lib/logger";
 import type { EmailMessage } from "@/lib/notifications/email";
 import type { SmsMessage } from "@/lib/notifications/sms";
+import { jobsInline } from "@/lib/platform";
 import { redis } from "@/lib/redis";
 
 /** Queue names shared by producers (web app) and consumers (worker/). */
@@ -10,13 +12,22 @@ export const QUEUES = {
   maintenance: "maintenance",
   imports: "imports",
   orders: "orders",
+  privacy: "privacy",
 } as const;
+export type QueueName = keyof typeof QUEUES;
+
+/** Adds a job to its queue, or, where there's no worker, runs it after the response (lib/jobs/inline.ts). */
+async function addJob(queueName: QueueName, queue: () => Queue, name: string, data: unknown, opts?: JobsOptions): Promise<void> {
+  if (jobsInline()) return runInline({ queue: queueName, name, data, id: opts?.jobId });
+  await queue().add(name, data, opts);
+}
 
 export type NotificationJobs = {
   "email.send": EmailMessage;
   "sms.send": SmsMessage;
   "stock.low": { businessId: string; variantIds: string[] };
 };
+export type PrivacyJobs = { "privacy.export": { requestId: string } };
 export type ImportJobs = { "products.csv": { importJobId: string; businessId: string } };
 /** Status changes and messages that the customer or seller is told about. */
 export type FulfilmentNotice =
@@ -24,6 +35,8 @@ export type FulfilmentNotice =
   /** `ref` tells repeat changes apart (a booking moved twice), so neither notice is de-duplicated away. */
   | { type: "booking.status"; bookingId: string; status: string; by: "seller" | "customer" | "system"; ref?: string }
   | { type: "message.new"; messageId: string }
+  // A rider was put on a delivery; `at` is riderAssignedAt in ms, so a rider changed twice gets both texts.
+  | { type: "rider.assigned"; sellerOrderId: string; at: number }
   | { type: "refund.update"; refundId: string; status: string }
   | { type: "dispute.update"; disputeId: string; event: "opened" | "message" | "resolved"; messageId?: string }
   | { type: "payout.update"; payoutId: string; status: string };
@@ -52,7 +65,7 @@ export async function enqueueOrderEvent(data: OrderJobs[keyof OrderJobs]): Promi
       : data.kind === "payment.event"
         ? `payment-event-${data.eventId}`
         : `notice-${noticeKey(data.notice)}`;
-  await ordersQueue().add(data.kind, data, { jobId });
+  await addJob("orders", ordersQueue, data.kind, data, { jobId });
 }
 
 function noticeKey(n: FulfilmentNotice): string {
@@ -63,6 +76,8 @@ function noticeKey(n: FulfilmentNotice): string {
       return `booking-${n.bookingId}-${n.status}${n.ref ? `-${n.ref}` : ""}`;
     case "message.new":
       return `message-${n.messageId}`;
+    case "rider.assigned":
+      return `rider-${n.sellerOrderId}-${n.at}`;
     case "refund.update":
       return `refund-${n.refundId}-${n.status}`;
     case "dispute.update":
@@ -81,7 +96,7 @@ export async function enqueueNotice(notice: FulfilmentNotice): Promise<void> {
   }
 }
 
-const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue; importsQueue?: Queue };
+const globalForQueues = globalThis as unknown as { notificationsQueue?: Queue; importsQueue?: Queue; privacyQueue?: Queue };
 
 function notificationsQueue(): Queue {
   globalForQueues.notificationsQueue ??= new Queue(QUEUES.notifications, {
@@ -98,12 +113,12 @@ function notificationsQueue(): Queue {
 }
 
 export async function enqueueEmail(message: EmailMessage): Promise<void> {
-  await notificationsQueue().add("email.send", message satisfies NotificationJobs["email.send"]);
+  await addJob("notifications", notificationsQueue, "email.send", message satisfies NotificationJobs["email.send"]);
 }
 
 export async function enqueueSms(message: SmsMessage): Promise<void> {
   // OTPs go stale quickly: retry fast and give up after a few minutes.
-  await notificationsQueue().add("sms.send", message satisfies NotificationJobs["sms.send"], {
+  await addJob("notifications", notificationsQueue, "sms.send", message satisfies NotificationJobs["sms.send"], {
     attempts: 3,
     backoff: { type: "fixed", delay: 5_000 },
   });
@@ -111,7 +126,7 @@ export async function enqueueSms(message: SmsMessage): Promise<void> {
 
 /** Low-stock alert for variants that just crossed their threshold. The worker de-duplicates per day. */
 export async function enqueueLowStockAlert(data: NotificationJobs["stock.low"]): Promise<void> {
-  await notificationsQueue().add("stock.low", data, { attempts: 3 });
+  await addJob("notifications", notificationsQueue, "stock.low", data, { attempts: 3 });
 }
 
 function importsQueue(): Queue {
@@ -123,5 +138,15 @@ function importsQueue(): Queue {
 }
 
 export async function enqueueProductImport(data: ImportJobs["products.csv"]): Promise<void> {
-  await importsQueue().add("products.csv", data, { jobId: data.importJobId });
+  await addJob("imports", importsQueue, "products.csv", data, { jobId: data.importJobId });
+}
+
+/** Data exports for the Privacy Centre. One job per request. */
+export async function enqueueDataExport(data: PrivacyJobs["privacy.export"]): Promise<void> {
+  const queue = () =>
+    (globalForQueues.privacyQueue ??= new Queue(QUEUES.privacy, {
+      connection: redis,
+      defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 30_000 }, removeOnComplete: 100, removeOnFail: { age: 30 * 24 * 3600 } },
+    }));
+  await addJob("privacy", queue, "privacy.export", data, { jobId: `export-${data.requestId}` });
 }

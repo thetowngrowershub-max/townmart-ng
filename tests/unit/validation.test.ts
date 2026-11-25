@@ -18,10 +18,17 @@ describe("safeNextPath", () => {
 
 describe("signUpSchema", () => {
   it("normalises email and enforces password length", () => {
-    const ok = signUpSchema.parse({ name: " Ada Obi ", email: " Ada@Example.COM ", password: "long-enough-pw" });
+    const ok = signUpSchema.parse({ name: " Ada Obi ", email: " Ada@Example.COM ", password: "long-enough-pw", acceptTerms: true });
     expect(ok.email).toBe("ada@example.com");
     expect(ok.name).toBe("Ada Obi");
-    expect(signUpSchema.safeParse({ name: "Ada", email: "ada@example.com", password: "short" }).success).toBe(false);
+    expect(ok.marketingEmail).toBe(false);
+    expect(signUpSchema.safeParse({ name: "Ada", email: "ada@example.com", password: "short", acceptTerms: true }).success).toBe(false);
+  });
+
+  it("needs the terms accepted; offers stay a separate, optional choice", () => {
+    expect(signUpSchema.safeParse({ name: "Ada", email: "ada@example.com", password: "long-enough-pw" }).success).toBe(false);
+    expect(signUpSchema.safeParse({ name: "Ada", email: "ada@example.com", password: "long-enough-pw", acceptTerms: false }).success).toBe(false);
+    expect(signUpSchema.parse({ name: "Ada", email: "ada@example.com", password: "long-enough-pw", acceptTerms: true, marketingEmail: true }).marketingEmail).toBe(true);
   });
 });
 

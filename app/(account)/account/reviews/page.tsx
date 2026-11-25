@@ -30,16 +30,16 @@ export default async function MyReviewsPage() {
             ) : (
               <ul className="divide-y">
                 {waiting.map((w) => (
-                  <li key={w.orderItemId} className="flex items-center gap-3 py-3 first:pt-0">
+                  <li key={w.orderItemId} className="flex flex-wrap items-center gap-3 py-3 first:pt-0">
                     <div className="relative size-12 shrink-0 overflow-hidden rounded-lg bg-muted">{w.imageUrl && <Image src={w.imageUrl} alt="" fill sizes="48px" className="object-cover" />}</div>
-                    <div className="min-w-0 flex-1 text-sm">
+                    <div className="min-w-0 flex-1 basis-40 text-sm">
                       <p className="truncate font-medium">{w.title}</p>
                       <p className="text-muted-foreground">
                         {w.businessName} · {w.orderNumber}
                       </p>
                     </div>
-                    <Button asChild size="sm">
-                      <Link href={`/account/reviews/new?item=${w.orderItemId}`}>Write a review</Link>
+                    <Button asChild size="sm" className="ml-auto">
+                      <Link href={`/account/reviews/new?item=${w.orderItemId}`}>{w.kind === "service" ? "Rate my service" : "Write a review"}</Link>
                     </Button>
                   </li>
                 ))}

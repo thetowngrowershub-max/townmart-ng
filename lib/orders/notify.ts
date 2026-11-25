@@ -35,7 +35,7 @@ export async function sendOrderConfirmed(orderId: string): Promise<boolean> {
           orderBy: { createdAt: "asc" },
           include: {
             items: { orderBy: { createdAt: "asc" }, include: { booking: { select: { startsAt: true, atProvider: true } } } },
-            business: { select: { id: true, name: true, email: true, city: true, ownerUserId: true, policy: { select: { returnWindowDays: true } } } },
+            business: { select: { id: true, name: true, email: true, phoneEncrypted: true, city: true, ownerUserId: true, policy: { select: { returnWindowDays: true } } } },
           },
         },
       },
@@ -102,6 +102,12 @@ export async function sendOrderConfirmed(orderId: string): Promise<boolean> {
         url: `${env().APP_URL}/dashboard/orders/${so.id}`,
       }),
     );
+    // Many shops don't watch their email: a text makes sure a new order isn't missed.
+    const count = so.items.length;
+    await enqueueSms({
+      to: decrypt(so.business.phoneEncrypted),
+      body: `TownMart: new order ${order.orderNumber}, ${count} item${count === 1 ? "" : "s"}${so.deliveryMethod === "delivery" ? " for delivery" : so.deliveryMethod === "pickup" ? " for pickup" : ""}${pod ? ", pay on delivery" : ""}. ${env().APP_URL}/dashboard/orders`,
+    });
   }
 
   await withSystemContext(async (tx) => {

@@ -5,7 +5,7 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ImagePurpose } from "@/lib/storage/uploads";
 import { cn } from "@/lib/utils";
-import { uploadImage } from "./upload-client";
+import { uploadImage, type UploadedImage } from "./upload-client";
 
 /** One image (store logo or banner) with a preview. */
 export function SingleImageInput({
@@ -14,10 +14,13 @@ export function SingleImageInput({
   purpose,
   value,
   onChange,
+  upload,
 }: {
   label: string;
   hint?: string;
   purpose: Extract<ImagePurpose, "logo" | "banner">;
+  /** Replaces the seller upload, e.g. for TownMart's own banners. */
+  upload?: (file: File) => Promise<UploadedImage>;
   value: { key: string; url: string } | null;
   onChange: (next: { key: string; url: string } | null) => void;
 }) {
@@ -63,7 +66,7 @@ export function SingleImageInput({
               setBusy(true);
               setError(null);
               try {
-                const img = await uploadImage(file, purpose);
+                const img = await (upload ? upload(file) : uploadImage(file, purpose));
                 onChange({ key: img.key, url: img.url });
               } catch (err) {
                 setError(err instanceof Error ? err.message : "Upload failed.");

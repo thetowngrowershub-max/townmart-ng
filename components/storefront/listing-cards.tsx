@@ -1,4 +1,5 @@
 import { ImageOff, MapPin, Store } from "lucide-react";
+import { formatDistance } from "@/lib/geo/distance";
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -76,7 +77,7 @@ export function ProductCard({ p }: { p: ProductHit }) {
       </p>
       {deal?.isFlashDeal && <DealEnds deal={deal} />}
       <p className="flex items-center gap-1 text-xs text-muted-foreground">
-        <MapPin className="size-3" aria-hidden /> {p.business.name} · {p.business.city}
+        <MapPin className="size-3" aria-hidden /> {p.business.name} · {p.business.distanceMetres != null ? `${formatDistance(p.business.distanceMetres)} away` : p.business.city}
       </p>
       <Rating avg={p.ratingAvg} count={p.ratingCount} />
     </article>
@@ -99,7 +100,7 @@ export function ServiceCard({ s }: { s: ServiceHit }) {
       </p>
       {s.deal?.isFlashDeal && <DealEnds deal={s.deal} />}
       <p className="text-xs text-muted-foreground">
-        About {formatDuration(s.durationMinutes)} · {s.business.name}, {s.business.city}
+        About {formatDuration(s.durationMinutes)} · {s.business.name}, {s.business.distanceMetres != null ? `${formatDistance(s.business.distanceMetres)} away` : s.business.city}
       </p>
       <Rating avg={s.ratingAvg} count={s.ratingCount} />
     </article>
@@ -122,8 +123,8 @@ export function StoreCard({ s }: { s: StoreHit }) {
             {s.name}
           </Link>
         </h3>
-        <p className="text-xs capitalize text-muted-foreground">
-          {s.type.replace("_", " ")} · {s.city}, {s.stateName}
+        <p className="text-xs text-muted-foreground">
+          <span className="capitalize">{s.type.replace("_", " ")}</span> · {s.distanceMetres != null ? `${formatDistance(s.distanceMetres)} away` : `${s.city}, ${s.stateName}`}
         </p>
         <Rating avg={s.ratingAvg} count={s.ratingCount} />
       </div>

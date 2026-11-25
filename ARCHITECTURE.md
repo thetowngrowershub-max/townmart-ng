@@ -6,9 +6,11 @@ This describes the system as of **Phase 1**. Each phase updates it.
 
 ```mermaid
 flowchart LR
-  browser[Browser] -->|HTTPS| proxy[Caddy / Nginx<br/>Phase 8]
+  browser[Browser] -->|HTTPS| proxy[Caddy]
   proxy --> web[Next.js 15 app<br/>Server Components + Server Actions]
-  web -->|townmart_app role, RLS| pg[(PostgreSQL 16)]
+  web -->|townmart_app role, RLS| bouncer[PgBouncer<br/>transaction pooling]
+  bouncer -->|TLS| pg[(PostgreSQL 16)]
+  backup[Backup service<br/>pgBackRest + encrypted dumps] --> pg
   web --> redis[(Redis 7)]
   web -->|enqueue| redis
   worker[Worker process<br/>BullMQ] -->|consume| redis
@@ -288,6 +290,95 @@ Ledger postings added in this phase (all in `lib/ledger/entries.ts`, balanced an
 `/dashboard/payouts` (owner only) shows the available and held balances, the next release, this month's sales, commission, refunds and payouts, the bank account, a pay-out-now button and the payout history. Monthly statements are built from the ledger in Lagos time (`lib/payouts/statement.ts`): opening and closing balances and every movement, as a printable page or CSV (text cells are guarded against spreadsheet formulas). `/dashboard/refunds` lists requests waiting for the seller (with the deadline), all refunds and disputes. Customers see their refunds at `/account/refunds` and on each order. `/admin/orders` has queues for open disputes, refund requests and failed refunds, plus order search; `/admin/payouts` shows payouts, failed refunds, where the money is (sellers' escrow and balances, TownMart's commission, fees, VAT and refunds owed, provider clearing) with a trial-balance check, and buttons to run the escrow and payout jobs now.
 
 Notices for refunds, disputes and payouts go through the same worker job as order notices (`refund.update`, `dispute.update`, `payout.update`), by email and in-app notification. Photos for refund requests are stored privately under `evidence/o-<order id>/` and opened through `/api/refunds/[id]/evidence/[n]`, which checks the viewer is the customer (or has the order link), the seller or TownMart and redirects to a 60-second signed URL.
+
+## Phase 6: legal, consent and privacy (NDPA 2023)
+
+### Legal pages
+
+Every page under `/legal/*` (13, listed in `lib/legal/documents.ts`, all linked from the footer) is a row in `legal_documents`, versioned by effective date. A page shows the version in force, notes an upcoming one, lists older versions (`?v=` opens one) and, while `is_template` is set, carries the notice "Template: review with a Nigerian lawyer/DPO before launch". The seed writes the starting templates (`prisma/legal-templates.ts`, version `2026-10-draft`). Admins publish a new version on `/admin/compliance/legal/[slug]` with the rich-text editor (sanitised), an effective date and a change note; nothing is ever edited in place. `{{company.*}}` and `{{retention.*}}` placeholders are filled from the company details and retention settings on `/admin/compliance/retention`, and anything not set yet shows as a highlighted "[… not set]" marker.
+
+`recordAcceptances()` writes a `policy_acceptances` row per document at sign-up (Terms, Privacy), checkout (Terms, Refunds; guests by order) and seller onboarding (Seller Agreement, DPA, Prohibited Items, plus Service Provider Terms for service sellers), and returns the versions copied onto the order or business. Google sign-up records the same acceptances in the `createUser` event; the sign-in and sign-up pages say continuing with Google accepts them.
+
+### Cookies and marketing
+
+`<ConsentManager />` in the root layout reads the `tm_consent` cookie (random subject id, three choices, Cookie Policy version, time). Until there is a current choice it shows the banner: Accept all, Reject non-essential and Customise, all the same size and style. Analytics and marketing scripts (`ANALYTICS_SCRIPT_URL`, `MARKETING_SCRIPT_URL`) are rendered only for the categories allowed, so nothing loads before consent. Each choice is stored in `consent_records` (append-only); the banner returns after 12 months or when the Cookie Policy changes. "Cookie settings" in the footer and the Privacy Centre reopen it.
+
+Marketing is opt-in and separate from the terms: a box at sign-up and checkout, and a switch in notification settings. Every marketing email carries `List-Unsubscribe` with one-click POST (RFC 8058, `/api/unsubscribe`) and a footer link to `/unsubscribe`; both are HMAC-signed and need no sign-in. Unsubscribed addresses go on `marketing_suppressions`, and `marketingAudience()` (the only source for a campaign list) leaves them out.
+
+### Privacy Centre and data requests
+
+`/account/privacy` lets a signed-in person: download their data (JSON and PDF, built by the `privacy` worker job, stored privately and offered through a signed link for 7 days); correct their name (other details on the profile pages); change cookie and marketing choices; object to or restrict processing, or ask for anything else, as a request; and delete their account. Deletion signs them out everywhere and starts a 14-day grace period; signing in again (after two-step sign-in, if on) cancels it. When it ends, `retention.anonymise-accounts` removes everything that identifies them (name, email, phone, password, sign-in methods, addresses, carts, wishlist, notifications, roles; reviews show "Former customer"), keeps order, payment and refund records for six years as the law requires, suppresses marketing to the old address and emails it to confirm. Shop owners' deletions are handled by hand.
+
+`/legal/data-request` is the public form for people without an account (Turnstile, rate limited by IP and email). The requester confirms by email link before the request joins the queue; unconfirmed requests are removed after 7 days. Every request (`data_subject_requests`, `DSR-YYYY-NNNNNN`) has a deadline (30 days by default) and its history in the audit log; closing one emails the requester.
+
+### Compliance centre
+
+`/admin/compliance` (`compliance.manage`, admins): an overview of what's due; the request queue with SLA countdown, assignment, notes, linking to an account and preparing an export; the breach register with a live 72-hour NDPC countdown from the moment TownMart became aware, NDPC reference, notice to the people affected and a ready-to-edit notice; the Record of Processing Activities, processors (with DPA dates) and DPIAs; retention periods and company details; legal page publishing; and logs of cookie choices and staff access to personal data. Opening someone's order, dispute or data request in the admin console writes a `personal_data.viewed` audit entry, alongside the existing KYC and application view entries.
+
+### Retention jobs
+
+Nightly (02:10 to 02:55 Lagos), each reading its period from `retention_settings` at run time: abandoned carts (30 days), unverified sign-ups that never did anything (30 days; never staff, shop owners or anyone with an order, booking or review), job logs and in-app notifications (12 months), accounts past their deletion grace period, unconfirmed public requests (7 days) and expired export files. Order, payment, refund and ledger records and the audit log are never touched.
+
+### Account security and notices
+
+Two-step sign-in by SMS code to a verified phone, switched on from `/account/security`: after a correct password the browser gets only a signed 10-minute `tm_2fa` cookie, and the session is created once the code is right. The phone can't be removed while it's on. The same page connects or disconnects Google (an existing account links only from inside it; an account with no password and no verified phone can't disconnect its only way to sign in). `/account/notifications` sets SMS order updates, SMS booking reminders, message emails and marketing; order and booking notices honour them, and emails that are needed for the service (receipts, refunds, security) are always sent.
+
+## Phase 7: admin console and analytics
+
+Every admin page checks a permission from `lib/authz` (`moderation.manage`, `catalogue.manage`, `settings.manage`, `content.manage`, `dispute.manage`, `user.manage`, `user.roles.manage`, `audit_log.read`, `analytics.view`, `system_health.view`, `jobs.retry`) and reads in the admin RLS scope. Admin actions go through `adminContext(permission)` (`lib/admin/context.ts`), which checks the permission, runs the change in the admin scope and hands it an audit writer, so every change lands in `audit_logs` with before and after.
+
+### Dashboard and analytics
+
+`/admin` shows what needs attention: seller applications, reported listings and reviews, open disputes, failed refunds, data requests (and overdue ones), open breaches and jobs that failed in the last day. `/admin/analytics` (`lib/analytics/metrics.ts`) shows GMV, confirmed orders, average order value, refund rate, active sellers and new customers for 7, 30 or 90 days, each compared with the period before, plus a daily chart, top categories and top sellers. Definitions are on the page; days are Lagos days. The daily figures download as CSV (`/api/admin/analytics`, cells guarded against spreadsheet formulas).
+
+### Moderation
+
+Shoppers report a listing (reason and details, one open report per person per listing) and ask questions on product and service pages. Saving a listing checks it against the prohibited-items keyword list (`/admin/moderation/keywords`, stored in `settings`, whole words and simple plurals) and opens a `keyword_match` report on a hit. `/admin/moderation` has queues for reports, questions and reported reviews, and a list of taken-down listings. Taking a listing down needs a reason; the listing leaves the storefront and search at once, the seller is told why and sees "Taken down by TownMart" in their dashboard, can keep editing, and TownMart restores it. Only TownMart can set or clear a take-down (trigger) or hide a question. Reporters' names are never shown to the shop.
+
+Shops answer questions at `/dashboard/questions` (`question.answer`); an answered question shows publicly on the listing.
+
+### Catalogue, fees and delivery
+
+`/admin/catalogue` edits the two-level category tree (a slug can't change once listings use it), attributes (select, number or text) and which attributes each category asks for. Attributes are inherited from the parent category, and a required one must be filled. The product form shows them in a Details card, `saveProduct` validates them (`lib/catalogue/attributes.ts`), CSV imports keep existing values, and the storefront product page shows them. The same section edits commission rules (global, per category or per store, starting now or later), delivery zones and TownMart's default rates, platform-wide promotions (store or category scope) and platform settings (service fee, VAT, default commission, stock hold, pay on delivery, auto-complete, refund deadlines, late-cancellation share, escrow days, payout minimum, booking lead time and horizon), each range-checked.
+
+### Content
+
+`/admin/content` manages homepage banners (image uploaded to `banners/cms/`, link on TownMart or https, optional start and end), featured stores, help-centre answers by section and the about and contact pages. Rich text goes through `sanitizeCmsHtml`, which also allows links to TownMart paths. The public pages are `/help`, `/about` and `/contact`.
+
+### Orders, bookings and disputes
+
+`/admin/orders` (Phase 5) gains `/admin/orders/bookings`: every booking, with views for upcoming, waiting for the provider, today and recent cancellations or no-shows, and search by order, provider, service or customer email. Changes happen on the order page.
+
+### Users, roles and the audit log
+
+`/admin/users` searches accounts by name, email or role. A user's page shows their roles, stores, orders and recent audit entries. Admins can suspend (with a reason; signs them out everywhere), restore or sign someone out. Roles are changed by super admins only (`user.roles.manage`); at least one super admin always remains and nobody removes their own super admin role. `/admin/users/audit` (`audit_log.read`) filters the append-only audit log by actor, action, entity and date and shows before and after.
+
+### System health
+
+`/admin/system` (`lib/system/health.ts`) shows database size and connections, the largest tables, queries running over 5 seconds, the slowest statements (when `pg_stat_statements` is loaded), every BullMQ queue's counts and recent failures with retry buttons (`jobs.retry`), the last run of each scheduled job, and the last backup and restore drill. Each section fails on its own, so a Redis outage shows as "unavailable" rather than breaking the page. Backups and restore drills record themselves into the append-only `ops_events` (Phase 8); `pnpm ops:record backup|restore_test --ok|--failed` records one taken by hand.
+
+### Staff
+
+Store owners invite people by email at `/dashboard/staff` and choose what each can do (products and services, orders, bookings, promotions, reviews and questions). The emailed link (`/invite/[token]`, hashed, 7 days, resendable and revocable) is accepted while signed in with that email; an account that owns or already works for a store can't accept. Owners change permissions or remove staff at any time, and the change applies on the next request.
+
+## Phase 8: hardening and operations
+
+### Production stack
+
+`docker-compose.prod.yml` puts only Caddy on the internet. The app and worker reach Postgres through PgBouncer in transaction mode over TLS; that is safe because every advisory lock is transaction-scoped and `withRls()` sets its settings with `set_config(…, true)`, so nothing outlives a transaction (all database tests also pass through PgBouncer). Postgres accepts TCP only over TLS, loads `pg_stat_statements` and archives WAL with pgBackRest. App containers get blanked superuser and migrator passwords; migrations run in a one-off `migrate` container as the schema owner. Step by step: DEPLOYMENT.md.
+
+### Backups
+
+The `backup` service (`scripts/db/scheduler.sh`) runs pgBackRest backups (point-in-time recovery, WAL every minute), a nightly `pg_dump` of one consistent snapshot encrypted with age (`backup.sh`), copies both to a second location, and a monthly restore drill (`verify-restore.sh`) that restores the newest dump into a scratch database and compares every table's row count with counts taken in the dump's own snapshot. Runbooks: DATABASE.md.
+
+### Content-Security-Policy
+
+`middleware.ts` makes a fresh nonce for every page request and sets a strict policy built by `lib/security/csp.ts`: scripts need the nonce (plus `'strict-dynamic'` for what they load), and only the configured storage, Turnstile, payment pages and consent-gated analytics are allowed. Next.js reads the nonce from the request's policy and adds it to its own scripts; `ConsentManager` passes it to the analytics and marketing scripts. API routes get `default-src 'none'`. The full review is SECURITY.md.
+
+### Tests at the edges
+
+- `pnpm load:oversell` (`scripts/load/`) forks one process per buyer, each with its own connection, waits until all are connected, releases them together and checks exactly the stock was sold. It then pays every order through the running app's webhook endpoint three times at once and checks each was paid and booked in the ledger once.
+- `tests/e2e/` (Playwright, Pixel 7 screen): a guest purchase, a refund after delivery approved by the seller, and a booking confirmed by the provider, each through the real pages and the fake payment page, plus an axe audit (WCAG 2.2 AA rules) of 32 storefront, account, seller and admin pages. CI runs both against a production build with the worker.
 
 ## Design system
 

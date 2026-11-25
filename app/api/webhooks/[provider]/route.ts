@@ -4,7 +4,7 @@ import { withSystemContext } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { paymentProvider, type ProviderName } from "@/lib/payments";
 import { enqueueOrderEvent } from "@/lib/queue";
-import { env } from "@/lib/env";
+import { devDriversAllowed } from "@/lib/env";
 
 const PROVIDERS: ProviderName[] = ["paystack", "flutterwave", "fake"];
 
@@ -16,7 +16,7 @@ const PROVIDERS: ProviderName[] = ["paystack", "flutterwave", "fake"];
  */
 export async function POST(request: Request, { params }: { params: Promise<{ provider: string }> }) {
   const name = (await params).provider as ProviderName;
-  if (!PROVIDERS.includes(name) || (name === "fake" && env().NODE_ENV === "production")) return new NextResponse(null, { status: 404 });
+  if (!PROVIDERS.includes(name) || (name === "fake" && !devDriversAllowed())) return new NextResponse(null, { status: 404 });
 
   const raw = await request.text();
   if (raw.length > 256_000) return new NextResponse(null, { status: 413 });
