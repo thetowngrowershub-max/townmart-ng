@@ -18,6 +18,8 @@ export type QuoteLine = {
   businessId: string;
   categoryId: string;
   parentCategoryId: string | null;
+  /** Booking balance the shopper pays the provider on the day (not charged at checkout). */
+  payLaterKobo?: bigint;
 };
 
 export type SellerQuote = {
@@ -28,7 +30,9 @@ export type SellerQuote = {
   deliveryKobo: bigint;
   commissionKobo: bigint;
   sellerNetKobo: bigint;
-  /** What the shopper pays this seller's share of: goods after discounts plus delivery. */
+  /** Booking balances paid to the provider on the day, out of totalKobo. */
+  payLaterKobo: bigint;
+  /** This seller's share of the order: goods after discounts plus delivery (including any pay-later balance). */
   totalKobo: bigint;
   lines: { key: string; commissionKobo: bigint }[];
 };
@@ -40,6 +44,8 @@ export type OrderQuote = {
   deliveryKobo: bigint;
   serviceFeeKobo: bigint;
   vatKobo: bigint;
+  payLaterKobo: bigint;
+  /** Due at checkout: everything except the pay-later balances. */
   totalKobo: bigint;
 };
 
@@ -75,7 +81,7 @@ export function buildQuote(params: {
     if (!p) throw new Error(`No price for cart line ${line.key}`);
     const s =
       sellers.get(line.businessId) ??
-      ({ businessId: line.businessId, subtotalKobo: 0n, discountKobo: 0n, platformDiscountKobo: 0n, deliveryKobo: 0n, commissionKobo: 0n, sellerNetKobo: 0n, totalKobo: 0n, lines: [] } satisfies SellerQuote);
+      ({ businessId: line.businessId, subtotalKobo: 0n, discountKobo: 0n, platformDiscountKobo: 0n, deliveryKobo: 0n, commissionKobo: 0n, sellerNetKobo: 0n, payLaterKobo: 0n, totalKobo: 0n, lines: [] } satisfies SellerQuote);
     const platformDiscount = p.parts.filter((x) => x.fundedBy === null).reduce((a, x) => a + x.discountKobo, 0n);
     // The seller is paid for its goods less its own discounts; TownMart covers platform discounts.
     const sellerGoods = p.subtotalKobo - (p.discountKobo - platformDiscount);
@@ -87,6 +93,7 @@ export function buildQuote(params: {
     s.discountKobo += p.discountKobo;
     s.platformDiscountKobo += platformDiscount;
     s.commissionKobo += commission;
+    s.payLaterKobo += line.payLaterKobo ?? 0n;
     s.lines.push({ key: line.key, commissionKobo: commission });
     sellers.set(line.businessId, s);
   }
@@ -102,6 +109,7 @@ export function buildQuote(params: {
   const subtotalKobo = sum((s) => s.subtotalKobo);
   const discountKobo = sum((s) => s.discountKobo);
   const deliveryKobo = sum((s) => s.deliveryKobo);
+  const payLaterKobo = sum((s) => s.payLaterKobo);
   const goods = subtotalKobo - discountKobo;
   let serviceFeeKobo = roundBps(goods, params.serviceFeeBps);
   if (serviceFeeKobo > params.serviceFeeCapKobo) serviceFeeKobo = params.serviceFeeCapKobo;
@@ -114,6 +122,7 @@ export function buildQuote(params: {
     deliveryKobo,
     serviceFeeKobo,
     vatKobo,
-    totalKobo: goods + deliveryKobo + serviceFeeKobo + vatKobo,
+    payLaterKobo,
+    totalKobo: goods + deliveryKobo + serviceFeeKobo + vatKobo - payLaterKobo,
   };
 }

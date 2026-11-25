@@ -27,6 +27,35 @@ export const optionInput = z.object({
   values: commaList(30, 30).refine((v) => v.length > 0, "Add at least one value"),
 });
 
+const smallInt = (lo: number, hi: number, label: string) => z.coerce.number({ error: `Enter ${label}` }).int(`Use a whole number for ${label}`).min(lo, `${label} is at least ${lo}`).max(hi, `${label} is at most ${hi}`);
+
+/** One choice on a restaurant's meal builder, e.g. "Amala, ₦300 per wrap, up to 6 wraps". */
+export const mealItemInput = z
+  .object({
+    key: z.string().max(80).optional(),
+    name: z.string().trim().min(2, "Name the item").max(40),
+    price: nairaAmount,
+    unit: z.string().trim().min(1, "e.g. wrap, portion, piece").max(20),
+    maxQty: smallInt(1, 20, "Most per plate"),
+    defaultQty: smallInt(1, 20, "Default"),
+    swallow: z.boolean(),
+    available: z.boolean(),
+  })
+  .refine((i) => i.defaultQty <= i.maxQty, { path: ["defaultQty"], message: "Can't be more than the most per plate" });
+
+/** A step of the meal builder, e.g. "Protein: choose 1 to 3". */
+export const mealGroupInput = z
+  .object({
+    key: z.string().max(80).optional(),
+    name: z.string().trim().min(2, "Name the step, e.g. Protein").max(30),
+    min: smallInt(0, 20, "Fewest"),
+    max: smallInt(1, 20, "Most"),
+    withSwallow: z.boolean(),
+    items: z.array(mealItemInput).min(1, "Add at least one choice").max(30, "At most 30 choices"),
+  })
+  .refine((g) => g.min <= g.max, { path: ["min"], message: "Can't be more than the most" })
+  .refine((g) => g.min <= g.items.length, { path: ["min"], message: "More than the choices you've listed" });
+
 export const variantInput = z.object({
   id: z.uuid().optional(),
   sku: z
@@ -63,6 +92,8 @@ export const productInputSchema = z
     heightCm: z.coerce.number().min(0).max(1000).optional(),
     isPerishable: z.boolean(),
     shelfLifeNote: z.string().trim().max(200).optional(),
+    /** Food made to order: minutes until it's ready. Shown on food listings. */
+    prepTimeMinutes: z.coerce.number().int("Use whole minutes").min(1, "At least 1 minute").max(1440, "At most 24 hours").optional(),
     costPrice: optionalNairaAmount,
     status: listingStatus,
     slug: slugField,
@@ -71,6 +102,10 @@ export const productInputSchema = z
     options: z.array(optionInput).max(3, "At most 3 options"),
     variants: z.array(variantInput).min(1, "Add at least one variant").max(100, "At most 100 variants"),
     images: z.array(productImageInput).max(8, "At most 8 images"),
+    /** Restaurants: the steps a customer goes through to build a plate. Empty = sold as is. */
+    mealBuilder: z.array(mealGroupInput).max(8, "At most 8 steps").default([]),
+    /** Values for the category's attributes, by attribute key; checked against the category when saved. */
+    attributes: z.record(z.string().max(80), z.string().max(200)).default({}),
   })
   .superRefine((p, ctx) => {
     if (p.allowFractionalQty && !FRACTIONAL_UNITS.includes(p.unit)) {
@@ -177,6 +212,7 @@ export const serviceInputSchema = z
     basePrice: nairaAmount,
     durationMinutes: z.coerce.number().int().min(5, "At least 5 minutes").max(24 * 60 * 14),
     locationMode: z.enum(["on_site", "at_provider", "both"]),
+    // Ignored when saving: a service always covers its business's own LGA (lib/catalogue/services.ts).
     serviceLgaIds: z.array(z.coerce.number().int().positive()).max(100),
     radiusKm: z.coerce.number().int().min(1).max(500).optional(),
     depositPercent: z.coerce.number().int().min(0).max(100),
@@ -193,9 +229,6 @@ export const serviceInputSchema = z
   .superRefine((s, ctx) => {
     if (s.pricingModel === "packages" && s.packages.length === 0) {
       ctx.addIssue({ code: "custom", path: ["packages"], message: "Add at least one package" });
-    }
-    if (s.locationMode !== "at_provider" && s.serviceLgaIds.length === 0 && !s.radiusKm) {
-      ctx.addIssue({ code: "custom", path: ["serviceLgaIds"], message: "Choose the LGAs you cover, or a radius" });
     }
     if (s.status === "active" && s.availability.length === 0) {
       ctx.addIssue({ code: "custom", path: ["availability"], message: "Add your weekly availability before publishing" });

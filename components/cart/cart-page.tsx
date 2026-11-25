@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CheckoutView } from "@/lib/checkout/view";
 import { CartLine } from "./cart-line";
+import { CheckoutButton } from "./checkout-button";
 import { CouponForm } from "./coupon-form";
 import { OrderSummary } from "./order-summary";
 
@@ -37,7 +38,7 @@ export function CartPage({ view, signedIn }: { view: CheckoutView; signedIn: boo
                 <p className="text-sm text-muted-foreground">{s.location}</p>
               </div>
               <p className="text-sm text-muted-foreground">
-                {s.offersDelivery && s.offersPickup ? "Delivery or pickup" : s.offersPickup ? "Pickup only" : "Delivery"}
+                {!s.hasGoods ? "Booking" : s.offersDelivery && s.offersPickup ? "Delivery or pickup" : s.offersPickup ? "Pickup only" : "Delivery"}
               </p>
             </CardHeader>
             <CardContent>
@@ -80,9 +81,7 @@ export function CartPage({ view, signedIn }: { view: CheckoutView; signedIn: boo
                   Check out
                 </Button>
               ) : (
-                <Button asChild size="lg" className="w-full">
-                  <Link href="/checkout">Check out</Link>
-                </Button>
+                <CheckoutButton />
               )}
               {!signedIn && (
                 <p className="text-center text-sm text-muted-foreground">

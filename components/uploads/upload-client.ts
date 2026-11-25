@@ -1,11 +1,20 @@
 "use client";
 
-import { finaliseImageAction, requestUploadAction } from "@/lib/storage/actions";
+import {
+  finaliseCmsImageAction,
+  finaliseEvidenceAction,
+  finaliseImageAction,
+  finaliseReviewImageAction,
+  requestCmsUploadAction,
+  requestEvidenceUploadAction,
+  requestReviewUploadAction,
+  requestUploadAction,
+} from "@/lib/storage/actions";
 import type { ImagePurpose } from "@/lib/storage/uploads";
 
 export type UploadedImage = { key: string; url: string; width: number; height: number };
 
-const MAX_EDGE = { product: 1600, service: 1600, logo: 512, banner: 2400 } satisfies Record<ImagePurpose, number>;
+export const MAX_EDGE = { product: 1600, service: 1600, logo: 512, banner: 2400, review: 1600, portfolio: 1600 } satisfies Record<ImagePurpose, number>;
 
 /**
  * Shrinks an image in the browser before upload (max edge, WebP) so sellers on
@@ -40,10 +49,46 @@ async function putToStorage(kind: Parameters<typeof requestUploadAction>[0]["kin
 /** Compress → presigned PUT → server re-encode. Returns the final public image. */
 export async function uploadImage(file: File, purpose: ImagePurpose): Promise<UploadedImage> {
   const body = await compressImage(file, MAX_EDGE[purpose]);
+  if (purpose === "review") {
+    const req = await requestReviewUploadAction({ contentType: body.type, size: body.size });
+    if (!req.ok) throw new Error(req.error);
+    const { tmpKey, target } = req.data!;
+    const res = await fetch(target.url, { method: target.method, headers: target.headers, body });
+    if (!res.ok) throw new Error("Upload failed. Check your connection and try again.");
+    const fin = await finaliseReviewImageAction({ tmpKey });
+    if (!fin.ok) throw new Error(fin.error);
+    return fin.data!;
+  }
   const tmpKey = await putToStorage(purpose, body);
   const fin = await finaliseImageAction({ tmpKey, purpose });
   if (!fin.ok) throw new Error(fin.error);
   return fin.data!;
+}
+
+/** A homepage banner uploaded from the admin console. */
+export async function uploadCmsBanner(file: File): Promise<UploadedImage> {
+  const body = await compressImage(file, MAX_EDGE.banner);
+  const req = await requestCmsUploadAction({ contentType: body.type, size: body.size });
+  if (!req.ok) throw new Error(req.error);
+  const { tmpKey, target } = req.data!;
+  const res = await fetch(target.url, { method: target.method, headers: target.headers, body });
+  if (!res.ok) throw new Error("Upload failed. Check your connection and try again.");
+  const fin = await finaliseCmsImageAction({ tmpKey });
+  if (!fin.ok) throw new Error(fin.error);
+  return fin.data!;
+}
+
+/** A photo for a refund request: private, readable only by the customer, the seller and TownMart. */
+export async function uploadEvidence(file: File, order: { orderNumber: string; token: string | null }): Promise<string> {
+  const body = await compressImage(file, 1600);
+  const req = await requestEvidenceUploadAction({ ...order, contentType: body.type, size: body.size });
+  if (!req.ok) throw new Error(req.error);
+  const { tmpKey, target } = req.data!;
+  const res = await fetch(target.url, { method: target.method, headers: target.headers, body });
+  if (!res.ok) throw new Error("Upload failed. Check your connection and try again.");
+  const fin = await finaliseEvidenceAction({ ...order, tmpKey });
+  if (!fin.ok) throw new Error(fin.error);
+  return fin.data!.key;
 }
 
 /** KYC documents and CSVs: uploaded as-is to the private bucket; the form's action finalises them. */

@@ -15,6 +15,7 @@ export function OrderSummary({ totals, totalLabel = "Total" }: { totals: Checkou
       {row("Delivery", totals.delivery ?? "Calculated at checkout", totals.delivery ? undefined : "text-muted-foreground")}
       {row("Service fee", totals.serviceFee)}
       {row("VAT (7.5% of service fee)", totals.vat)}
+      {totals.payLater && row("Booking balance, paid to the provider on the day", `−${totals.payLater}`, "text-muted-foreground")}
       <div className="mt-2 flex justify-between gap-4 border-t pt-3 text-base font-bold">
         <dt>{totalLabel}</dt>
         <dd className="tabular-nums">{totals.total}</dd>

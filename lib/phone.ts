@@ -14,3 +14,9 @@ export function maskPhone(e164: string): string {
   const local = `0${e164.replace(/^\+234/, "")}`;
   return `${local.slice(0, 4)} ••• ••${local.slice(-2)}`;
 }
+
+/** "bola@example.com" → "b•••@example.com", for saying where a code went. */
+export function maskEmail(email: string): string {
+  const [local = "", domain = ""] = email.split("@");
+  return `${local.slice(0, 1)}•••@${domain}`;
+}

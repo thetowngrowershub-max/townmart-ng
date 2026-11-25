@@ -1,8 +1,12 @@
 import { unitLabel } from "@/lib/catalogue/units";
+import { formatDuration } from "@/lib/catalogue/format";
+import { formatBookingTime } from "@/lib/datetime";
 import { formatPrice } from "@/lib/money";
+import { formatDistance } from "@/lib/geo/distance";
 import { publicImageUrl } from "@/lib/storage";
 import type { UnitOfMeasure } from "@prisma/client";
 import type { CheckoutComputation, ComputedLine, LineProblem } from "./compute";
+import type { NearerOffer } from "@/lib/catalogue/nearer";
 
 /** What the cart and checkout pages show. Plain strings, so it can cross to client components. */
 export type LineView = {
@@ -23,6 +27,10 @@ export type LineView = {
   total: string;
   promotions: string[];
   problem: string | null;
+  /** Service lines: when and where, and what's paid now and on the day. */
+  booking: { when: string; duration: string; where: string; deposit: string | null; payLater: string | null } | null;
+  /** The same item at a shop nearer the shopper (lib/catalogue/nearer.ts). */
+  nearer?: { href: string; title: string; store: string; distance: string; price: string } | null;
 };
 
 export type SellerView = {
@@ -35,8 +43,11 @@ export type SellerView = {
   offersDelivery: boolean;
   offersPickup: boolean;
   deliveryNotes: string;
-  method: "delivery" | "pickup" | null;
-  delivery: { fee: string; free: boolean; eta: string; zone: string; freeOver: string | null } | null;
+  method: "delivery" | "pickup" | "none" | null;
+  /** The seller has goods to deliver or collect (not just bookings). */
+  hasGoods: boolean;
+  /** `distance` is set when the fee is the distance from the shop at a rate per km ("3.2 km at ₦250/km"). */
+  delivery: { fee: string; free: boolean; eta: string; zone: string; freeOver: string | null; distance: string | null } | null;
   returnWindowDays: number;
 };
 
@@ -44,11 +55,17 @@ export type CheckoutView = {
   sellers: SellerView[];
   saved: LineView[];
   coupon: { code: string | null; state: "none" | "applied" | "invalid" | "not_applicable"; message: string | null; saving: string | null };
-  totals: { subtotal: string; discount: string | null; delivery: string | null; serviceFee: string; vat: string; total: string; totalKobo: string };
+  totals: { subtotal: string; discount: string | null; delivery: string | null; serviceFee: string; vat: string; payLater: string | null; total: string; totalKobo: string };
   payOnDeliveryAvailable: boolean;
   holdMinutes: number;
   blockers: string[];
   itemCount: number;
+  /**
+   * Where delivery was priced from: the shopper's location ("gps"), the saved
+   * address pin ("pinned"), or the town centre ("area", an estimate). `problem`
+   * says the shared location was ignored.
+   */
+  location: { source: "gps" | "pinned" | "area" | null; problem: "outside_area" | null };
 };
 
 function problemText(p: LineProblem | null, unit: string): string | null {
@@ -64,18 +81,33 @@ function problemText(p: LineProblem | null, unit: string): string | null {
       return `The minimum order is ${p.minimum} ${unit}.`;
     case "fraction_not_allowed":
       return "This item is sold in whole units.";
+    case "slot_unavailable":
+      return "This time is no longer available. Remove it and book another time.";
+    case "outside_area":
+      return "This provider only works in their own LGA, and this address is outside it. Choose another address or remove it.";
+    case "meal_changed":
+      return `${p.message} Remove this plate and build it again.`;
+    case "store_closed":
+      return `${p.label}. Save it for later, or remove it to check out the rest.`;
   }
 }
 
-export function toCheckoutView(c: CheckoutComputation): CheckoutView {
+function etaText(min: number, max: number): string {
+  if (max === 0) return "Today";
+  if (min === 0 && max === 1) return "Today or next working day";
+  return min === max ? `${min} working day${min === 1 ? "" : "s"}` : `${min}–${max} working days`;
+}
+
+export function toCheckoutView(c: CheckoutComputation, opts: { locationProblem?: "outside_area" | null } = {}): CheckoutView {
   const priced = new Map(c.priced.lines.map((l) => [l.key, l]));
   const line = (l: ComputedLine): LineView => {
     const p = priced.get(l.cartItemId);
     const unit = unitLabel(l.unit as UnitOfMeasure, l.qty.toNumber());
+    const b = l.booking;
     return {
       id: l.cartItemId,
       title: l.title,
-      href: `/p/${l.slug}`,
+      href: b ? `/s/${l.slug}` : `/p/${l.slug}`,
       options: Object.values(l.optionValues).join(", "),
       imageUrl: l.imageKey ? publicImageUrl(l.imageKey) : null,
       imageAlt: l.imageAlt ?? l.title,
@@ -90,6 +122,15 @@ export function toCheckoutView(c: CheckoutComputation): CheckoutView {
       total: formatPrice(p?.totalKobo ?? 0n),
       promotions: p?.promotions.map((x) => x.name) ?? [],
       problem: problemText(l.problem, unit),
+      booking: b
+        ? {
+            when: formatBookingTime(b.startsAt),
+            duration: formatDuration(b.durationMinutes),
+            where: b.atProvider ? "At the provider's place" : "At your address",
+            deposit: l.payLaterKobo > 0n && p ? formatPrice(p.totalKobo - l.payLaterKobo) : null,
+            payLater: l.payLaterKobo > 0n ? formatPrice(l.payLaterKobo) : null,
+          }
+        : null,
     };
   };
   const quoteBy = new Map(c.quote.sellers.map((s) => [s.businessId, s]));
@@ -111,13 +152,17 @@ export function toCheckoutView(c: CheckoutComputation): CheckoutView {
       offersPickup: s?.offersPickup ?? false,
       deliveryNotes: s?.deliveryNotes ?? "",
       method: s?.method ?? null,
+      hasGoods: c.lines.some((l) => l.businessId === businessId && l.kind === "product"),
       delivery: s?.delivery
         ? {
             fee: s.delivery.free ? "Free" : formatPrice(s.delivery.feeKobo),
             free: s.delivery.free,
-            eta: s.delivery.etaDaysMin === s.delivery.etaDaysMax ? `${s.delivery.etaDaysMin} working day${s.delivery.etaDaysMin === 1 ? "" : "s"}` : `${s.delivery.etaDaysMin}–${s.delivery.etaDaysMax} working days`,
+            eta: etaText(s.delivery.etaDaysMin, s.delivery.etaDaysMax),
             zone: s.delivery.zoneName,
             freeOver: s.delivery.freeOverKobo !== null && !s.delivery.free ? formatPrice(s.delivery.freeOverKobo) : null,
+            distance: s.delivery.distance
+              ? `${s.delivery.distance.method === "road" ? "" : "About "}${formatDistance(s.delivery.distance.metres)} by road${s.delivery.distance.source === "area" ? " (from the town centre)" : ""}, ${s.delivery.distance.chargedKm} km at ${formatPrice(s.delivery.distance.perKmKobo)}/km`
+              : null,
           }
         : null,
       returnWindowDays: s?.returnWindowDays ?? 7,
@@ -137,9 +182,10 @@ export function toCheckoutView(c: CheckoutComputation): CheckoutView {
     totals: {
       subtotal: formatPrice(c.quote.subtotalKobo),
       discount: c.quote.discountKobo > 0n ? formatPrice(c.quote.discountKobo) : null,
-      delivery: hasAddress ? (c.quote.deliveryKobo === 0n ? "Free" : formatPrice(c.quote.deliveryKobo)) : null,
+      delivery: !c.lines.some((l) => l.kind === "product") ? "Not needed" : hasAddress ? (c.quote.deliveryKobo === 0n ? "Free" : formatPrice(c.quote.deliveryKobo)) : null,
       serviceFee: formatPrice(c.quote.serviceFeeKobo),
       vat: formatPrice(c.quote.vatKobo),
+      payLater: c.quote.payLaterKobo > 0n ? formatPrice(c.quote.payLaterKobo) : null,
       total: formatPrice(c.quote.totalKobo),
       totalKobo: c.quote.totalKobo.toString(),
     },
@@ -147,5 +193,16 @@ export function toCheckoutView(c: CheckoutComputation): CheckoutView {
     holdMinutes: c.settings.stockHoldMinutes,
     blockers: c.blockers,
     itemCount: c.lines.length,
+    location: { source: c.point?.source ?? null, problem: opts.locationProblem ?? null },
   };
+}
+
+/** Adds "a nearer shop has this" to the cart lines it applies to. */
+export function withNearerOffers(view: CheckoutView, offers: ReadonlyMap<string, NearerOffer>): CheckoutView {
+  if (offers.size === 0) return view;
+  const add = (l: LineView): LineView => {
+    const o = offers.get(l.id);
+    return o ? { ...l, nearer: { href: `/p/${o.productSlug}`, title: o.title, store: o.storeName, distance: formatDistance(o.metres), price: formatPrice(o.priceKobo) } } : l;
+  };
+  return { ...view, sellers: view.sellers.map((s) => ({ ...s, lines: s.lines.map(add) })) };
 }

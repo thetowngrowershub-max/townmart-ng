@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, withRls } from "@/lib/db";
 import { adjustStock } from "@/lib/catalogue/products";
 import { searchProvider } from "@/lib/search";
-import { createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createUser, deleteUsers, moweOgun, owner } from "./helpers";
 
 /**
  * Cross-seller isolation at the database layer: seller A, running with its own
@@ -30,7 +30,7 @@ function asSystem<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) {
 
 async function createSeller(label: string, status: BusinessStatus): Promise<Fixture> {
   const user = await createUser(label);
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   return asSystem(async (tx) => {
     const business = await tx.business.create({
       data: {
@@ -42,7 +42,7 @@ async function createSeller(label: string, status: BusinessStatus): Promise<Fixt
         phoneEncrypted: "v1.k1.test.test.test",
         phoneHash: `${label}-${tag}`,
         addressEncrypted: "v1.k1.test.test.test",
-        city: "Ikeja",
+        city: "Mowe",
         stateId,
         lgaId,
         status,
@@ -239,7 +239,7 @@ describe("Status guards", () => {
   });
 
   it("won't let a seller create a business that is already approved", async () => {
-    const { stateId, lgaId } = await lagosIkeja();
+    const { stateId, lgaId } = await moweOgun();
     await expect(
       withRls({ userId: a.userId }, (tx) =>
         tx.business.create({
@@ -252,7 +252,7 @@ describe("Status guards", () => {
             phoneEncrypted: "x",
             phoneHash: `shortcut-${tag}`,
             addressEncrypted: "x",
-            city: "Ikeja",
+            city: "Mowe",
             stateId,
             lgaId,
             status: "approved",

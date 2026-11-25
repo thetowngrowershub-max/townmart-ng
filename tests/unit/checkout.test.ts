@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { quoteDelivery, zoneFor, type Rate, type Zone } from "@/lib/checkout/delivery";
 import { buildQuote, commissionRuleFor, roundBps, type CommissionRuleLite, type QuoteLine } from "@/lib/checkout/quote";
 import { assertBalanced, LedgerError, paymentCapturedPostings, type Posting } from "@/lib/ledger/entries";
-import { FlutterwaveProvider } from "@/lib/payments/flutterwave";
+import { FlutterwaveProvider, flutterwaveKeyMode } from "@/lib/payments/flutterwave";
 import { PaystackProvider } from "@/lib/payments/paystack";
 import type { PricedCart, PricedLine } from "@/lib/pricing";
 
@@ -211,6 +211,26 @@ describe("payment webhooks", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ status: true, message: "ok", data: { status: "success", amount: 1_017_575, currency: "NGN", channel: "card", paid_at: "2026-11-01T08:00:00Z", reference: "TM-1" } })));
     const v = await new PaystackProvider("sk").verify("TM-1");
     expect(v).toMatchObject({ status: "success", amountKobo: 1_017_575n, currency: "NGN", channel: "card" });
+  });
+
+  it("reads Flutterwave's older webhook format and keeps the transaction id", () => {
+    const legacy = JSON.stringify({ id: 9, txRef: "TM-3", status: "successful", "event.type": "CARD_TRANSACTION" });
+    expect(new FlutterwaveProvider("k", "h").parseWebhook(legacy)).toMatchObject({ eventId: "charge.completed:9", reference: "TM-3", isChargeSuccess: true, providerTransactionId: "9" });
+    const v3 = JSON.stringify({ event: "charge.completed", data: { id: 7, tx_ref: "TM-2", status: "failed" } });
+    expect(new FlutterwaveProvider("k", "h").parseWebhook(v3)).toMatchObject({ isChargeSuccess: false, providerTransactionId: "7" });
+  });
+
+  it("verifies a Flutterwave webhook's exact transaction and refuses one that belongs to another order", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ status: "success", message: "ok", data: { id: 7, status: "successful", amount: 500, currency: "NGN", payment_type: "card", created_at: "2026-11-01T08:00:00Z", tx_ref: "TM-OTHER" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new FlutterwaveProvider("k", "h").verify("TM-2", "7")).rejects.toThrow(/belongs to TM-OTHER/);
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain("/transactions/7/verify");
+  });
+
+  it("tells Flutterwave test keys from live ones", () => {
+    expect(flutterwaveKeyMode("FLWSECK_TEST-abc-X")).toBe("test");
+    expect(flutterwaveKeyMode("FLWSECK-abc-X")).toBe("live");
+    expect(flutterwaveKeyMode("something")).toBe("unknown");
   });
 
   it("converts Flutterwave's naira amounts to kobo", async () => {

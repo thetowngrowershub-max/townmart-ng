@@ -1,5 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Bike,
+  Activity,
   BadgePercent,
   BarChart3,
   Bell,
@@ -9,8 +11,10 @@ import {
   FileText,
   Gavel,
   Heart,
+  Images,
   LayoutDashboard,
   MapPin,
+  MessageCircleQuestion,
   MessageSquare,
   Package,
   Palette,
@@ -20,6 +24,7 @@ import {
   ShieldCheck,
   Star,
   Store,
+  Tags,
   Users,
   Wallet,
   Wrench,
@@ -32,7 +37,7 @@ import {
  */
 export type NavItem = { href: string; label: string; icon: LucideIcon; phase: number };
 
-export const CURRENT_PHASE = 3;
+export const CURRENT_PHASE = 7;
 
 export const accountNav: NavItem[] = [
   { href: "/account", label: "Overview", icon: LayoutDashboard, phase: 0 },
@@ -52,14 +57,19 @@ export const dashboardNav: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, phase: 0 },
   { href: "/dashboard/products", label: "Products", icon: Package, phase: 1 },
   { href: "/dashboard/services", label: "Services", icon: Wrench, phase: 1 },
+  { href: "/dashboard/portfolio", label: "Job photos", icon: Images, phase: 1 },
   { href: "/dashboard/promotions", label: "Promotions", icon: BadgePercent, phase: 2 },
   { href: "/dashboard/orders", label: "Orders", icon: ClipboardList, phase: 4 },
+  { href: "/dashboard/riders", label: "Riders", icon: Bike, phase: 4 },
   { href: "/dashboard/bookings", label: "Bookings", icon: CalendarCheck, phase: 4 },
+  { href: "/dashboard/refunds", label: "Refunds & disputes", icon: RotateCcw, phase: 5 },
   { href: "/dashboard/payouts", label: "Payouts", icon: Wallet, phase: 5 },
   { href: "/dashboard/reviews", label: "Reviews", icon: Star, phase: 4 },
+  { href: "/dashboard/questions", label: "Questions", icon: MessageCircleQuestion, phase: 7 },
   { href: "/dashboard/messages", label: "Messages", icon: MessageSquare, phase: 4 },
   { href: "/dashboard/staff", label: "Staff", icon: Users, phase: 7 },
   { href: "/dashboard/settings", label: "Store settings", icon: Store, phase: 1 },
+  { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
 ];
 
 export const adminNav: NavItem[] = [
@@ -67,16 +77,22 @@ export const adminNav: NavItem[] = [
   { href: "/admin/sellers", label: "Seller approvals", icon: Store, phase: 1 },
   { href: "/admin/moderation", label: "Moderation", icon: Gavel, phase: 7 },
   { href: "/admin/orders", label: "Orders & disputes", icon: ClipboardList, phase: 5 },
+  { href: "/admin/deliveries", label: "Deliveries", icon: Bike, phase: 5 },
   { href: "/admin/payouts", label: "Refunds & payouts", icon: Wallet, phase: 5 },
+  { href: "/admin/catalogue", label: "Catalogue & fees", icon: Tags, phase: 7 },
   { href: "/admin/content", label: "Content (CMS)", icon: FileText, phase: 7 },
   { href: "/admin/compliance", label: "Compliance centre", icon: Scale, phase: 6 },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3, phase: 7 },
   { href: "/admin/users", label: "Users & roles", icon: Users, phase: 7 },
+  { href: "/admin/system", label: "System health", icon: Activity, phase: 7 },
   { href: "/design-system", label: "Design system", icon: Palette, phase: 0 },
+  { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
 ];
 
 export const storefrontCategories = [
   { slug: "groceries", label: "Groceries", emoji: "🛒" },
+  { slug: "restaurants", label: "Restaurants", emoji: "🍲" },
+  { slug: "confectionery", label: "Confectionery", emoji: "🎂" },
   { slug: "fashion", label: "Fashion", emoji: "👗" },
   { slug: "electronics", label: "Electronics", emoji: "📱" },
   { slug: "home", label: "Home", emoji: "🛋️" },

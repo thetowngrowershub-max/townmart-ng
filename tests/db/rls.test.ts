@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, withRls } from "@/lib/db";
-import { createAddress, createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createAddress, createUser, deleteUsers, moweOgun, owner } from "./helpers";
 
 let alice: { id: string };
 let bob: { id: string };
@@ -48,11 +48,11 @@ describe("RLS: addresses are visible only to their owner", () => {
   });
 
   it("can't insert a row for another user", async () => {
-    const { stateId, lgaId } = await lagosIkeja();
+    const { stateId, lgaId } = await moweOgun();
     await expect(
       withRls({ userId: alice.id }, (tx) =>
         tx.address.create({
-          data: { userId: bob.id, recipientName: "x", phoneEncrypted: "x", line1Encrypted: "x", city: "Ikeja", stateId, lgaId },
+          data: { userId: bob.id, recipientName: "x", phoneEncrypted: "x", line1Encrypted: "x", city: "Mowe", stateId, lgaId },
         }),
       ),
     ).rejects.toThrow(/row-level security/);

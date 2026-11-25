@@ -4,6 +4,8 @@
  * replaces TownMart's default for it.
  */
 
+import { priceByDistance, type DistanceRates, type LocationSource } from "@/lib/geo/distance";
+
 export type Zone = { id: string; name: string; stateIds: readonly number[]; lgaIds: readonly number[]; priority: number };
 
 export type Rate = {
@@ -26,6 +28,9 @@ export type DeliveryQuote = {
   freeOverKobo: bigint | null;
   etaDaysMin: number;
   etaDaysMax: number;
+  /** Set when the fee came from the distance between the shop and the customer (NGN per km). */
+  /** `method` "road" is a real driving distance (Google Routes); "estimate" is straight line × road factor. */
+  distance: { metres: number; chargedKm: number; perKmKobo: bigint; source: LocationSource; method: "road" | "estimate" } | null;
 };
 
 /** Items with no weight set count as this much each. */
@@ -70,5 +75,26 @@ export function quoteDelivery(params: {
     freeOverKobo: rate.freeOverKobo,
     etaDaysMin: rate.etaDaysMin,
     etaDaysMax: rate.etaDaysMax,
+    distance: null,
+  };
+}
+
+/**
+ * Quotes delivery by distance: the road distance from the shop's pickup point
+ * to the customer (lib/geo/routes.ts works it out), at the per-km rate. Local
+ * riders deliver the same or the next working day. Returns null when the
+ * customer is further away than shops deliver.
+ */
+export function quoteDistanceDelivery(params: { road: { metres: number; method: "road" | "estimate" }; source: LocationSource; rates: DistanceRates }): DeliveryQuote | null {
+  const q = priceByDistance(params.road.metres, params.rates);
+  if (!q) return null;
+  return {
+    zoneName: "your location",
+    feeKobo: q.feeKobo,
+    free: false,
+    freeOverKobo: null,
+    etaDaysMin: 0,
+    etaDaysMax: 1,
+    distance: { metres: q.metres, chargedKm: q.chargedKm, perKmKobo: params.rates.perKmKobo, source: params.source, method: params.road.method },
   };
 }
