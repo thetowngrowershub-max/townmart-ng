@@ -9,12 +9,12 @@ import { addDisputeMessage, DisputeError, resolveDispute } from "@/lib/disputes/
 import { logger } from "@/lib/logger";
 import { parseNairaToKobo } from "@/lib/money";
 import { releaseDueEscrow } from "@/lib/payouts/escrow";
-import { runPayouts } from "@/lib/payouts/payouts";
+import { approvePayout, rejectPayout, runPayouts } from "@/lib/payouts/payouts";
 import { enqueueNotice } from "@/lib/queue";
 import { approveRefund, RefundError, refundNow, rejectRefund, sendRefund } from "@/lib/refunds/core";
 import { requestMeta } from "@/lib/request";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
-import { adminRefundSchema, approveRefundSchema, disputeMessageSchema, refundIdSchema, rejectRefundSchema, resolveDisputeSchema } from "@/lib/validation/refunds";
+import { adminRefundSchema, approvePayoutSchema, approveRefundSchema, rejectPayoutSchema, disputeMessageSchema, refundIdSchema, rejectRefundSchema, resolveDisputeSchema } from "@/lib/validation/refunds";
 
 /**
  * TownMart's side: refunds it starts or overrides, dispute decisions and the
@@ -198,7 +198,45 @@ export async function runMoneyJobsAction(input: { job: "escrow" | "payouts" }): 
     }
     const r = await runPayouts();
     refresh();
-    return { ok: true, message: `Started ${r.created} payout${r.created === 1 ? "" : "s"}: ${r.paid} paid, ${r.failed} failed.` };
+    return { ok: true, message: `Started ${r.created} payout${r.created === 1 ? "" : "s"}: ${r.paid} paid, ${r.failed} failed${r.awaiting ? `, ${r.awaiting} waiting for approval` : ""}.` };
+  } catch (err) {
+    return failure(err);
+  }
+}
+
+/** Approves a payout that's waiting: the bank transfer goes out now. */
+export async function approvePayoutAction(input: { payoutId: string }): Promise<ActionResult> {
+  const parsed = approvePayoutSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  try {
+    const { actor, run } = await admin("finance.manage");
+    const p = await run(async (tx, audit) => {
+      const row = await tx.payout.findUnique({ where: { id: parsed.data.payoutId }, select: { status: true, amountKobo: true, reference: true } });
+      if (row?.status === "awaiting_approval") await audit("payout.approved", "payout", parsed.data.payoutId, { amountKobo: row.amountKobo.toString(), reference: row.reference });
+      return row;
+    });
+    if (p?.status !== "awaiting_approval") return { ok: false, error: "This payout isn't waiting for approval any more." };
+    const status = await approvePayout(parsed.data.payoutId, actor.id);
+    refresh();
+    if (status === "failed") return { ok: false, error: "Approved, but the transfer failed. The money is back in their balance." };
+    const said: Record<string, string> = { paid: "Approved and paid.", processing: "Approved. The bank transfer is on its way.", pending: "Approved. The provider didn't answer; it will be sent again shortly." };
+    return { ok: true, message: said[status] ?? "Approved." };
+  } catch (err) {
+    return failure(err);
+  }
+}
+
+/** Turns down a payout that's waiting: the money goes back to their balance, with the reason. */
+export async function rejectPayoutAction(input: { payoutId: string; reason: string }): Promise<ActionResult> {
+  const parsed = rejectPayoutSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  try {
+    const { actor, run } = await admin("finance.manage");
+    const done = await rejectPayout(parsed.data.payoutId, actor.id, parsed.data.reason);
+    if (!done) return { ok: false, error: "This payout isn't waiting for approval any more." };
+    await run((_tx, audit) => audit("payout.rejected", "payout", parsed.data.payoutId, { reason: parsed.data.reason }));
+    refresh();
+    return { ok: true, message: "Rejected. The money is back in their balance." };
   } catch (err) {
     return failure(err);
   }

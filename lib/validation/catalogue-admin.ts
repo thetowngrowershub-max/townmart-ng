@@ -106,6 +106,7 @@ export const PLATFORM_SETTINGS = [
   { key: "refunds.late_cancel_percent", label: "Late booking cancellation refund (%)", hint: "Refunded when a customer cancels less than 24 hours before.", min: 0, max: 100, step: 1, group: "Orders and refunds" },
   { key: "escrow.release_days", label: "Escrow release (days after completion)", hint: "When seller earnings become available.", min: 0, max: 60, step: 1, group: "Payouts" },
   { key: "payouts.minimum_naira", label: "Automatic payout minimum (₦)", hint: "Sellers can still ask for any positive amount.", min: 0, max: 10_000_000, step: 1, group: "Payouts" },
+  { key: "payouts.require_approval", label: "Approve payouts before they're sent", hint: "Seller and rider payouts wait on Refunds & payouts until an admin approves them.", group: "Payouts", boolean: true },
   { key: "bookings.lead_minutes", label: "Booking lead time (minutes)", hint: "How soon a booking can start.", min: 0, max: 10_080, step: 1, group: "Bookings" },
   { key: "delivery.per_km_naira", label: "Delivery price per km (₦)", hint: "Delivery is priced by distance from the shop to the customer, rounded up to the next km.", min: 0, max: 100_000, step: 1, group: "Delivery" },
   { key: "delivery.road_factor", label: "Road factor", hint: "Straight-line distance times this estimates the road distance. 1.3 suits most towns.", min: 1, max: 3, step: 0.05, group: "Delivery" },

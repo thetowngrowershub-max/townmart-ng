@@ -13,7 +13,7 @@ import { FakePaymentProvider } from "@/lib/payments/fake";
 import { FakeTransfers } from "@/lib/payments/transfers";
 import { businessBalances } from "@/lib/payouts/balances";
 import { escrowHeld, releaseSellerOrder } from "@/lib/payouts/escrow";
-import { createPayout, sendPayout } from "@/lib/payouts/payouts";
+import { approvePayout, createPayout, rejectPayout, requestPayout, sendPayout } from "@/lib/payouts/payouts";
 import { loadSellerPayouts } from "@/lib/payouts/seller-view";
 import { buildStatement, lagosMonth, statementCsv } from "@/lib/payouts/statement";
 import { cancelPaidSellerOrder } from "@/lib/refunds/cancel";
@@ -388,6 +388,41 @@ describe("payouts", () => {
     expect(s!.closing.availableKobo).toBe(0n);
     expect(s!.lines.some((l) => l.kind === "payout_returned")).toBe(true);
     expect(statementCsv(s!, "Other")).toContain("Payout to your bank");
+    await expectLedgerBalanced();
+  });
+});
+
+describe("payouts waiting for approval", () => {
+  it("holds a requested payout until an admin approves it, and returns a rejected one", async () => {
+    const { sos } = await paid([{ variantId: other.variantId, businessId: other.businessId, qty: 1 }]);
+    await deliver(other, sos[0]!.id);
+    await sys((tx) => releaseSellerOrder(tx, sos[0]!.id, new Date(Date.now() + 4 * 86_400_000)));
+    const available = (await balances(other.businessId)).availableKobo;
+    expect(available).toBeGreaterThan(0n);
+
+    // Approval is on by default: the request holds the money but sends nothing.
+    const first = await requestPayout(other.businessId, other.userId);
+    if (typeof first === "string") throw new Error(first);
+    expect(first.status).toBe("awaiting_approval");
+    expect((await balances(other.businessId)).availableKobo).toBe(0n);
+    expect(await sendPayout(first.payout.id)).toBe("awaiting_approval");
+    expect(await sys((tx) => createPayout(tx, { businessId: other.businessId, requestedBy: other.userId, minimumKobo: 1n }))).toBe("in_flight");
+
+    // Rejected: the money is back, with the reason, and it can't be approved afterwards.
+    expect(await rejectPayout(first.payout.id, stranger.id, "Bank name doesn't match the store owner")).toBe(true);
+    expect(await rejectPayout(first.payout.id, stranger.id, "again")).toBe(false);
+    expect(await approvePayout(first.payout.id, stranger.id)).toBe("not_waiting");
+    const rejected = await owner.payout.findUniqueOrThrow({ where: { id: first.payout.id } });
+    expect(rejected).toMatchObject({ status: "rejected", reviewedBy: stranger.id, failureReason: "Bank name doesn't match the store owner" });
+    expect((await balances(other.businessId)).availableKobo).toBe(available);
+
+    // Approved: sent at once.
+    const second = await requestPayout(other.businessId, other.userId);
+    if (typeof second === "string") throw new Error(second);
+    expect(await approvePayout(second.payout.id, stranger.id)).toBe("paid");
+    expect(await approvePayout(second.payout.id, stranger.id)).toBe("not_waiting");
+    expect(await owner.payout.findUniqueOrThrow({ where: { id: second.payout.id } })).toMatchObject({ status: "paid", reviewedBy: stranger.id });
+    expect((await balances(other.businessId)).availableKobo).toBe(0n);
     await expectLedgerBalanced();
   });
 });

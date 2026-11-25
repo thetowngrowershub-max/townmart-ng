@@ -3,8 +3,10 @@ import { formatDateTime } from "@/lib/datetime";
 import type { Tx } from "@/lib/db";
 import { formatPrice, koboToNairaString } from "@/lib/money";
 import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, PROVIDER_LABELS } from "@/lib/orders/labels";
-import { PAYOUT_STATUS_LABELS } from "@/lib/payouts/seller-view";
+import { PAYOUT_STATUS_LABELS, PAYOUT_STATUS_TONE } from "@/lib/payouts/seller-view";
+import { transferProvider } from "@/lib/payments/transfers";
 import { refundedSoFar } from "@/lib/refunds/core";
+import { getCheckoutSettings } from "@/lib/settings";
 import { paidOnline, REASON_LABELS } from "@/lib/refunds/math";
 import { loadDispute, summariseRefund, type DisputeView, type RefundSummary } from "@/lib/refunds/view";
 
@@ -196,7 +198,10 @@ export type MoneyOverview = {
   platform: { label: string; balance: string }[];
   trialBalanceOk: boolean;
   escrowDue: number;
-  payouts: { id: string; shop: string; amount: string; status: string; tone: "info" | "success" | "danger"; bank: string; reference: string; at: string; failureReason: string | null }[];
+  payouts: { id: string; shop: string; payeeKind: "Shop" | "Rider"; amount: string; status: string; waiting: boolean; tone: "info" | "success" | "danger" | "warning"; bank: string; reference: string; at: string; failureReason: string | null }[];
+  awaitingApproval: number;
+  approvalRequired: boolean;
+  payoutsSimulated: boolean;
   failedRefunds: { id: string; number: string; orderNumber: string; amount: string; error: string; at: string }[];
 };
 
@@ -218,8 +223,10 @@ export async function moneyOverview(tx: Tx, now = new Date()): Promise<MoneyOver
   const platform: MoneyOverview["platform"] = [];
   const escrow = sums.filter((s) => s.owner_type === "business" && s.type === "escrow").reduce((a, s) => a + s.credit - s.debit, 0n);
   const available = sums.filter((s) => s.owner_type === "business" && s.type === "available").reduce((a, s) => a + s.credit - s.debit, 0n);
+  const riders = sums.filter((s) => s.owner_type === "rider").reduce((a, s) => a + s.credit - s.debit, 0n);
   platform.push({ label: "Sellers' money held in escrow", balance: formatPrice(escrow) });
   platform.push({ label: "Sellers' available balances", balance: formatPrice(available) });
+  platform.push({ label: "Riders' wallet balances", balance: formatPrice(riders) });
   for (const s of sums.filter((x) => x.owner_type === "platform")) {
     const label = PLATFORM_LABELS[`platform:${s.type}`] ?? s.type;
     platform.push({ label, balance: formatPrice(s.type === "promotions" ? s.debit - s.credit : s.credit - s.debit) });
@@ -228,7 +235,11 @@ export async function moneyOverview(tx: Tx, now = new Date()): Promise<MoneyOver
     platform.push({ label: `Held at ${PROVIDER_LABELS[s.owner_key as keyof typeof PROVIDER_LABELS] ?? s.owner_key}`, balance: formatPrice(s.debit - s.credit) });
   }
   const escrowDue = await tx.sellerOrder.count({ where: { escrowReleasedAt: null, escrowReleaseAt: { lte: now }, OR: [{ payOnDelivery: false }, { cashCollectedAt: { not: null } }] } });
-  const payouts = await tx.payout.findMany({ orderBy: { createdAt: "desc" }, take: 50, include: { business: { select: { name: true } } } });
+  // Payouts waiting for approval first (they need someone), then the latest.
+  const waiting = await tx.payout.findMany({ where: { status: "awaiting_approval" }, orderBy: { createdAt: "asc" }, take: 100, include: { business: { select: { name: true } }, rider: { select: { name: true } } } });
+  const latest = await tx.payout.findMany({ where: { status: { not: "awaiting_approval" } }, orderBy: { createdAt: "desc" }, take: 50, include: { business: { select: { name: true } }, rider: { select: { name: true } } } });
+  const payouts = [...waiting, ...latest];
+  const settings = await getCheckoutSettings(tx);
   const failed = await tx.refund.findMany({ where: { status: "failed" }, orderBy: { updatedAt: "desc" }, take: 50, include: { order: { select: { orderNumber: true } } } });
   return {
     platform,
@@ -236,15 +247,20 @@ export async function moneyOverview(tx: Tx, now = new Date()): Promise<MoneyOver
     escrowDue,
     payouts: payouts.map((p) => ({
       id: p.id,
-      shop: p.business.name,
+      shop: p.business?.name ?? p.rider?.name ?? "Unknown",
+      payeeKind: p.riderId ? "Rider" : "Shop",
       amount: formatPrice(p.amountKobo),
       status: PAYOUT_STATUS_LABELS[p.status],
-      tone: p.status === "paid" ? "success" : p.status === "failed" ? "danger" : "info",
+      waiting: p.status === "awaiting_approval",
+      tone: PAYOUT_STATUS_TONE[p.status],
       bank: `${p.bankName} ••••${p.accountNumberLast4}`,
       reference: p.reference,
       at: formatDateTime(p.createdAt),
       failureReason: p.failureReason,
     })),
+    awaitingApproval: waiting.length,
+    approvalRequired: settings.payoutRequireApproval,
+    payoutsSimulated: transferProvider().simulated,
     failedRefunds: failed.map((r) => ({ id: r.id, number: r.refundNumber, orderNumber: r.order.orderNumber, amount: formatPrice(r.amountKobo + r.feeKobo + r.vatKobo), error: r.lastError ?? "Not confirmed by the provider", at: formatDateTime(r.updatedAt) })),
   };
 }

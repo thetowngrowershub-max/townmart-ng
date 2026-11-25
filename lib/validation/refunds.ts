@@ -38,6 +38,8 @@ export const approveRefundSchema = z.object({
   note: z.string().trim().max(500).optional().default(""),
 });
 export const rejectRefundSchema = z.object({ refundId: uuid, response: z.string().trim().min(10, "Explain to the customer why (at least 10 characters)").max(1000) });
+export const approvePayoutSchema = z.object({ payoutId: uuid });
+export const rejectPayoutSchema = z.object({ payoutId: uuid, reason: z.string().trim().min(5, "Say why (at least 5 characters); the payee sees this").max(300) });
 export const disputeMessageSchema = z.object({ disputeId: uuid, body: z.string().trim().min(1, "Write a message").max(2000) });
 
 export const adminRefundSchema = z.object({

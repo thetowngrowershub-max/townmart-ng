@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Play, RotateCw } from "lucide-react";
+import { Check, Loader2, Play, RotateCw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { DisputeThread } from "@/components/refunds/dispute-thread";
@@ -17,6 +17,8 @@ import {
   adminDisputeMessageAction,
   adminRefundAction,
   adminRejectRefundAction,
+  approvePayoutAction,
+  rejectPayoutAction,
   resolveDisputeAction,
   retryRefundAction,
   runMoneyJobsAction,
@@ -133,6 +135,54 @@ export function RetryRefundButton({ refundId }: { refundId: string }) {
       <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => retryRefundAction({ refundId }))}>
         <RotateCw aria-hidden /> Send again
       </Button>
+      {out}
+    </div>
+  );
+}
+
+export function PayoutDecision({ payoutId, label }: { payoutId: string; label: string }) {
+  const { run, pending, fieldErrors, out } = useResult();
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  return (
+    <div className="flex flex-col items-end gap-2">
+      {!rejecting ? (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            disabled={pending}
+            onClick={() => {
+              if (!confirm(`Send ${label} now? This moves real money when payouts are live.`)) return;
+              run(() => approvePayoutAction({ payoutId }));
+            }}
+          >
+            {pending ? <Loader2 className="animate-spin" aria-hidden /> : <Check aria-hidden />} Approve
+          </Button>
+          <Button size="sm" variant="outline" disabled={pending} onClick={() => setRejecting(true)}>
+            <X aria-hidden /> Reject
+          </Button>
+        </div>
+      ) : (
+        <form
+          className="flex w-64 flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(() => rejectPayoutAction({ payoutId, reason }));
+          }}
+        >
+          <Label htmlFor={`reject-${payoutId}`}>Why? They see this.</Label>
+          <Input id={`reject-${payoutId}`} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
+          {fieldErrors?.reason && <p className="text-xs text-danger">{fieldErrors.reason[0]}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" size="sm" variant="ghost" onClick={() => setRejecting(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" variant="danger" disabled={pending}>
+              Reject payout
+            </Button>
+          </div>
+        </form>
+      )}
       {out}
     </div>
   );

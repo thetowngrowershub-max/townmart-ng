@@ -7,6 +7,8 @@
 export type AccountRef =
   | { ownerType: "platform"; type: "commission" | "fees" | "tax" | "promotions" | "refunds" }
   | { ownerType: "business"; businessId: string; type: "escrow" | "available" }
+  // A TownMart pool rider's wallet: delivery earnings, paid out to their bank.
+  | { ownerType: "rider"; riderId: string; type: "available" }
   | { ownerType: "provider_clearing"; provider: string; type: "clearing" };
 
 export type Posting = { account: AccountRef; debitKobo: bigint; creditKobo: bigint };
@@ -180,19 +182,41 @@ export function refundPaidPostings(provider: string, kobo: bigint): Posting[] {
   return balanced(move(platform("refunds"), clearing(provider), kobo));
 }
 
+/** Who a payout belongs to: a shop or a TownMart pool rider. */
+export type Payee = { kind: "business"; id: string } | { kind: "rider"; id: string };
+
+export const riderWalletOf = (riderId: string) => ({ ownerType: "rider", riderId, type: "available" }) as const;
+const payeeAvailable = (p: Payee | string): AccountRef => (typeof p === "string" ? availableOf(p) : p.kind === "business" ? availableOf(p.id) : riderWalletOf(p.id));
+
 /**
- * A payout: the seller's available balance leaves TownMart's provider balance
- * by bank transfer. If the transfer fails, payoutReturnedPostings undoes it.
+ * A payout: the seller's (or rider's) available balance leaves TownMart's
+ * provider balance by bank transfer. If the transfer fails or TownMart
+ * rejects the request, payoutReturnedPostings undoes it.
  *
- *   Dr seller available    amount
+ *   Dr payee available     amount
  *   Cr provider clearing   amount
  */
-export function payoutPostings(businessId: string, provider: string, kobo: bigint): Posting[] {
-  return balanced(move(availableOf(businessId), clearing(provider), kobo));
+export function payoutPostings(payee: Payee | string, provider: string, kobo: bigint): Posting[] {
+  return balanced(move(payeeAvailable(payee), clearing(provider), kobo));
 }
 
-export function payoutReturnedPostings(businessId: string, provider: string, kobo: bigint): Posting[] {
-  return balanced(move(clearing(provider), availableOf(businessId), kobo));
+export function payoutReturnedPostings(payee: Payee | string, provider: string, kobo: bigint): Posting[] {
+  return balanced(move(clearing(provider), payeeAvailable(payee), kobo));
+}
+
+/**
+ * A TownMart pool rider delivered a seller order: the delivery fee leaves the
+ * seller's side (it sits inside their net share), the rider's pay goes to
+ * their wallet and the rest of the fee is TownMart's.
+ *
+ *   Dr seller escrow|available   delivery fee
+ *   Cr rider wallet              rider's pay
+ *   Cr platform commission       the rest of the fee
+ */
+export function riderEarningPostings(p: { businessId: string; from: "escrow" | "available"; riderId: string; deliveryKobo: bigint; riderPayKobo: bigint }): Posting[] {
+  if (p.riderPayKobo < 0n || p.riderPayKobo > p.deliveryKobo) throw new LedgerError("A rider's pay must be between 0 and the delivery fee");
+  const seller = p.from === "escrow" ? escrowOf(p.businessId) : availableOf(p.businessId);
+  return balanced([...dr(seller, p.deliveryKobo), ...cr(riderWalletOf(p.riderId), p.riderPayKobo), ...cr(platform("commission"), p.deliveryKobo - p.riderPayKobo)]);
 }
 
 /**

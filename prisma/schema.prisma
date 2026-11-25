@@ -64,33 +64,33 @@ enum TwoFactorMethod {
 }
 
 model User {
-  id                  String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  email               String     @unique @db.Citext
-  emailVerified       DateTime?  @map("email_verified_at") @db.Timestamptz(6)
-  phoneEncrypted      String?    @map("phone_encrypted")
-  phoneHash           String?    @unique @map("phone_hash")
-  phoneVerifiedAt     DateTime?  @map("phone_verified_at") @db.Timestamptz(6)
-  passwordHash        String?    @map("password_hash")
-  name                String?
-  image               String?    @map("avatar_url")
-  status              UserStatus @default(active)
-  failedLoginCount    Int        @default(0) @map("failed_login_count")
-  lockedUntil         DateTime?  @map("locked_until") @db.Timestamptz(6)
-  deletionRequestedAt DateTime?  @map("deletion_requested_at") @db.Timestamptz(6)
+  id                   String           @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  email                String           @unique @db.Citext
+  emailVerified        DateTime?        @map("email_verified_at") @db.Timestamptz(6)
+  phoneEncrypted       String?          @map("phone_encrypted")
+  phoneHash            String?          @unique @map("phone_hash")
+  phoneVerifiedAt      DateTime?        @map("phone_verified_at") @db.Timestamptz(6)
+  passwordHash         String?          @map("password_hash")
+  name                 String?
+  image                String?          @map("avatar_url")
+  status               UserStatus       @default(active)
+  failedLoginCount     Int              @default(0) @map("failed_login_count")
+  lockedUntil          DateTime?        @map("locked_until") @db.Timestamptz(6)
+  deletionRequestedAt  DateTime?        @map("deletion_requested_at") @db.Timestamptz(6)
   // Two-step sign-in: every sign-in (password, phone code or Google) also asks
   // for a second code. See lib/auth/two-factor-methods.ts.
-  twoFactorEnabledAt  DateTime?  @map("two_factor_enabled_at") @db.Timestamptz(6)
-  twoFactorMethod     TwoFactorMethod? @map("two_factor_method")
+  twoFactorEnabledAt   DateTime?        @map("two_factor_enabled_at") @db.Timestamptz(6)
+  twoFactorMethod      TwoFactorMethod? @map("two_factor_method")
   // Authenticator app (TOTP, RFC 6238) secret, encrypted like other personal data.
-  totpSecretEncrypted String?    @map("totp_secret_encrypted")
+  totpSecretEncrypted  String?          @map("totp_secret_encrypted")
   // The last 30-second step accepted, so a code can't be replayed.
-  totpLastStep        Int?       @map("totp_last_step")
+  totpLastStep         Int?             @map("totp_last_step")
   // Keyed hashes of the unused one-time backup codes.
-  twoFactorBackupCodes String[]  @default([]) @map("two_factor_backup_codes")
-  anonymisedAt        DateTime?  @map("anonymised_at") @db.Timestamptz(6)
-  lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(6)
-  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  twoFactorBackupCodes String[]         @default([]) @map("two_factor_backup_codes")
+  anonymisedAt         DateTime?        @map("anonymised_at") @db.Timestamptz(6)
+  lastLoginAt          DateTime?        @map("last_login_at") @db.Timestamptz(6)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   accounts  Account[]
   sessions  Session[]
@@ -489,21 +489,26 @@ model BusinessKyc {
   @@map("business_kyc")
 }
 
+// A shop's or a TownMart pool rider's bank account (exactly one owner).
 model PayoutAccount {
   id                     String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  businessId             String    @unique @map("business_id") @db.Uuid
+  businessId             String?   @unique @map("business_id") @db.Uuid
+  riderId                String?   @unique @map("rider_id") @db.Uuid
   bankCode               String    @map("bank_code")
   bankName               String    @map("bank_name")
   accountNumberLast4     String    @map("account_number_last4") @db.Char(4)
   accountName            String    @map("account_name")
   providerSubaccountCode String?   @map("provider_subaccount_code")
-  // Paystack transfer recipient for payouts (the full account number stays with Paystack).
+  // Transfer recipient for payouts (Paystack recipient code or Flutterwave beneficiary id); the full account number stays with the provider.
   providerRecipientCode  String?   @map("provider_recipient_code")
+  // The provider the recipient code belongs to (paystack, flutterwave, fake). NULL on accounts saved before it was recorded.
+  recipientProvider      String?   @map("recipient_provider")
   verifiedAt             DateTime? @map("verified_at") @db.Timestamptz(6)
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  rider    Rider?    @relation(fields: [riderId], references: [id], onDelete: Cascade)
 
   @@map("payout_accounts")
 }
@@ -1195,6 +1200,8 @@ enum LedgerOwnerType {
   business
   customer
   provider_clearing
+  // A TownMart pool rider's wallet (owner_key is the rider id).
+  rider
 
   @@map("ledger_owner_type")
 }
@@ -1578,8 +1585,10 @@ model Rider {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  sellerOrders SellerOrder[]
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sellerOrders  SellerOrder[]
+  payoutAccount PayoutAccount?
+  payouts       Payout[]
 
   @@unique([businessId, phoneHash])
   @@unique([id, businessId], map: "riders_id_business_key")
@@ -2056,6 +2065,8 @@ model DisputeMessage {
 }
 
 enum PayoutStatus {
+  // Written to the ledger (the money is held); waiting for TownMart to approve it.
+  awaiting_approval
   // Written to the ledger; the transfer hasn't been sent yet.
   pending
   // Sent; waiting for the provider to confirm.
@@ -2063,14 +2074,17 @@ enum PayoutStatus {
   paid
   // The transfer failed and the money went back to the seller's available balance.
   failed
+  // TownMart turned the request down; the money went back to the available balance.
+  rejected
 
   @@map("payout_status")
 }
 
-/// A transfer of a seller's available balance to their bank account.
+/// A transfer of a seller's (or a TownMart pool rider's) available balance to their bank account.
 model Payout {
   id                   String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  businessId           String       @map("business_id") @db.Uuid
+  businessId           String?      @map("business_id") @db.Uuid
+  riderId              String?      @map("rider_id") @db.Uuid
   amountKobo           BigInt       @map("amount_kobo")
   status               PayoutStatus @default(pending)
   provider             String
@@ -2086,14 +2100,19 @@ model Payout {
   // NULL for the scheduled run.
   requestedBy          String?      @map("requested_by") @db.Uuid
   failureReason        String?      @map("failure_reason")
+  // The admin who approved or rejected it.
+  reviewedBy           String?      @map("reviewed_by") @db.Uuid
+  reviewedAt           DateTime?    @map("reviewed_at") @db.Timestamptz(6)
   sentAt               DateTime?    @map("sent_at") @db.Timestamptz(6)
   paidAt               DateTime?    @map("paid_at") @db.Timestamptz(6)
   createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  rider    Rider?    @relation(fields: [riderId], references: [id], onDelete: Restrict)
 
   @@index([businessId, createdAt])
+  @@index([riderId, createdAt])
   @@index([status, createdAt])
   @@map("payouts")
 }
