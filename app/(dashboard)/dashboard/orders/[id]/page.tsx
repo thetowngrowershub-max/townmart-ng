@@ -18,6 +18,7 @@ import { CONTACT_RETENTION_DAYS, loadSellerOrder } from "@/lib/fulfilment/seller
 import { sellerOrderRefunds } from "@/lib/refunds/seller-view";
 import { requireSellerPage, withSellerRls } from "@/lib/seller/context";
 import { RiderPicker } from "@/components/orders/rider-picker";
+import { decrypt } from "@/lib/crypto";
 import { riderJobUrl } from "@/lib/fulfilment/rider-job";
 import { riderCandidates } from "@/lib/fulfilment/riders";
 import { VEHICLE_LABELS, type RiderVehicle } from "@/lib/fulfilment/rider-vehicles";
@@ -37,7 +38,7 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
     const messages = await loadConversation(tx, { sellerOrderId: id, viewer: "seller", sellerName: ctx.business.name, customerName: order.customer.name });
     const delivery = await tx.sellerOrder.findFirst({
       where: { id, businessId: ctx.business.id },
-      select: { id: true, riderId: true, deliveryMethod: true, status: true, deliveryDistanceM: true, riderAssignedAt: true, pickedUpAt: true, fulfilmentContact: true, rider: { select: { id: true, name: true } } },
+      select: { id: true, riderId: true, deliveryMethod: true, status: true, deliveryDistanceM: true, riderAssignedAt: true, riderPoolOpenedAt: true, riderPayKobo: true, pickedUpAt: true, fulfilmentContact: true, rider: { select: { id: true, name: true, businessId: true, phoneEncrypted: true } } },
     });
     const settings = await getCheckoutSettings(tx);
     const riders = delivery?.deliveryMethod === "delivery" ? await riderCandidates(tx, ctx.business.id, settings.riderNearbyKm) : [];
@@ -190,7 +191,7 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
                 <CardTitle>Delivery rider</CardTitle>
                 <CardDescription>
                   {delivery.deliveryDistanceM !== null ? `About ${formatDistance(delivery.deliveryDistanceM)} by road from your shop. ` : ""}
-                  {delivery.rider ? "" : "Your nearest free rider is listed first."}
+                  {delivery.rider ? "" : delivery.riderPoolOpenedAt ? "Offered to TownMart riders nearby: the first to take it appears here. You can still use one of your own riders." : "Your nearest free rider is listed first."}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -202,6 +203,7 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
                       ? {
                           id: delivery.rider.id,
                           name: delivery.rider.name,
+                          townmart: delivery.rider.businessId === null ? { phone: decrypt(delivery.rider.phoneEncrypted) } : null,
                           assigned: formatDateTime(delivery.riderAssignedAt),
                           pickedUp: delivery.pickedUpAt ? formatDateTime(delivery.pickedUpAt) : null,
                           // Lets the shop send the job again (WhatsApp, or read it out) if the text doesn't arrive.
@@ -209,6 +211,7 @@ export default async function SellerOrderPage({ params }: { params: Promise<{ id
                         }
                       : null
                   }
+                  pool={delivery.rider ? null : delivery.riderPoolOpenedAt ? "waiting" : ["paid", "processing"].includes(delivery.status) ? "can_request" : null}
                   dropOffUrl={point && point.source !== "area" ? `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}` : null}
                   options={riders.map((r) => ({
                     id: r.id,
