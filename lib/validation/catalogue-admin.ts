@@ -112,6 +112,9 @@ export const PLATFORM_SETTINGS = [
   { key: "delivery.road_factor", label: "Road factor", hint: "Straight-line distance times this estimates the road distance. 1.3 suits most towns.", min: 1, max: 3, step: 0.05, group: "Delivery" },
   { key: "delivery.max_km", label: "Furthest delivery (km)", hint: "Shops don't deliver further than this by road.", min: 1, max: 500, step: 1, group: "Delivery" },
   { key: "riders.nearby_km", label: "Nearby rider distance (km)", hint: "Riders this close to the shop are suggested first.", min: 0.5, max: 100, step: 0.5, group: "Delivery" },
+  { key: "riders.pool_share_percent", label: "TownMart rider's share of the delivery fee (%)", hint: "Paid to the TownMart rider who delivers. TownMart keeps the rest. Set when the rider takes the job.", min: 0, max: 100, step: 1, group: "TownMart riders" },
+  { key: "riders.pool_offer_count", label: "Riders texted about each new delivery", hint: "The nearest online TownMart riders get a text; any online rider can still take it from their jobs page.", min: 0, max: 20, step: 1, group: "TownMart riders" },
+  { key: "riders.pool_max_jobs", label: "Deliveries a TownMart rider can hold at once", hint: "Riders can't take more jobs until they deliver one.", min: 1, max: 10, step: 1, group: "TownMart riders" },
   { key: "bookings.days_ahead", label: "Booking window (days ahead)", hint: "How far ahead customers can book.", min: 1, max: 365, step: 1, group: "Bookings" },
 ] as const;
 

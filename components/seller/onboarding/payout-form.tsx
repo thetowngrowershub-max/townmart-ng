@@ -11,17 +11,23 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { Bank } from "@/lib/payments/banks";
 import { resolveBankAccountAction, savePayoutAccountAction } from "@/lib/seller/actions";
+import { resolveRiderBankAction, saveRiderBankAction } from "@/lib/wallets/rider-actions";
 import { payoutAccountSchema } from "@/lib/validation/seller";
 
 export function PayoutForm({
   banks,
   current,
   next = "/sell/onboarding",
+  who = "seller",
 }: {
   banks: Bank[];
   current: { bankName: string; accountName: string; last4: string } | null;
   next?: string;
+  /** A shop's account (Store settings) or a TownMart pool rider's (their wallet). */
+  who?: "seller" | "rider";
 }) {
+  const resolveAction = who === "rider" ? resolveRiderBankAction : resolveBankAccountAction;
+  const saveAction = who === "rider" ? saveRiderBankAction : savePayoutAccountAction;
   const router = useRouter();
   const [resolved, setResolved] = useState<string | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -29,7 +35,7 @@ export function PayoutForm({
   const { form, onSubmit, pending, result } = useActionForm(
     payoutAccountSchema,
     async (values) => {
-      const res = await savePayoutAccountAction(values);
+      const res = await saveAction(values);
       if (res.ok) {
         router.push(next);
         router.refresh();
@@ -46,7 +52,7 @@ export function PayoutForm({
     setResolveError(null);
     if (!values.bankCode || !/^\d{10}$/.test(values.accountNumber)) return;
     startResolving(async () => {
-      const res = await resolveBankAccountAction(values);
+      const res = await resolveAction(values);
       if (res.ok) setResolved(res.data!.accountName);
       else setResolveError(res.error);
     });
@@ -82,8 +88,8 @@ export function PayoutForm({
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        The account name should match your business or your own name. We keep only the last 4 digits; the full number is held by our payment
-        provider, Paystack.
+        {who === "rider" ? "The account name should match your own name." : "The account name should match your business or your own name."} We
+        show only the last 4 digits; the full number is kept encrypted or held by our payment provider.
       </p>
       <Button type="submit" disabled={pending || !resolved} className="self-start">
         {pending ? "Saving…" : "Use this account"}

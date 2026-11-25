@@ -1,6 +1,7 @@
 import { runProductImport } from "@/lib/catalogue/import";
 import { sendLowStockAlert } from "@/lib/catalogue/low-stock-alert";
 import { sendFulfilmentNotice } from "@/lib/fulfilment/notify";
+import { withSystemContext } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { emailProvider, type EmailMessage } from "@/lib/notifications/email";
@@ -9,7 +10,8 @@ import { smsProvider } from "@/lib/notifications/sms";
 import { sendOrderConfirmed } from "@/lib/orders/notify";
 import { processPaymentEvent } from "@/lib/orders/payment";
 import { buildDataExport } from "@/lib/privacy/export";
-import type { ImportJobs, NotificationJobs, OrderJobs, PrivacyJobs, QueueName } from "@/lib/queue";
+import { enqueueNotice, type ImportJobs, type NotificationJobs, type OrderJobs, type PrivacyJobs, type QueueName } from "@/lib/queue";
+import { openPoolJobsForOrder } from "@/lib/riders/pool";
 import { trackJobRun } from "@/worker/job-runs";
 import { maintenanceJobs } from "@/worker/jobs/maintenance";
 
@@ -59,7 +61,10 @@ export async function handleOrder(job: JobLike) {
     case "order.confirmed": {
       const { orderId } = job.data as OrderJobs["order.confirmed"];
       const sent = await sendOrderConfirmed(orderId);
-      logger.info({ jobId: job.id, orderId, sent }, "order confirmation processed");
+      // Deliveries from shops on TownMart riders go to the rider pool, and the nearest riders hear about it.
+      const opened = await withSystemContext((tx) => openPoolJobsForOrder(tx, orderId));
+      for (const o of opened) await enqueueNotice({ type: "rider.pool_offer", sellerOrderId: o.sellerOrderId, at: o.openedAt.getTime() });
+      logger.info({ jobId: job.id, orderId, sent, poolJobs: opened.length }, "order confirmation processed");
       return;
     }
     case "payment.event": {

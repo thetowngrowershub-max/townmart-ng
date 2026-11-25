@@ -114,6 +114,7 @@ model User {
 
   listingReports   ListingReport[]
   listingQuestions ListingQuestion[]
+  rider            Rider?            @relation("RiderUser")
 
   @@index([status])
   @@map("users")
@@ -397,6 +398,10 @@ model Business {
   // Used to find the nearest shop, price delivery by distance and find nearby riders.
   latitude                  Float?
   longitude                 Float?
+  // Who delivers this shop's orders by default: "townmart" (the TownMart rider
+  // pool, the standard) or "own" (the shop's own riders). Either way the shop
+  // can use the other on a single order.
+  riderMode                 String         @default("townmart") @map("rider_mode")
   status                    BusinessStatus @default(draft)
   rejectionReason           String?        @map("rejection_reason")
   submittedAt               DateTime?      @map("submitted_at") @db.Timestamptz(6)
@@ -1376,9 +1381,14 @@ model SellerOrder {
   carrier              String?
   // Straight-line distance from the shop to the drop-off times the road factor, in metres, when delivery was priced by distance.
   deliveryDistanceM    Int?           @map("delivery_distance_m")
-  // The seller's rider taking this delivery (lib/fulfilment/riders.ts assigns them).
+  // The rider taking this delivery: one of the shop's own, or a TownMart pool
+  // rider (lib/fulfilment/riders.ts assigns them, a database trigger checks which).
   riderId              String?        @map("rider_id") @db.Uuid
   riderAssignedAt      DateTime?      @map("rider_assigned_at") @db.Timestamptz(6)
+  // When the delivery was offered to the TownMart rider pool. Open while riderId is null.
+  riderPoolOpenedAt    DateTime?      @map("rider_pool_opened_at") @db.Timestamptz(6)
+  // A TownMart pool rider's pay for this delivery, fixed when they take it (lib/riders/pool.ts).
+  riderPayKobo         BigInt?        @map("rider_pay_kobo")
   // When the rider collected the parcel from the shop.
   pickedUpAt           DateTime?      @map("picked_up_at") @db.Timestamptz(6)
   shippedAt            DateTime?      @map("shipped_at") @db.Timestamptz(6)
@@ -1396,7 +1406,7 @@ model SellerOrder {
   order         Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   business      Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
   // The rider must belong to the same shop.
-  rider         Rider?               @relation(fields: [riderId, businessId], references: [id, businessId], onDelete: Restrict, map: "seller_orders_rider_same_business")
+  rider         Rider?               @relation(fields: [riderId], references: [id], onDelete: Restrict, map: "seller_orders_rider_id_fkey")
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
   reservations  StockReservation[]
@@ -1409,6 +1419,7 @@ model SellerOrder {
   @@unique([id, businessId], map: "seller_orders_id_business_key")
   @@index([businessId, status, createdAt])
   @@index([riderId, businessId])
+  @@index([riderPoolOpenedAt])
   @@map("seller_orders")
 }
 
@@ -1564,28 +1575,45 @@ model DeliveryRate {
   @@map("delivery_rates")
 }
 
-// A delivery rider who works for a shop (seller-managed riders). Riders have
-// no TownMart account: the shop adds them, and they get order links by text.
+// A delivery rider. Either a shop's own rider (business_id set: the shop adds
+// them, no TownMart account, order links by text) or a TownMart pool rider
+// (business_id null: signs up in the /rider area, vetted by TownMart, takes
+// any shop's deliveries, paid from the delivery fee). See lib/riders/pool.ts.
 model Rider {
-  id                String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  businessId        String    @map("business_id") @db.Uuid
-  name              String
-  phoneEncrypted    String    @map("phone_encrypted")
-  phoneHash         String    @map("phone_hash")
+  id                      String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  // The shop the rider works for, or null for a TownMart pool rider.
+  businessId              String?   @map("business_id") @db.Uuid
+  // Pool riders sign in to TownMart (the /rider area); shop riders don't.
+  userId                  String?   @unique @map("user_id") @db.Uuid
+  // pending (applied), approved, suspended, rejected. Shop riders are approved.
+  status                  String    @default("approved")
+  plateNumber             String?   @map("plate_number")
+  ninEncrypted            String?   @map("nin_encrypted")
+  homeTown                String?   @map("home_town")
+  guarantorName           String?   @map("guarantor_name")
+  guarantorPhoneEncrypted String?   @map("guarantor_phone_encrypted")
+  appliedAt               DateTime? @map("applied_at") @db.Timestamptz(6)
+  reviewedAt              DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewedByUserId        String?   @map("reviewed_by_user_id") @db.Uuid
+  reviewNote              String?   @map("review_note")
+  name                    String
+  phoneEncrypted          String    @map("phone_encrypted")
+  phoneHash               String    @map("phone_hash")
   // motorbike, bicycle, tricycle (keke), car, on_foot
-  vehicle           String    @default("motorbike")
+  vehicle                 String    @default("motorbike")
   // Off when the rider has left the shop; kept for order history.
-  isActive          Boolean   @default(true) @map("is_active")
+  isActive                Boolean   @default(true) @map("is_active")
   // The seller (or later the rider) switches this on when they can take a job.
-  isAvailable       Boolean   @default(true) @map("is_available")
+  isAvailable             Boolean   @default(true) @map("is_available")
   // Last known position. Null means "at the shop".
-  latitude          Float?
-  longitude         Float?
-  locationUpdatedAt DateTime? @map("location_updated_at") @db.Timestamptz(6)
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  latitude                Float?
+  longitude               Float?
+  locationUpdatedAt       DateTime? @map("location_updated_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business      Business?      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user          User?          @relation("RiderUser", fields: [userId], references: [id], onDelete: Restrict)
   sellerOrders  SellerOrder[]
   payoutAccount PayoutAccount?
   payouts       Payout[]
@@ -1593,6 +1621,7 @@ model Rider {
   @@unique([businessId, phoneHash])
   @@unique([id, businessId], map: "riders_id_business_key")
   @@index([businessId, isActive, isAvailable])
+  @@index([status])
   @@map("riders")
 }
 

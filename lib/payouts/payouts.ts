@@ -52,8 +52,8 @@ async function payeeState(tx: Tx, payee: Payee): Promise<PayeeState> {
     return { allowed: b.status === "approved", createdAt: b.createdAt, account: b.payoutAccount, availableKobo: (await businessBalances(tx, b.id)).availableKobo };
   }
   const r = await tx.rider.findUniqueOrThrow({ where: { id: payee.id }, include: { payoutAccount: true } });
-  // Pool riders only (shop riders are paid by their shop), and only while active.
-  return { allowed: r.businessId === null && r.isActive, createdAt: r.createdAt, account: r.payoutAccount, availableKobo: await riderBalance(tx, r.id) };
+  // Approved, active pool riders only (shop riders are paid by their shop).
+  return { allowed: r.businessId === null && r.status === "approved" && r.isActive, createdAt: r.createdAt, account: r.payoutAccount, availableKobo: await riderBalance(tx, r.id) };
 }
 
 /** Our payout reference: unique, and the provider's idempotency key. */

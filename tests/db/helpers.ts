@@ -78,9 +78,10 @@ export async function createBareOrder(userId: string | null) {
  * payouts. Run inside the owner's system-scope transaction, before deleting
  * payments, orders and businesses.
  */
-export async function deleteMoneyTrail(tx: Prisma.TransactionClient, p: { businessIds: string[]; orderIds: string[] }) {
+export async function deleteMoneyTrail(tx: Prisma.TransactionClient, p: { businessIds: string[]; orderIds: string[]; riderIds?: string[] }) {
+  const riderIds = p.riderIds ?? [];
   const refunds = await tx.refund.findMany({ where: { OR: [{ orderId: { in: p.orderIds } }, { businessId: { in: p.businessIds } }] }, select: { id: true } });
-  const payouts = await tx.payout.findMany({ where: { businessId: { in: p.businessIds } }, select: { id: true } });
+  const payouts = await tx.payout.findMany({ where: { OR: [{ businessId: { in: p.businessIds } }, { riderId: { in: riderIds } }] }, select: { id: true } });
   const sellerOrders = await tx.sellerOrder.findMany({ where: { OR: [{ orderId: { in: p.orderIds } }, { businessId: { in: p.businessIds } }] }, select: { id: true } });
   const refs = [...p.orderIds, ...refunds.map((r) => r.id), ...payouts.map((x) => x.id), ...sellerOrders.map((s) => s.id)];
   const byRef = await tx.ledgerTransaction.findMany({ where: { referenceId: { in: refs } }, select: { id: true } });
@@ -89,7 +90,13 @@ export async function deleteMoneyTrail(tx: Prisma.TransactionClient, p: { busine
   await tx.ledgerEntry.deleteMany({ where: { transactionId: { in: txIds } } });
   await tx.ledgerTransaction.deleteMany({ where: { id: { in: txIds } } });
   await tx.ledgerAccount.deleteMany({ where: { ownerId: { in: p.businessIds } } });
+  if (riderIds.length) {
+    const riderTx = await tx.ledgerEntry.findMany({ where: { account: { ownerType: "rider", ownerKey: { in: riderIds } } }, select: { transactionId: true } });
+    await tx.ledgerEntry.deleteMany({ where: { transactionId: { in: riderTx.map((e) => e.transactionId) } } });
+    await tx.ledgerTransaction.deleteMany({ where: { id: { in: riderTx.map((e) => e.transactionId) } } });
+    await tx.ledgerAccount.deleteMany({ where: { ownerType: "rider", ownerKey: { in: riderIds } } });
+  }
   await tx.dispute.deleteMany({ where: { OR: [{ orderId: { in: p.orderIds } }, { businessId: { in: p.businessIds } }] } });
   await tx.refund.deleteMany({ where: { id: { in: refunds.map((r) => r.id) } } });
-  await tx.payout.deleteMany({ where: { businessId: { in: p.businessIds } } });
+  await tx.payout.deleteMany({ where: { OR: [{ businessId: { in: p.businessIds } }, { riderId: { in: riderIds } }] } });
 }

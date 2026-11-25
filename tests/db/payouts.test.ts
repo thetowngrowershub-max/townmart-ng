@@ -20,6 +20,9 @@ import { cancelPaidSellerOrder } from "@/lib/refunds/cancel";
 import { approveRefund, createRefundRequest, processRefunds, rejectRefund, RefundError } from "@/lib/refunds/core";
 import { paidOnline } from "@/lib/refunds/math";
 import { listSellerRefunds, loadSellerRefund } from "@/lib/refunds/seller-view";
+import { encrypt } from "@/lib/crypto";
+import { creditRiderEarning, loadRiderWallet, riderBalance, RiderWalletError } from "@/lib/wallets/rider";
+import { requestPayoutFor } from "@/lib/payouts/payouts";
 import { createUser, deleteMoneyTrail, deleteUsers, moweOgun, owner } from "./helpers";
 
 /**
@@ -36,6 +39,7 @@ const tag = randomUUID().slice(0, 8);
 const users: string[] = [];
 const carts: string[] = [];
 const sellers: Seller[] = [];
+const riders: string[] = [];
 let categoryId: string;
 let shop: Seller;
 let other: Seller;
@@ -188,13 +192,14 @@ afterAll(async () => {
   const businessIds = [...sellers.map((s) => s.businessId), provider.businessId];
   const orderIds = (await owner.sellerOrder.findMany({ where: { businessId: { in: businessIds } }, select: { orderId: true } })).map((o) => o.orderId);
   await asSystem(async (tx) => {
-    await deleteMoneyTrail(tx, { businessIds, orderIds });
+    await deleteMoneyTrail(tx, { businessIds, orderIds, riderIds: riders });
     await tx.payment.deleteMany({ where: { orderId: { in: orderIds } } });
     await tx.order.deleteMany({ where: { id: { in: orderIds } } });
     await tx.cart.deleteMany({ where: { id: { in: carts } } });
     await tx.product.deleteMany({ where: { businessId: { in: businessIds } } });
     await tx.service.deleteMany({ where: { businessId: { in: businessIds } } });
     await tx.business.deleteMany({ where: { id: { in: businessIds } } });
+    await tx.rider.deleteMany({ where: { id: { in: riders } } });
   });
   await deleteUsers(...users);
   await owner.$disconnect();
@@ -423,6 +428,56 @@ describe("payouts waiting for approval", () => {
     expect(await approvePayout(second.payout.id, stranger.id)).toBe("not_waiting");
     expect(await owner.payout.findUniqueOrThrow({ where: { id: second.payout.id } })).toMatchObject({ status: "paid", reviewedBy: stranger.id });
     expect((await balances(other.businessId)).availableKobo).toBe(0n);
+    await expectLedgerBalanced();
+  });
+});
+
+describe("TownMart pool rider wallets", () => {
+  it("pays the rider's share of the delivery fee into their wallet once, takes it out of escrow, and pays it out", async () => {
+    const u = await createUser("po-rider");
+    users.push(u.id);
+    const rider = await asSystem((tx) =>
+      tx.rider.create({ data: { businessId: null, userId: u.id, status: "approved", name: "Pool Rider", phoneEncrypted: encrypt("+2348031110000"), phoneHash: `pool-${tag}` } }),
+    );
+    riders.push(rider.id);
+    const { sos } = await paid([{ variantId: shop.variantId, businessId: shop.businessId, qty: 1 }]);
+    const so = sos[0]!;
+    expect(so.deliveryKobo).toBeGreaterThan(0n);
+    const pay = (so.deliveryKobo * 80n) / 100n;
+    await asSystem((tx) => tx.sellerOrder.update({ where: { id: so.id }, data: { riderId: rider.id, riderAssignedAt: new Date(), riderPayKobo: pay } }));
+    await deliver(shop, so.id);
+    const before = await balances(shop.businessId);
+
+    expect(await sys((tx) => creditRiderEarning(tx, { riderId: rider.id, sellerOrderId: so.id, amountKobo: pay }))).toBe(true);
+    expect(await sys((tx) => creditRiderEarning(tx, { riderId: rider.id, sellerOrderId: so.id, amountKobo: pay }))).toBe(false);
+    expect(await sys((tx) => riderBalance(tx, rider.id))).toBe(pay);
+    // The whole fee leaves the shop's escrow; TownMart keeps the rest.
+    expect((await balances(shop.businessId)).escrowKobo).toBe(before.escrowKobo - so.deliveryKobo);
+    // Release moves only what's left, so the shop isn't paid the delivery fee twice.
+    const released = await sys((tx) => releaseSellerOrder(tx, so.id, new Date(Date.now() + 4 * 86_400_000)));
+    expect(released).toBe(so.sellerNetKobo - so.deliveryKobo);
+
+    // Shop riders have no wallet.
+    const shopRider = await asSystem((tx) => tx.rider.create({ data: { businessId: shop.businessId, name: "Shop Rider", phoneEncrypted: "v1.k1.test.test.test", phoneHash: `shop-${tag}` } }));
+    riders.push(shopRider.id);
+    await expect(sys((tx) => creditRiderEarning(tx, { riderId: shopRider.id, sellerOrderId: so.id, amountKobo: 1n }))).rejects.toThrow(RiderWalletError);
+
+    // No bank account yet, then one, then a payout through approval.
+    expect(await requestPayoutFor({ kind: "rider", id: rider.id }, u.id)).toBe("no_bank");
+    await asSystem((tx) => tx.payoutAccount.create({ data: { riderId: rider.id, bankCode: "999992", bankName: "OPay", accountNumberLast4: "0000", accountName: "POOL RIDER", providerRecipientCode: "RCP_test_0000", recipientProvider: "fake", verifiedAt: new Date() } }));
+    const asked = await requestPayoutFor({ kind: "rider", id: rider.id }, u.id);
+    if (typeof asked === "string") throw new Error(asked);
+    expect(asked).toMatchObject({ status: "awaiting_approval", payout: { amountKobo: pay, riderId: rider.id, businessId: null } });
+    expect(asked.payout.reference).toMatch(/^POR-/);
+    expect(await sys((tx) => riderBalance(tx, rider.id))).toBe(0n);
+    expect(await approvePayout(asked.payout.id, stranger.id)).toBe("paid");
+
+    const wallet = await sys((tx) => loadRiderWallet(tx, rider.id));
+    expect(wallet).toMatchObject({ balanceKobo: "0", inFlight: false, thisMonth: { deliveries: 1 } });
+    expect(wallet.entries.map((e) => e.label)).toEqual(["Paid to your bank", "Delivery"]);
+    // Sellers can't see rider wallets or payouts.
+    expect(await asSeller(shop, (tx) => tx.payout.count({ where: { riderId: rider.id } }))).toBe(0);
+    expect(await asSeller(shop, (tx) => tx.payoutAccount.count({ where: { riderId: rider.id } }))).toBe(0);
     await expectLedgerBalanced();
   });
 });

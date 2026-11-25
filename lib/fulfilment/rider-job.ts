@@ -4,6 +4,7 @@ import { lookupHash } from "@/lib/crypto";
 import type { Tx } from "@/lib/db";
 import { env } from "@/lib/env";
 import { recordStatus } from "@/lib/orders/status";
+import { payPoolRiderOnDelivery } from "@/lib/riders/pool";
 import { FulfilmentError } from "./orders";
 
 /**
@@ -112,4 +113,5 @@ export async function riderDelivered(tx: Tx, so: SellerOrder, p: { code: string;
   }
   await tx.sellerOrder.update({ where: { id: so.id }, data: { status: "delivered", deliveredAt: now, escrowReleaseAt: new Date(now.getTime() + p.escrowReleaseDays * 86_400_000) } });
   await recordStatus(tx, { sellerOrderId: so.id, businessId: so.businessId, from: so.status, to: "delivered", note: `Delivered by rider ${p.riderName}, code confirmed` });
+  await payPoolRiderOnDelivery(tx, so.id);
 }

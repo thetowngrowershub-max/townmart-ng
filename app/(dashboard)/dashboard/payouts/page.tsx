@@ -97,7 +97,7 @@ export default async function SellerPayoutsPage() {
               ) : BigInt(v.availableKobo) <= 0n ? (
                 <p className="text-sm text-muted-foreground">Nothing to pay out yet. Money arrives here once orders are delivered and the hold period ends.</p>
               ) : (
-                <RequestPayout disabled={!canPay} amount={v.available} />
+                <RequestPayout disabled={!canPay} amount={v.available} approval={v.needsApproval} />
               )}
             </CardContent>
           </Card>

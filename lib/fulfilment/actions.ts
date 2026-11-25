@@ -10,6 +10,7 @@ import { getCheckoutSettings } from "@/lib/settings";
 import { advanceOrderSchema, cancelReasonSchema, messageSchema, sellerOrderIdSchema } from "@/lib/validation/fulfilment";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 import { cancelPaidSellerOrder } from "@/lib/refunds/cancel";
+import { payPoolRiderOnDelivery } from "@/lib/riders/pool";
 import { RefundError, sendRefund } from "@/lib/refunds/core";
 import { advanceSellerOrder, cancelSellerOrder, FulfilmentError, markCashCollected } from "./orders";
 
@@ -51,6 +52,8 @@ export async function advanceOrderAction(input: { id: string; to: string; tracki
         escrowReleaseDays: settings.escrowReleaseDays,
       });
     });
+    // A TownMart rider on the delivery is paid once it's delivered (system scope: it's the ledger).
+    if (to === "delivered") await withSystemContext((tx) => payPoolRiderOnDelivery(tx, id));
     await enqueueNotice({ type: "order.status", sellerOrderId: id, status: to });
     refresh(id);
     return { ok: true };
