@@ -1,10 +1,12 @@
 import "server-only";
 import type { CategoryKind, Prisma } from "@prisma/client";
 import type { GalleryImage } from "@/components/uploads/image-gallery-input";
+import { categoryAttributeDefs, type AttributeDef } from "@/lib/catalogue/attributes";
 import type { Tx } from "@/lib/db";
 import { koboToNairaString } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
 import { minutesToTime } from "@/lib/catalogue/units";
+import { parseMealBuilder } from "@/lib/catalogue/meal-builder";
 import { dateToLagosLocal } from "@/lib/datetime";
 import type { ProductFormValues } from "@/components/seller/product-form";
 import type { ServiceFormValues } from "@/components/seller/service-form";
@@ -13,11 +15,23 @@ export async function categoryOptions(tx: Tx, kind: CategoryKind) {
   const all = await tx.category.findMany({
     where: { kind, isActive: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, parentId: true },
+    select: { id: true, name: true, parentId: true, isFood: true },
   });
   return all
     .filter((c) => !c.parentId)
-    .map((c) => ({ id: c.id, name: c.name, children: all.filter((s) => s.parentId === c.id).map((s) => ({ id: s.id, name: s.name })) }));
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      isFood: c.isFood,
+      children: all.filter((s) => s.parentId === c.id).map((s) => ({ id: s.id, name: s.name, isFood: s.isFood || c.isFood })),
+    }));
+}
+
+/** Every product category's attributes, for the product form to show as the seller picks a category. */
+export async function productAttributeDefs(tx: Tx): Promise<Record<string, AttributeDef[]>> {
+  const ids = await tx.category.findMany({ where: { kind: "product", isActive: true }, select: { id: true } });
+  const defs = await categoryAttributeDefs(tx, ids.map((c) => c.id));
+  return Object.fromEntries([...defs].filter(([, d]) => d.length > 0));
 }
 
 export const EMPTY_PRODUCT: ProductFormValues = {
@@ -41,6 +55,7 @@ export const EMPTY_PRODUCT: ProductFormValues = {
   options: [],
   variants: [{ sku: "", barcode: "", optionValues: {}, price: "", compareAtPrice: "", stockQty: "0", lowStockThreshold: "5", imageKey: "" }],
   images: [],
+  attributes: {},
 };
 
 export type ProductForEdit = Prisma.ProductGetPayload<{
@@ -70,6 +85,15 @@ export function productToFormValues(p: ProductForEdit): ProductFormValues {
     heightCm: dims?.heightCm ?? undefined,
     isPerishable: p.isPerishable,
     shelfLifeNote: p.shelfLifeNote ?? "",
+    prepTimeMinutes: p.prepTimeMinutes ?? undefined,
+    mealBuilder: (parseMealBuilder(p.mealBuilder)?.groups ?? []).map((g) => ({
+      key: g.key,
+      name: g.name,
+      min: String(g.min),
+      max: String(g.max),
+      withSwallow: g.withSwallow,
+      items: g.items.map((i) => ({ key: i.key, name: i.name, price: koboToNairaString(BigInt(i.priceKobo)), unit: i.unit, maxQty: String(i.maxQty), defaultQty: String(i.defaultQty), swallow: i.swallow, available: i.available })),
+    })),
     costPrice: p.costPriceKobo !== null ? koboToNairaString(p.costPriceKobo) : "",
     status: p.status,
     slug: p.slug,
@@ -90,6 +114,7 @@ export function productToFormValues(p: ProductForEdit): ProductFormValues {
         imageKey: imageKeyByVariant.get(v.id) ?? "",
       })),
     images,
+    attributes: Object.fromEntries(Object.entries((p.attributes ?? {}) as Record<string, unknown>).map(([k, v]) => [k, String(v)])),
   };
 }
 
@@ -157,10 +182,11 @@ export function serviceToFormValues(s: ServiceForEdit): ServiceFormValues {
   };
 }
 
-export async function lgaGroups(tx: Tx) {
-  const states = await tx.state.findMany({
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, lgas: { orderBy: { name: "asc" }, select: { id: true, name: true } } },
+/** Where a business is registered. Its services cover this LGA only: providers are locked to their own area. */
+export async function homeArea(tx: Tx, businessId: string) {
+  const b = await tx.business.findUniqueOrThrow({
+    where: { id: businessId },
+    select: { lgaId: true, city: true, lga: { select: { name: true } }, state: { select: { name: true } } },
   });
-  return states.map((s) => ({ stateId: s.id, stateName: s.name, lgas: s.lgas }));
+  return { lgaId: b.lgaId, city: b.city, lgaName: b.lga.name, stateName: b.state.name };
 }

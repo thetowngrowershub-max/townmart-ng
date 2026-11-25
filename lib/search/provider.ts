@@ -7,7 +7,9 @@
 export const SEARCH_KINDS = ["all", "products", "services", "stores"] as const;
 export type SearchKind = (typeof SEARCH_KINDS)[number];
 
-export const SEARCH_SORTS = ["relevance", "newest", "price_asc", "price_desc", "rating"] as const;
+import type { ListingDeal } from "@/lib/pricing";
+
+export const SEARCH_SORTS = ["relevance", "nearest", "newest", "price_asc", "price_desc", "rating"] as const;
 export type SearchSort = (typeof SEARCH_SORTS)[number];
 
 export type SearchQuery = {
@@ -25,7 +27,11 @@ export type SearchQuery = {
   businessId?: string;
   /** Products only: in stock, untracked or backorderable. */
   inStock?: boolean;
+  /** Only listings with a live automatic promotion ("flash": a live flash deal). */
+  promotion?: "any" | "flash";
   sort: SearchSort;
+  /** The shopper's location ("near me"). Needed for the "nearest" sort and to show distances. */
+  near?: { lat: number; lng: number };
   page: number;
   pageSize: number;
 };
@@ -42,7 +48,10 @@ export type ProductHit = {
   ratingAvg: number;
   ratingCount: number;
   inStock: boolean;
-  business: { name: string; slug: string; city: string; stateName: string };
+  /** The best live automatic promotion, if any. priceKobo stays the undiscounted price. */
+  deal: ListingDeal | null;
+  /** distanceMetres: straight line from the shopper, when both locations are known. */
+  business: { name: string; slug: string; city: string; stateName: string; distanceMetres?: number | null };
 };
 
 export type ServiceHit = {
@@ -56,7 +65,9 @@ export type ServiceHit = {
   coverAlt: string | null;
   ratingAvg: number;
   ratingCount: number;
-  business: { name: string; slug: string; city: string; stateName: string };
+  deal: ListingDeal | null;
+  /** distanceMetres: straight line from the shopper, when both locations are known. */
+  business: { name: string; slug: string; city: string; stateName: string; distanceMetres?: number | null };
 };
 
 export type StoreHit = {
@@ -69,6 +80,7 @@ export type StoreHit = {
   stateName: string;
   ratingAvg: number;
   ratingCount: number;
+  distanceMetres?: number | null;
 };
 
 export type Page<T> = { items: T[]; total: number };

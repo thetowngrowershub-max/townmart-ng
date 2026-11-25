@@ -3,7 +3,7 @@
 #   dev     — used by docker-compose.yml (source mounted, hot reload)
 #   web     — production Next.js standalone server
 #   worker  — production BullMQ worker
-# The production compose file and reverse proxy arrive in Phase 8.
+# docker-compose.prod.yml builds web, worker and build (the migrate tool).
 
 ARG NODE_VERSION=22.20.0
 
@@ -25,6 +25,11 @@ EXPOSE 3000
 CMD ["pnpm", "dev", "--hostname", "0.0.0.0"]
 
 FROM deps AS build
+# Values Next.js reads at build time (the image host for next/image and the
+# Turnstile site key, which ends up in browser code). Nothing secret goes here.
+ARG S3_PUBLIC_BASE_URL=""
+ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=""
+ENV S3_PUBLIC_BASE_URL=$S3_PUBLIC_BASE_URL NEXT_PUBLIC_TURNSTILE_SITE_KEY=$NEXT_PUBLIC_TURNSTILE_SITE_KEY
 COPY . .
 RUN pnpm prisma generate && pnpm build
 

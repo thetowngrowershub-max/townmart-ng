@@ -1,11 +1,17 @@
 import { ImageOff, MapPin, Store } from "lucide-react";
+import { formatDistance } from "@/lib/geo/distance";
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { formatDuration, servicePriceLabel } from "@/lib/catalogue/format";
+import { formatDateTime } from "@/lib/datetime";
 import { formatPrice } from "@/lib/money";
+import type { ListingDeal } from "@/lib/pricing";
 import type { ProductHit, ServiceHit, StoreHit } from "@/lib/search";
 import { publicImageUrl } from "@/lib/storage";
 import { Rating } from "./rating";
+
+export { formatDuration, servicePriceLabel };
 
 const IMAGE_SIZES = "(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw";
 
@@ -21,15 +27,35 @@ function Thumb({ imageKey, alt }: { imageKey: string | null; alt: string }) {
   );
 }
 
+/** Badge text for a deal: flash deals say so, every deal shows the real percentage. */
+function DealBadge({ deal, className }: { deal: ListingDeal; className?: string }) {
+  return (
+    <Badge variant={deal.isFlashDeal ? "danger" : "accent"} className={className}>
+      {deal.isFlashDeal ? "Flash deal " : ""}-{deal.percentOff >= 1 ? `${deal.percentOff}%` : formatPrice(deal.originalKobo - deal.finalKobo)}
+    </Badge>
+  );
+}
+
+/** "Ends 3 Nov 2026, 18:00": the promotion's real end, never a made-up countdown. */
+export function DealEnds({ deal, className }: { deal: ListingDeal; className?: string }) {
+  return <p className={className ?? "text-xs text-muted-foreground"}>Ends {formatDateTime(deal.endsAt)}</p>;
+}
+
 export function ProductCard({ p }: { p: ProductHit }) {
-  const discount = p.compareAtPriceKobo && p.compareAtPriceKobo > p.priceKobo ? Number(((p.compareAtPriceKobo - p.priceKobo) * 100n) / p.compareAtPriceKobo) : 0;
+  const deal = p.deal;
+  const compare = p.compareAtPriceKobo && p.compareAtPriceKobo > p.priceKobo ? p.compareAtPriceKobo : null;
+  const discount = !deal && compare ? Number(((compare - p.priceKobo) * 100n) / compare) : 0;
   return (
     <article className="group relative flex flex-col gap-2">
       <Thumb imageKey={p.coverKey} alt={p.coverAlt ?? p.title} />
-      {discount >= 1 && (
-        <Badge variant="accent" className="absolute top-2 left-2">
-          -{discount}%
-        </Badge>
+      {deal ? (
+        <DealBadge deal={deal} className="absolute top-2 left-2" />
+      ) : (
+        discount >= 1 && (
+          <Badge variant="accent" className="absolute top-2 left-2">
+            -{discount}%
+          </Badge>
+        )
       )}
       {!p.inStock && (
         <Badge variant="secondary" className="absolute top-2 right-2">
@@ -42,29 +68,20 @@ export function ProductCard({ p }: { p: ProductHit }) {
         </Link>
       </h3>
       <p className="flex flex-wrap items-baseline gap-2">
-        <span className="font-bold">{formatPrice(p.priceKobo)}</span>
-        {discount >= 1 && <s className="text-xs text-muted-foreground">{formatPrice(p.compareAtPriceKobo!)}</s>}
+        <span className="font-bold">{formatPrice(deal ? deal.finalKobo : p.priceKobo)}</span>
+        {deal ? (
+          <s className="text-xs text-muted-foreground">{formatPrice(deal.originalKobo)}</s>
+        ) : (
+          discount >= 1 && <s className="text-xs text-muted-foreground">{formatPrice(compare!)}</s>
+        )}
       </p>
+      {deal?.isFlashDeal && <DealEnds deal={deal} />}
       <p className="flex items-center gap-1 text-xs text-muted-foreground">
-        <MapPin className="size-3" aria-hidden /> {p.business.name} · {p.business.city}
+        <MapPin className="size-3" aria-hidden /> {p.business.name} · {p.business.distanceMetres != null ? `${formatDistance(p.business.distanceMetres)} away` : p.business.city}
       </p>
       <Rating avg={p.ratingAvg} count={p.ratingCount} />
     </article>
   );
-}
-
-export function servicePriceLabel(model: string, kobo: bigint) {
-  if (model === "hourly") return `${formatPrice(kobo)}/hr`;
-  if (model === "from" || model === "packages") return `From ${formatPrice(kobo)}`;
-  return formatPrice(kobo);
-}
-
-export function formatDuration(minutes: number) {
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h >= 24 && m === 0 && h % 24 === 0) return `${h / 24} day${h === 24 ? "" : "s"}`;
-  return m ? `${h} hr ${m} min` : `${h} hr`;
 }
 
 export function ServiceCard({ s }: { s: ServiceHit }) {
@@ -76,9 +93,14 @@ export function ServiceCard({ s }: { s: ServiceHit }) {
           {s.title}
         </Link>
       </h3>
-      <p className="font-bold">{servicePriceLabel(s.pricingModel, s.priceKobo)}</p>
+      {s.deal && <DealBadge deal={s.deal} className="absolute top-2 left-2" />}
+      <p className="flex flex-wrap items-baseline gap-2">
+        <span className="font-bold">{servicePriceLabel(s.pricingModel, s.deal ? s.deal.finalKobo : s.priceKobo)}</span>
+        {s.deal && <s className="text-xs text-muted-foreground">{formatPrice(s.deal.originalKobo)}</s>}
+      </p>
+      {s.deal?.isFlashDeal && <DealEnds deal={s.deal} />}
       <p className="text-xs text-muted-foreground">
-        About {formatDuration(s.durationMinutes)} · {s.business.name}, {s.business.city}
+        About {formatDuration(s.durationMinutes)} · {s.business.name}, {s.business.distanceMetres != null ? `${formatDistance(s.business.distanceMetres)} away` : s.business.city}
       </p>
       <Rating avg={s.ratingAvg} count={s.ratingCount} />
     </article>
@@ -101,8 +123,8 @@ export function StoreCard({ s }: { s: StoreHit }) {
             {s.name}
           </Link>
         </h3>
-        <p className="text-xs capitalize text-muted-foreground">
-          {s.type.replace("_", " ")} · {s.city}, {s.stateName}
+        <p className="text-xs text-muted-foreground">
+          <span className="capitalize">{s.type.replace("_", " ")}</span> · {s.distanceMetres != null ? `${formatDistance(s.distanceMetres)} away` : `${s.city}, ${s.stateName}`}
         </p>
         <Rating avg={s.ratingAvg} count={s.ratingCount} />
       </div>

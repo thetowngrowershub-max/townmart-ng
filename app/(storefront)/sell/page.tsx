@@ -78,7 +78,7 @@ export default async function SellPage() {
               ))}
             </ol>
             <p className="mt-6 text-sm text-muted-foreground">
-              You&apos;ll need: a phone number, a government ID (or your CAC certificate) and a Nigerian bank account.
+              You&apos;ll need: a phone number, a government ID and a Nigerian bank account. A CAC registration is optional.
             </p>
           </CardContent>
         </Card>

@@ -4,8 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import type { SearchQuery } from "@/lib/search";
+import { SERVICE_AREA_LABEL } from "@/lib/service-area";
 
-export type LocationOptions = { states: { id: number; name: string }[]; lgas: { id: number; name: string }[] };
+/** Places in the service area. `singlePlace`: TownMart is open in one LGA, so there's nothing to choose. */
+export type LocationOptions = { states: { id: number; name: string }[]; lgas: { id: number; name: string }[]; singlePlace: boolean };
 
 /**
  * Plain GET form: works without JavaScript and every filter combination has a
@@ -33,6 +35,7 @@ export function SearchFilters({
         <Label htmlFor="f-sort">Sort by</Label>
         <Select id="f-sort" name="sort" defaultValue={query.sort}>
           <option value="relevance">{query.q ? "Best match" : "Popular"}</option>
+          <option value="nearest">Nearest to me</option>
           <option value="newest">Newest</option>
           <option value="price_asc">Price: low to high</option>
           <option value="price_desc">Price: high to low</option>
@@ -57,30 +60,40 @@ export function SearchFilters({
           <option value="3">3 stars and up</option>
         </Select>
       </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="f-state">State</Label>
-        <Select id="f-state" name="state" defaultValue={query.stateId ? String(query.stateId) : ""}>
-          <option value="">All of Nigeria</option>
-          {locations.states.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </Select>
-      </div>
-      {locations.lgas.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="f-lga">LGA</Label>
-          <Select id="f-lga" name="lga" defaultValue={query.lgaId ? String(query.lgaId) : ""}>
-            <option value="">All LGAs</option>
-            {locations.lgas.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </Select>
+      {locations.singlePlace ? (
+        <div className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Location</span>
+          <span className="text-muted-foreground">{SERVICE_AREA_LABEL}</span>
         </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="f-state">State</Label>
+            <Select id="f-state" name="state" defaultValue={query.stateId ? String(query.stateId) : ""}>
+              <option value="">All areas</option>
+              {locations.states.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {locations.lgas.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="f-lga">LGA</Label>
+              <Select id="f-lga" name="lga" defaultValue={query.lgaId ? String(query.lgaId) : ""}>
+                <option value="">All LGAs</option>
+                {locations.lgas.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+        </>
       )}
+      <Checkbox id="f-promo" name="promo" value="1" label="On promotion" defaultChecked={query.promotion !== undefined} />
       {showStock && <Checkbox id="f-instock" name="instock" value="1" label="In stock only" defaultChecked={query.inStock} />}
       <Button type="submit" variant="outline">
         Apply filters

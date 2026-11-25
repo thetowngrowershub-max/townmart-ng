@@ -7,7 +7,7 @@ import { DeleteListingButton } from "@/components/seller/delete-listing-button";
 import { ServiceForm } from "@/components/seller/service-form";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { categoryOptions, lgaGroups, serviceToFormValues } from "@/lib/seller/catalogue-queries";
+import { categoryOptions, homeArea, serviceToFormValues } from "@/lib/seller/catalogue-queries";
 import { requireSellerPage, withSellerRls } from "@/lib/seller/context";
 
 export const metadata: Metadata = { title: "Edit service" };
@@ -22,8 +22,7 @@ export default async function EditServicePage({ params, searchParams }: { params
       include: { packages: true, images: true, availability: true, blackouts: true },
     }),
     categories: await categoryOptions(tx, "service"),
-    groups: await lgaGroups(tx),
-    business: await tx.business.findUniqueOrThrow({ where: { id: ctx.business.id }, select: { stateId: true } }),
+    area: await homeArea(tx, ctx.business.id),
   }));
   const { service } = data;
   if (!service) notFound();
@@ -33,7 +32,7 @@ export default async function EditServicePage({ params, searchParams }: { params
         title={service.title}
         actions={
           <div className="flex flex-wrap gap-2">
-            {service.status === "active" && ctx.business.status === "approved" && (
+            {service.status === "active" && !service.takenDownAt && ctx.business.status === "approved" && (
               <Button asChild variant="outline" size="sm">
                 <Link href={`/s/${service.slug}`} target="_blank">
                   <ExternalLink aria-hidden /> View
@@ -45,7 +44,12 @@ export default async function EditServicePage({ params, searchParams }: { params
         }
       />
       {(await searchParams).saved && <Alert variant="success" className="mb-4">Service created.</Alert>}
-      <ServiceForm serviceId={id} categories={data.categories} lgaGroups={data.groups} defaultStateId={data.business.stateId} initial={serviceToFormValues(service)} />
+      {service.takenDownAt && (
+        <Alert variant="danger" className="mb-4">
+          TownMart has taken this service down, so shoppers can&apos;t see or buy it. Reason: {service.takenDownReason} Contact support once you&apos;ve fixed it and we&apos;ll look again.
+        </Alert>
+      )}
+      <ServiceForm serviceId={id} categories={data.categories} homeArea={data.area} initial={{ ...serviceToFormValues(service), serviceLgaIds: [data.area.lgaId] }} />
     </>
   );
 }

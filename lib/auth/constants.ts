@@ -14,4 +14,5 @@ export const RESET_PASSWORD_TTL_MINUTES = 60;
 export const tokenIdentifier = {
   verifyEmail: (email: string) => `verify-email:${email}`,
   resetPassword: (email: string) => `reset-password:${email}`,
+  dataRequest: (requestId: string) => `data-request:${requestId}`,
 };

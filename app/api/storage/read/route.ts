@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   }
   const body = await provider.getObject(bucket, key!);
   if (!body) return new NextResponse("Not found", { status: 404 });
-  const type = key!.endsWith(".pdf") ? "application/pdf" : key!.endsWith(".csv") ? "text/csv" : "image/jpeg";
+  const type = key!.endsWith(".pdf") ? "application/pdf" : key!.endsWith(".csv") ? "text/csv" : key!.endsWith(".webp") ? "image/webp" : "image/jpeg";
   return new NextResponse(new Uint8Array(body), {
     headers: { "Content-Type": type, "Cache-Control": "private, no-store", "Content-Disposition": "inline" },
   });

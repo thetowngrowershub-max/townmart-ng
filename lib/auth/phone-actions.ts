@@ -12,7 +12,9 @@ import { requestMeta } from "@/lib/request";
 import { phoneCodeSchema, phoneOnlySchema, type PhoneCodeInput } from "@/lib/validation/auth";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 import { getCurrentUser } from "./current-user";
+import { clearPendingPhone } from "./pending-phone";
 import { createUserSession } from "./session";
+import { loadTwoFactorUser, startSecondStep } from "./two-factor-methods";
 
 const TOO_MANY = "Too many attempts. Please wait a few minutes and try again.";
 
@@ -47,9 +49,19 @@ export async function verifySignInCodeAction(input: PhoneCodeInput): Promise<Act
   const check = await verifyOtp({ phoneHash: phoneHash(phone), purpose: "sign_in", code });
   if (!check.ok || !check.userId) return { ok: false, error: check.ok ? "That code isn't right." : check.error, fieldErrors: { code: [check.ok ? "That code isn't right." : check.error] } };
 
-  const user = await prisma.user.findUnique({ where: { id: check.userId }, select: { id: true, status: true, lockedUntil: true } });
+  const user = await prisma.user.findUnique({ where: { id: check.userId }, select: { id: true, status: true, lockedUntil: true, twoFactorEnabledAt: true } });
   if (!user || user.status !== "active") return { ok: false, error: "This account is not active. Please contact support." };
   if (user.lockedUntil && user.lockedUntil > new Date()) return { ok: false, error: "This account is temporarily locked. Try again later." };
+
+  // Two-step sign-in: the text-message code was the first step; ask for a different second one.
+  if (user.twoFactorEnabledAt) {
+    const twoFactorUser = await loadTwoFactorUser(user.id);
+    if (twoFactorUser) {
+      const started = await startSecondStep(twoFactorUser, next ?? null, "sms");
+      if (!started.ok) return { ok: false, error: started.error };
+      redirect("/auth/two-factor");
+    }
+  }
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date(), failedLoginCount: 0 } });
   await withRls({ userId: user.id }, (tx) => writeAudit(tx, { actorUserId: user.id, action: "user.signed_in_phone", entityType: "user", entityId: user.id, ipHash: meta.ipHash }));
@@ -92,6 +104,7 @@ export async function verifyAccountPhoneAction(input: { phone: string; code: str
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return { ok: false, error: "This number is linked to another account." };
     throw err;
   }
+  await clearPendingPhone(user.id);
   await withRls({ userId: user.id }, (tx) => writeAudit(tx, { actorUserId: user.id, action: "user.phone_verified", entityType: "user", entityId: user.id, ipHash: meta.ipHash }));
   revalidatePath("/account/security");
   return { ok: true, message: "Phone number verified. You can now sign in with it." };
@@ -101,6 +114,10 @@ export async function removeAccountPhoneAction(): Promise<ActionResult> {
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Please sign in again." };
   const meta = await requestMeta();
+  const current = await prisma.user.findUnique({ where: { id: user.id }, select: { twoFactorEnabledAt: true, twoFactorMethod: true } });
+  if (current?.twoFactorEnabledAt && current.twoFactorMethod === "sms") {
+    return { ok: false, error: "Your two-step sign-in uses text messages. Switch it to your authenticator app or email, or turn it off, before removing your phone number." };
+  }
   await prisma.user.update({ where: { id: user.id }, data: { phoneEncrypted: null, phoneHash: null, phoneVerifiedAt: null } });
   await withRls({ userId: user.id }, (tx) => writeAudit(tx, { actorUserId: user.id, action: "user.phone_removed", entityType: "user", entityId: user.id, ipHash: meta.ipHash }));
   revalidatePath("/account/security");

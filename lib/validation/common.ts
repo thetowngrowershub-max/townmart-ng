@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { lagosLocalToDate } from "@/lib/datetime";
 import { parseNairaToKobo } from "@/lib/money";
 import { normaliseNigerianPhone } from "@/lib/phone";
 
@@ -56,3 +57,10 @@ export const nigerianPhone = z
   .transform((v) => normaliseNigerianPhone(v)!);
 
 export const otpCode = z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code");
+
+/** A `datetime-local` value, read as Lagos time. */
+export const lagosDateTime = (message: string) =>
+  z
+    .string({ error: message })
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/, message)
+    .transform(lagosLocalToDate);
