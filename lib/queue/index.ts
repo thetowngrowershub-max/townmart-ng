@@ -37,6 +37,8 @@ export type FulfilmentNotice =
   | { type: "message.new"; messageId: string }
   // A rider was put on a delivery; `at` is riderAssignedAt in ms, so a rider changed twice gets both texts.
   | { type: "rider.assigned"; sellerOrderId: string; at: number }
+  // A delivery was opened to the TownMart rider pool; `at` is riderPoolOpenedAt in ms. Texts the nearest online riders.
+  | { type: "rider.pool_offer"; sellerOrderId: string; at: number }
   | { type: "refund.update"; refundId: string; status: string }
   | { type: "dispute.update"; disputeId: string; event: "opened" | "message" | "resolved"; messageId?: string }
   | { type: "payout.update"; payoutId: string; status: string };
@@ -78,6 +80,8 @@ function noticeKey(n: FulfilmentNotice): string {
       return `message-${n.messageId}`;
     case "rider.assigned":
       return `rider-${n.sellerOrderId}-${n.at}`;
+    case "rider.pool_offer":
+      return `pool-offer-${n.sellerOrderId}-${n.at}`;
     case "refund.update":
       return `refund-${n.refundId}-${n.status}`;
     case "dispute.update":

@@ -25,6 +25,7 @@ import {
   Star,
   Store,
   Tags,
+  UserCheck,
   Users,
   Wallet,
   Wrench,
@@ -72,12 +73,21 @@ export const dashboardNav: NavItem[] = [
   { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
 ];
 
+/** The TownMart rider area (pool riders, signed in). */
+export const riderNav: NavItem[] = [
+  { href: "/rider", label: "Jobs", icon: Bike, phase: 0 },
+  // Built with the rider wallets (earnings and payouts).
+  { href: "/rider/wallet", label: "Wallet", icon: Wallet, phase: 8 },
+  { href: "/account/security", label: "Sign-in security", icon: ShieldCheck, phase: 0 },
+];
+
 export const adminNav: NavItem[] = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard, phase: 0 },
   { href: "/admin/sellers", label: "Seller approvals", icon: Store, phase: 1 },
   { href: "/admin/moderation", label: "Moderation", icon: Gavel, phase: 7 },
   { href: "/admin/orders", label: "Orders & disputes", icon: ClipboardList, phase: 5 },
   { href: "/admin/deliveries", label: "Deliveries", icon: Bike, phase: 5 },
+  { href: "/admin/riders", label: "TownMart riders", icon: UserCheck, phase: 5 },
   { href: "/admin/payouts", label: "Refunds & payouts", icon: Wallet, phase: 5 },
   { href: "/admin/catalogue", label: "Catalogue & fees", icon: Tags, phase: 7 },
   { href: "/admin/content", label: "Content (CMS)", icon: FileText, phase: 7 },
@@ -108,6 +118,7 @@ export const footerLinks: { heading: string; links: { href: string; label: strin
     links: [
       { href: "/about", label: "About" },
       { href: "/sell", label: "Sell on TownMart" },
+      { href: "/rider", label: "Ride with TownMart" },
       { href: "/help", label: "Help centre" },
       { href: "/contact", label: "Contact" },
     ],

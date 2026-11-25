@@ -4,15 +4,16 @@ import { recordStatus } from "@/lib/orders/status";
 import { FulfilmentError } from "./orders";
 
 /**
- * Riders are each shop's own (seller-managed). This file is the one place a
- * rider is put on an order or taken off it, so anything that should happen
- * then (texts to the rider and customer) hooks in here, not in the UI.
+ * Riders are a shop's own, or TownMart pool riders (lib/riders/pool.ts). This
+ * file is the one place a rider is put on an order or taken off it, so
+ * anything that should happen then (texts to the rider and customer) hooks in
+ * here, not in the UI.
  */
 
 export { RIDER_VEHICLES, VEHICLE_LABELS, type RiderVehicle } from "./rider-vehicles";
 
 /** Statuses where a delivery still needs a rider (or is on its way). */
-const RIDER_STATUSES = ["paid", "processing", "shipped"] as const;
+export const RIDER_STATUSES = ["paid", "processing", "shipped"] as const;
 
 export type RiderCandidate = {
   id: string;
@@ -82,12 +83,14 @@ export async function riderCandidates(tx: Tx, businessId: string, nearbyKm: numb
 /**
  * Puts a rider on a delivery (or takes them off with riderId null) and notes
  * it in the order history. Seller RLS: the rider and order must be the shop's.
+ * With `pool` (system or admin scope only, the database checks), the rider is
+ * an approved TownMart pool rider instead, paid `pool.payKobo`.
  * Returns what changed: the caller queues the "rider.assigned" notice with
  * `assignedAt` (the rider's job link and the customer's code) after commit.
  */
 export async function assignRider(
   tx: Tx,
-  p: { sellerOrderId: string; businessId: string; riderId: string | null; actorUserId: string | null },
+  p: { sellerOrderId: string; businessId: string; riderId: string | null; actorUserId: string | null; pool?: { payKobo: bigint } },
 ): Promise<{ riderId: string | null; previousRiderId: string | null; assignedAt: Date | null }> {
   const so = await tx.sellerOrder.findFirst({
     where: { id: p.sellerOrderId, businessId: p.businessId },
@@ -100,9 +103,12 @@ export async function assignRider(
 
   let note: string;
   if (p.riderId) {
-    const rider = await tx.rider.findFirst({ where: { id: p.riderId, businessId: p.businessId, isActive: true }, select: { name: true } });
-    if (!rider) throw new FulfilmentError("That rider isn't one of your active riders.");
-    note = so.riderId ? `Rider changed to ${rider.name}` : `Rider assigned: ${rider.name}`;
+    const rider = p.pool
+      ? await tx.rider.findFirst({ where: { id: p.riderId, businessId: null, status: "approved", isActive: true }, select: { name: true } })
+      : await tx.rider.findFirst({ where: { id: p.riderId, businessId: p.businessId, isActive: true }, select: { name: true } });
+    if (!rider) throw new FulfilmentError(p.pool ? "That TownMart rider can't take jobs right now." : "That rider isn't one of your active riders.");
+    const who = p.pool ? `TownMart rider ${rider.name}` : rider.name;
+    note = so.riderId ? `Rider changed to ${who}` : `Rider assigned: ${who}`;
   } else {
     note = "Rider removed";
   }
@@ -110,7 +116,7 @@ export async function assignRider(
   const assignedAt = p.riderId ? new Date() : null;
   await tx.sellerOrder.update({
     where: { id: so.id },
-    data: { riderId: p.riderId, riderAssignedAt: assignedAt, pickedUpAt: null },
+    data: { riderId: p.riderId, riderAssignedAt: assignedAt, pickedUpAt: null, riderPayKobo: p.riderId && p.pool ? p.pool.payKobo : null },
   });
   await recordStatus(tx, { sellerOrderId: so.id, businessId: p.businessId, from: so.status, to: so.status, actorUserId: p.actorUserId, note });
   return { riderId: p.riderId, previousRiderId: so.riderId, assignedAt };

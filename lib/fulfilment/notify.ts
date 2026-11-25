@@ -9,6 +9,9 @@ import { orderUrl } from "@/lib/orders/notify";
 import { ORDER_STATUS_LABELS } from "@/lib/orders/labels";
 import { enqueueEmail, enqueueSms, type FulfilmentNotice } from "@/lib/queue";
 import { sendMoneyNotice } from "@/lib/refunds/notify";
+import { formatDistance } from "@/lib/geo/distance";
+import { OPEN_JOB_STATUSES, poolCandidates, riderPay } from "@/lib/riders/pool";
+import { getCheckoutSettings } from "@/lib/settings";
 import { deliveryCode, riderJobUrl } from "./rider-job";
 
 export type Customer = { id: string; orderNumber: string; isGuest: boolean; userId: string | null; contactEmail: string; contactPhoneEncrypted: string; customerName: string };
@@ -57,6 +60,7 @@ export async function sendFulfilmentNotice(n: FulfilmentNotice): Promise<void> {
   if (n.type === "refund.update" || n.type === "dispute.update" || n.type === "payout.update") return sendMoneyNotice(n);
   await withSystemContext(async (tx) => {
     if (n.type === "rider.assigned") return sendRiderAssigned(tx, n.sellerOrderId, n.at);
+    if (n.type === "rider.pool_offer") return sendPoolOffer(tx, n.sellerOrderId, n.at);
 
     if (n.type === "order.status") {
       const so = await tx.sellerOrder.findUnique({ where: { id: n.sellerOrderId }, include: { order: { select: customerSelect }, business: { select: sellerSelect }, rider: { select: { name: true, phoneEncrypted: true } } } });
@@ -194,6 +198,29 @@ function dropOffArea(contact: unknown): string {
   const a = (contact as { address?: { landmark: string | null; city: string; lgaName: string } | null } | null)?.address;
   if (!a) return "the customer";
   return [a.landmark ? `near ${a.landmark}` : a.city, a.lgaName].filter(Boolean).join(", ").slice(0, 50);
+}
+
+/**
+ * A delivery went to the TownMart rider pool: the nearest online riders get a
+ * text pointing at their jobs page, where the first to tap "Take this job"
+ * gets it. Only where the job and the area go, never the customer's details.
+ * Skipped if the job has been taken or reopened since (a newer notice covers it).
+ */
+async function sendPoolOffer(tx: Tx, sellerOrderId: string, at: number): Promise<void> {
+  const so = await tx.sellerOrder.findUnique({
+    where: { id: sellerOrderId },
+    select: { riderId: true, riderPoolOpenedAt: true, status: true, deliveryKobo: true, deliveryDistanceM: true, fulfilmentContact: true, business: { select: { name: true, latitude: true, longitude: true } } },
+  });
+  if (!so || so.riderId || so.riderPoolOpenedAt?.getTime() !== at || !(OPEN_JOB_STATUSES as readonly string[]).includes(so.status)) return;
+  const settings = await getCheckoutSettings(tx);
+  if (settings.riderPoolOfferCount === 0) return;
+  const shop = so.business.latitude !== null && so.business.longitude !== null ? { lat: so.business.latitude, lng: so.business.longitude } : null;
+  const riders = (await poolCandidates(tx, shop, settings.riderPoolMaxJobs)).slice(0, settings.riderPoolOfferCount);
+  const pay = formatPrice(riderPay(so.deliveryKobo, settings.riderPoolSharePercent));
+  const km = so.deliveryDistanceM !== null ? ` (${formatDistance(so.deliveryDistanceM)})` : "";
+  for (const r of riders) {
+    await enqueueSms({ to: decrypt(r.phoneEncrypted), body: `TownMart job: ${so.business.name.slice(0, 30)} to ${dropOffArea(so.fulfilmentContact)}${km}. You earn ${pay}. First to take it gets it: ${env().APP_URL}/rider` });
+  }
 }
 
 /**

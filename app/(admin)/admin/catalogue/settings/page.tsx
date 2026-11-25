@@ -33,6 +33,9 @@ export default async function PlatformSettingsPage() {
     "delivery.road_factor": String(s.deliveryRoadFactor),
     "delivery.max_km": String(s.deliveryMaxKm),
     "riders.nearby_km": String(s.riderNearbyKm),
+    "riders.pool_share_percent": String(s.riderPoolSharePercent),
+    "riders.pool_offer_count": String(s.riderPoolOfferCount),
+    "riders.pool_max_jobs": String(s.riderPoolMaxJobs),
   };
   return (
     <>

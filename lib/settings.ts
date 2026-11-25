@@ -32,6 +32,12 @@ export type CheckoutSettings = {
   deliveryMaxKm: number;
   /** Riders this close to the shop count as nearby. */
   riderNearbyKm: number;
+  /** A TownMart pool rider's share of the delivery fee, in percent; TownMart keeps the rest. */
+  riderPoolSharePercent: number;
+  /** How many nearby pool riders are texted when a delivery is opened to the pool. */
+  riderPoolOfferCount: number;
+  /** Deliveries a pool rider can hold at once. */
+  riderPoolMaxJobs: number;
 };
 
 export const CHECKOUT_DEFAULTS: CheckoutSettings = {
@@ -52,6 +58,9 @@ export const CHECKOUT_DEFAULTS: CheckoutSettings = {
   deliveryRoadFactor: 1.3,
   deliveryMaxKm: 25,
   riderNearbyKm: 5,
+  riderPoolSharePercent: 80,
+  riderPoolOfferCount: 3,
+  riderPoolMaxJobs: 2,
 };
 
 const KEYS = [
@@ -72,6 +81,9 @@ const KEYS = [
   "delivery.road_factor",
   "delivery.max_km",
   "riders.nearby_km",
+  "riders.pool_share_percent",
+  "riders.pool_offer_count",
+  "riders.pool_max_jobs",
 ] as const;
 
 const num = (v: unknown, min: number, max: number): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : undefined);
@@ -102,5 +114,8 @@ export async function getCheckoutSettings(tx: Tx): Promise<CheckoutSettings> {
     deliveryRoadFactor: num(v.get("delivery.road_factor"), 1, 3) ?? d.deliveryRoadFactor,
     deliveryMaxKm: num(v.get("delivery.max_km"), 1, 500) ?? d.deliveryMaxKm,
     riderNearbyKm: num(v.get("riders.nearby_km"), 0.5, 100) ?? d.riderNearbyKm,
+    riderPoolSharePercent: num(v.get("riders.pool_share_percent"), 0, 100) ?? d.riderPoolSharePercent,
+    riderPoolOfferCount: Math.round(num(v.get("riders.pool_offer_count"), 0, 20) ?? d.riderPoolOfferCount),
+    riderPoolMaxJobs: Math.round(num(v.get("riders.pool_max_jobs"), 1, 10) ?? d.riderPoolMaxJobs),
   };
 }
