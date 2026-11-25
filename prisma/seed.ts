@@ -7,7 +7,8 @@
  * then the catalogue: categories plus six demo sellers with products, services
  * and promotions (seed-catalogue.ts), and default delivery zones, rates and
  * commission (seed-delivery.ts), then demo orders, bookings and reviews
- * (seed-orders.ts), and demo refunds, a dispute and a payout (seed-money.ts).
+ * (seed-orders.ts), demo refunds, a dispute and a payout (seed-money.ts), and
+ * attributes, help answers and pages, plus demo banners and questions (seed-content.ts).
  */
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
@@ -16,6 +17,7 @@ import { hashPassword } from "../lib/auth/password";
 import { slugify } from "../lib/slug";
 import statesData from "./data/nigeria-states-lgas.json";
 import { seedDemoCatalogue } from "./seed-catalogue";
+import { seedContent, seedDemoContent } from "./seed-content";
 import { seedCompliance } from "./seed-legal";
 import { seedDeliveryAndCommission } from "./seed-delivery";
 import { seedDemoMoney } from "./seed-money";
@@ -55,6 +57,7 @@ const DEFAULT_SETTINGS: { key: string; value: unknown; description: string }[] =
   { key: "fees.service_fee_cap_naira", value: 1000, description: "Maximum service fee per order (₦)." },
   { key: "bookings.lead_minutes", value: 120, description: "How soon a booking can start (minutes from now)." },
   { key: "bookings.days_ahead", value: 60, description: "How far ahead customers can book (days)." },
+  { key: "delivery.per_km_naira", value: 250, description: "Delivery price per km from the shop to the customer (₦)." },
   { key: "orders.auto_complete_days", value: 7, description: "Days after delivery before an order completes if the customer doesn't confirm." },
   { key: "auth.max_failed_logins", value: 5, description: "Failed sign-ins before a temporary lockout." },
 ];
@@ -78,7 +81,8 @@ async function seedStaffAccount(email: string, name: string, roles: Role[], envV
   }
   let password = process.env[envVar];
   if (!password) {
-    if (isProd) throw new Error(`${envVar} must be set to seed ${email} in production`);
+    // A test-mode site signs staff in from /auth/demo, so their passwords can stay unknown.
+    if (isProd && process.env.TOWNMART_TEST_MODE !== "true") throw new Error(`${envVar} must be set to seed ${email} in production`);
     password = randomBytes(12).toString("base64url");
   }
   const user = await prisma.user.create({
@@ -105,9 +109,11 @@ async function main() {
   await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN_PASSWORD");
   await seedDeliveryAndCommission(prisma);
   await seedDemoCatalogue(prisma);
+  await seedContent(prisma);
   if (!isProd || process.env.SEED_DEMO_DATA === "true") {
     await seedDemoOrders(prisma);
     await seedDemoMoney(prisma);
+    await seedDemoContent(prisma);
   }
 }
 

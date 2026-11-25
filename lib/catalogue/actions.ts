@@ -6,6 +6,7 @@ import { z } from "zod";
 import { writeAudit } from "@/lib/audit";
 import { assertCan, AuthzError } from "@/lib/authz";
 import { logger } from "@/lib/logger";
+import { screenListing } from "@/lib/moderation/core";
 import { getSellerContext, withSellerRls, type SellerContext } from "@/lib/seller/context";
 import { storage } from "@/lib/storage";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
@@ -48,6 +49,9 @@ const deleteFiles = (keys: string[]) =>
 
 const idSchema = z.uuid();
 
+const FLAGGED_MESSAGE = (what: string) =>
+  `${what} saved. Some of its words are on our prohibited-items list, so TownMart will take a quick look. It stays live meanwhile.`;
+
 // ─── Products ───────────────────────────────────────────────────────────────
 
 export async function saveProductAction(productId: string | null, input: ProductInput): Promise<ActionResult<{ id: string; slug: string }>> {
@@ -69,9 +73,10 @@ export async function saveProductAction(productId: string | null, input: Product
     });
     await deleteFiles(res.removedImageKeys);
     await notifyLowStock(ctx.business.id, res.stockChanges);
+    const flagged = await screenListing({ kind: "product", id: res.productId });
     revalidatePath("/dashboard/products");
     revalidatePath(`/p/${res.slug}`);
-    return { ok: true, data: { id: res.productId, slug: res.slug }, message: "Product saved." };
+    return { ok: true, data: { id: res.productId, slug: res.slug }, message: flagged.length ? FLAGGED_MESSAGE("Product") : "Product saved." };
   } catch (err) {
     return failure(err);
   }
@@ -244,9 +249,10 @@ export async function saveServiceAction(serviceId: string | null, input: Service
       return r;
     });
     await deleteFiles(res.removedImageKeys);
+    const flagged = await screenListing({ kind: "service", id: res.serviceId });
     revalidatePath("/dashboard/services");
     revalidatePath(`/s/${res.slug}`);
-    return { ok: true, data: { id: res.serviceId, slug: res.slug }, message: "Service saved." };
+    return { ok: true, data: { id: res.serviceId, slug: res.slug }, message: flagged.length ? FLAGGED_MESSAGE("Service") : "Service saved." };
   } catch (err) {
     return failure(err);
   }

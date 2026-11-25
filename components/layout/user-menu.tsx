@@ -1,17 +1,20 @@
-import { Bell, LogOut, User } from "lucide-react";
+import { Bell } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { signOutAction } from "@/lib/auth/actions";
 import { can } from "@/lib/authz";
 import { withRls } from "@/lib/db";
+import { AccountMenu, type AccountMenuLink } from "./account-menu";
 
-export async function UserMenu() {
+/** The right-hand side of the site header. `cart` is the cart button, placed after any shortcuts. */
+export async function UserMenu({ cart }: { cart: ReactNode }) {
   const user = await getCurrentUser();
   if (!user) {
     return (
-      <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="sm">
+      <div className="flex items-center gap-1 sm:gap-2">
+        {cart}
+        <Button asChild variant="ghost" size="sm" className="px-2 sm:px-3">
           <Link href="/auth/sign-in">Sign in</Link>
         </Button>
         <Button asChild size="sm" className="hidden sm:inline-flex">
@@ -22,18 +25,30 @@ export async function UserMenu() {
   }
   // Order updates, booking changes and messages land here (Phase 4).
   const unread = await withRls({ userId: user.id }, (tx) => tx.notification.count({ where: { userId: user.id, readAt: null } })).catch(() => 0);
+  const isSeller = can(user, "dashboard.access");
+  const isAdmin = can(user, "admin.access");
+  const links: AccountMenuLink[] = [
+    { href: "/account", label: "My account" },
+    { href: "/account/orders", label: "My orders" },
+    { href: "/account/bookings", label: "My bookings" },
+    ...(isSeller ? [{ href: "/dashboard", label: "Seller dashboard" }] : []),
+    ...(isAdmin ? [{ href: "/admin", label: "Admin console" }] : []),
+    { href: "/account/security", label: "Profile & security" },
+  ];
   return (
-    <div className="flex items-center gap-1">
-      {can(user, "admin.access") && (
-        <Button asChild variant="ghost" size="sm" className="hidden md:inline-flex">
+    <div className="flex items-center gap-0.5 sm:gap-1">
+      {/* Shortcuts only where there is room; the account menu always has them. */}
+      {isAdmin && (
+        <Button asChild variant="ghost" size="sm" className={isSeller ? "hidden xl:inline-flex" : "hidden lg:inline-flex"}>
           <Link href="/admin">Admin</Link>
         </Button>
       )}
-      {can(user, "dashboard.access") && (
-        <Button asChild variant="ghost" size="sm" className="hidden md:inline-flex">
+      {isSeller && (
+        <Button asChild variant="ghost" size="sm" className="hidden lg:inline-flex">
           <Link href="/dashboard">Dashboard</Link>
         </Button>
       )}
+      {cart}
       <Button asChild variant="ghost" size="icon" className="relative" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}>
         <Link href="/account/notifications">
           <Bell aria-hidden />
@@ -44,18 +59,7 @@ export async function UserMenu() {
           )}
         </Link>
       </Button>
-      <Button asChild variant="ghost" size="sm">
-        <Link href="/account">
-          <User aria-hidden />
-          <span className="hidden max-w-32 truncate sm:inline">{user.name ?? "Account"}</span>
-          <span className="sr-only sm:hidden">Account</span>
-        </Link>
-      </Button>
-      <form action={signOutAction}>
-        <Button type="submit" variant="ghost" size="icon" aria-label="Sign out">
-          <LogOut aria-hidden />
-        </Button>
-      </form>
+      <AccountMenu name={user.name ?? "My account"} email={user.email} links={links} />
     </div>
   );
 }

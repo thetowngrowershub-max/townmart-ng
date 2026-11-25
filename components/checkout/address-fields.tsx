@@ -3,12 +3,30 @@
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { SERVICE_AREA_LABEL, type AreaState } from "@/lib/service-area";
 
-export type StateOption = { id: number; name: string; lgas: { id: number; name: string }[] };
+/** A state people can deliver to, with its LGAs and towns: only the service area (lib/service-area.ts). */
+export type StateOption = AreaState;
 export const EMPTY_ADDRESS = { recipientName: "", phone: "", line1: "", line2: "", landmark: "", city: "", stateId: "", lgaId: "" };
 export type AddressDraft = typeof EMPTY_ADDRESS;
 
-/** Nigerian address fields: street, landmark, town, then state and LGA (the LGA list follows the state). */
+/** An empty address with the state, LGA and town filled in when the service area is a single place. */
+export function emptyAddressFor(states: StateOption[]): AddressDraft {
+  const state = states.length === 1 ? states[0] : undefined;
+  const lga = state?.lgas.length === 1 ? state.lgas[0] : undefined;
+  return {
+    ...EMPTY_ADDRESS,
+    stateId: state ? String(state.id) : "",
+    lgaId: lga ? String(lga.id) : "",
+    city: lga?.towns.length === 1 ? (lga.towns[0] ?? "") : "",
+  };
+}
+
+/**
+ * Nigerian address fields: street, landmark, town, then state and LGA (the LGA
+ * list follows the state, the town list follows the LGA). Only places inside
+ * the service area are offered; the server checks again.
+ */
 export function AddressFields({
   value,
   onChange,
@@ -23,13 +41,16 @@ export function AddressFields({
   errorPrefix?: string;
 }) {
   const lgas = states.find((s) => s.id === Number(value.stateId))?.lgas ?? [];
+  const towns = lgas.find((l) => l.id === Number(value.lgaId))?.towns ?? [];
   const field = (k: keyof AddressDraft) => ({
     value: value[k],
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => onChange({ ...value, [k]: e.target.value, ...(k === "stateId" ? { lgaId: "" } : {}) }),
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      onChange({ ...value, [k]: e.target.value, ...(k === "stateId" ? { lgaId: "", city: "" } : k === "lgaId" ? { city: "" } : {}) }),
   });
   const err = (k: string) => errors[`${errorPrefix}${k}`];
   return (
     <div className="grid gap-4 sm:grid-cols-2">
+      <p className="text-sm text-muted-foreground sm:col-span-2">We deliver to {SERVICE_AREA_LABEL} for now.</p>
       <FormField id="recipientName" label="Recipient's name" error={err("recipientName")}>
         <Input autoComplete="name" {...field("recipientName")} />
       </FormField>
@@ -48,7 +69,18 @@ export function AddressFields({
         <Input {...field("landmark")} />
       </FormField>
       <FormField id="city" label="Town or city" error={err("city")}>
-        <Input autoComplete="address-level2" {...field("city")} />
+        {towns.length > 0 ? (
+          <Select autoComplete="address-level2" {...field("city")}>
+            <option value="">Choose a town</option>
+            {towns.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <Input autoComplete="address-level2" {...field("city")} />
+        )}
       </FormField>
       <FormField id="stateId" label="State" error={err("stateId")}>
         <Select {...field("stateId")}>

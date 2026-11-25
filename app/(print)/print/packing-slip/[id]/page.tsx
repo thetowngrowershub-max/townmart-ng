@@ -23,7 +23,8 @@ export default async function PackingSlipPage({ params }: { params: Promise<{ id
     <main className="mx-auto max-w-3xl bg-white p-8 text-black print:p-0">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-bold text-[#0F6B3E]">TownMart</p>
+          {/* eslint-disable-next-line @next/next/no-img-element -- printed SVG wordmark */}
+          <img src="/brand/townmart-logo.svg" alt="TownMart" width={513} height={135} className="mb-2 h-7 w-auto" />
           <h1 className="text-2xl font-bold">Packing slip</h1>
           <p className="text-sm">
             Order <span className="font-mono font-semibold">{order.orderNumber}</span> · {order.placedAt}

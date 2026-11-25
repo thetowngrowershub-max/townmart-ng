@@ -74,7 +74,7 @@ export async function requireSellerContext(nextPath: string): Promise<SellerCont
 /** For seller pages that need a business permission: 403 for staff without it. */
 export async function requireSellerPage(
   nextPath: string,
-  permission: "listing.read" | "listing.write" | "import.manage" | "store.manage" | "promotion.manage" | "order.read" | "order.manage" | "booking.manage" | "review.manage" | "payout.manage",
+  permission: "listing.read" | "listing.write" | "import.manage" | "store.manage" | "promotion.manage" | "order.read" | "order.manage" | "booking.manage" | "review.manage" | "payout.manage" | "staff.manage" | "question.answer",
 ): Promise<SellerContext> {
   const ctx = await requireSellerContext(nextPath);
   if (!can(ctx.user, permission, { businessId: ctx.business.id })) forbidden();

@@ -1,8 +1,4 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { SectionTabs } from "@/components/admin/section-tabs";
 
 const TABS = [
   { href: "/admin/compliance", label: "Overview" },
@@ -15,25 +11,5 @@ const TABS = [
 ];
 
 export function ComplianceTabs() {
-  const path = usePathname();
-  return (
-    <nav aria-label="Compliance centre" className="-mx-4 mb-6 overflow-x-auto px-4">
-      <ul className="flex w-max gap-1 border-b">
-        {TABS.map((t) => {
-          const active = t.href === "/admin/compliance" ? path === t.href : path.startsWith(t.href);
-          return (
-            <li key={t.href}>
-              <Link
-                href={t.href}
-                aria-current={active ? "page" : undefined}
-                className={cn("block border-b-2 px-3 py-2 text-sm whitespace-nowrap", active ? "border-primary font-semibold text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}
-              >
-                {t.label}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
-  );
+  return <SectionTabs label="Compliance centre" tabs={TABS} />;
 }

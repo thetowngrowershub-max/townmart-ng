@@ -15,6 +15,9 @@ export const newAddressSchema = z.object({
   lgaId: z.coerce.number().int().positive({ error: "Choose an LGA" }),
 });
 
+/** The shopper's phone location, sent when they say they're at the delivery address. */
+export const gpsSchema = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
+
 export const PAYMENT_CHOICES = ["online", "pay_on_delivery"] as const;
 
 export const checkoutSchema = z
@@ -23,6 +26,7 @@ export const checkoutSchema = z
     email: emailSchema.optional().or(z.literal("")),
     addressId: z.uuid().optional().or(z.literal("")),
     address: newAddressSchema.optional(),
+    gps: gpsSchema.nullish(),
     saveAddress: z.boolean().default(false),
     methods: z.record(z.uuid(), z.enum(["delivery", "pickup"])).default({}),
     payment: z.enum(PAYMENT_CHOICES),
@@ -30,6 +34,8 @@ export const checkoutSchema = z
     marketingConsent: z.boolean().default(false),
     // The total the shopper saw; the order is refused if prices changed since.
     expectedTotalKobo: z.string().regex(/^\d{1,15}$/),
+    // Made once by the checkout page: a resend of the same tap (weak network) gets the first answer.
+    checkoutKey: z.uuid().optional(),
   })
   .superRefine((v, ctx) => {
     if (!v.addressId && !v.address) ctx.addIssue({ code: "custom", path: ["addressId"], message: "Choose or add a delivery address" });
@@ -42,5 +48,6 @@ export const quoteRequestSchema = z.object({
   addressId: z.uuid().optional().or(z.literal("")),
   stateId: z.coerce.number().int().positive().optional(),
   lgaId: z.coerce.number().int().positive().optional(),
+  gps: gpsSchema.nullish(),
   methods: z.record(z.uuid(), z.enum(["delivery", "pickup"])).default({}),
 });

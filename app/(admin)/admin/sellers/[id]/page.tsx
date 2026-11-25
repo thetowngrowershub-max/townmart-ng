@@ -62,7 +62,7 @@ export default async function SellerDetailPage({ params }: { params: Promise<{ i
   const rows: [string, React.ReactNode][] = [
     ["Type", <span key="t" className="capitalize">{b.type.replace("_", " ")}</span>],
     ["Store address", <Link key="s" href={`/store/${b.slug}`} className="text-primary underline">/store/{b.slug}</Link>],
-    ["CAC number", b.cacNumber ?? "—"],
+    ["CAC number", b.cacNumber ?? "Not provided (optional)"],
     ["Email", b.email],
     ["Phone", `${decrypt(b.phoneEncrypted)}${b.phoneVerifiedAt ? " (verified)" : " (not verified)"}`],
     ["Address", `${decrypt(b.addressEncrypted)}, ${b.city}, ${b.lga.name}, ${b.state.name}`],

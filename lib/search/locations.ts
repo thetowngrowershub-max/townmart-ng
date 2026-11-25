@@ -1,12 +1,20 @@
 import { withRls } from "@/lib/db";
 import type { LocationOptions } from "@/components/storefront/search-filters";
+import { serviceAreaOptions } from "@/lib/service-area-db";
 
-/** States, plus the LGAs of the chosen state, for the filter form. */
+/**
+ * The service area's states, plus the LGAs of the chosen state, for the filter
+ * form. Places outside the service area aren't offered: nothing is listed there.
+ */
 export async function locationOptions(stateId?: number): Promise<LocationOptions> {
-  return withRls({ userId: null }, async (tx) => ({
-    states: await tx.state.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    lgas: stateId ? await tx.lga.findMany({ where: { stateId }, orderBy: { name: "asc" }, select: { id: true, name: true } }) : [],
-  }));
+  const area = await withRls({ userId: null }, (tx) => serviceAreaOptions(tx));
+  const lgaCount = area.reduce((n, s) => n + s.lgas.length, 0);
+  const chosen = area.find((s) => s.id === stateId) ?? (area.length === 1 ? area[0] : undefined);
+  return {
+    states: area.map(({ id, name }) => ({ id, name })),
+    lgas: chosen?.lgas.map(({ id, name }) => ({ id, name })) ?? [],
+    singlePlace: lgaCount <= 1,
+  };
 }
 
 /** Rebuilds a URL from search params with some keys replaced. */

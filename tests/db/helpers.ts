@@ -14,6 +14,14 @@ export async function createUser(label: string) {
   });
 }
 
+/** Mowe, Obafemi Owode, Ogun: inside the service area (lib/service-area.ts). */
+export async function moweOgun() {
+  const state = await owner.state.findUniqueOrThrow({ where: { code: "OG" } });
+  const lga = await owner.lga.findFirstOrThrow({ where: { stateId: state.id, slug: "obafemi-owode" } });
+  return { stateId: state.id, lgaId: lga.id };
+}
+
+/** Ikeja, Lagos: outside the service area. */
 export async function lagosIkeja() {
   const state = await owner.state.findUniqueOrThrow({ where: { code: "LA" } });
   const lga = await owner.lga.findFirstOrThrow({ where: { stateId: state.id, slug: "ikeja" } });
@@ -21,7 +29,7 @@ export async function lagosIkeja() {
 }
 
 export async function createAddress(userId: string, label = "Home") {
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   return owner.address.create({
     data: {
       userId,
@@ -29,7 +37,7 @@ export async function createAddress(userId: string, label = "Home") {
       recipientName: "Test Person",
       phoneEncrypted: "v1.k1.test.test.test",
       line1Encrypted: "v1.k1.test.test.test",
-      city: "Ikeja",
+      city: "Mowe",
       stateId,
       lgaId,
     },

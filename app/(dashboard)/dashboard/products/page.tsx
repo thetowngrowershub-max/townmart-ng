@@ -46,6 +46,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         id: true,
         title: true,
         status: true,
+        takenDownAt: true,
         basePriceKobo: true,
         trackInventory: true,
         unit: true,
@@ -66,7 +67,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       price: `${p.variants.length > 1 ? "From " : ""}${formatPrice(p.basePriceKobo)}`,
       status: p.status,
       detail: p.trackInventory ? `${stock.toString()} ${p.unit} across ${p.variants.length} variant${p.variants.length === 1 ? "" : "s"}` : "Not tracked",
-      warning: low ? "Low stock" : undefined,
+      warning: p.takenDownAt ? "Taken down by TownMart" : low ? "Low stock" : undefined,
     };
   });
 
@@ -103,13 +104,13 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         }
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <nav aria-label="Filter by status" className="flex gap-2">
+        <nav aria-label="Filter by status" className="-mx-1 flex max-w-full gap-2 overflow-x-auto px-1 pb-1">
           {STATUSES.map((s) => (
             <Link
               key={s}
               href={tab(s)}
               aria-current={s === status && !lowOnly ? "page" : undefined}
-              className={cn("rounded-full border px-3 py-1.5 text-sm capitalize", s === status && !lowOnly ? "border-primary bg-primary-soft font-semibold text-primary" : "hover:bg-muted")}
+              className={cn("whitespace-nowrap rounded-full border px-3 py-1.5 text-sm capitalize", s === status && !lowOnly ? "border-primary bg-primary-soft font-semibold text-primary" : "hover:bg-muted")}
             >
               {s}
             </Link>
@@ -117,16 +118,16 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           <Link
             href="/dashboard/products?stock=low"
             aria-current={lowOnly ? "page" : undefined}
-            className={cn("rounded-full border px-3 py-1.5 text-sm", lowOnly ? "border-warning bg-warning/10 font-semibold" : "hover:bg-muted")}
+            className={cn("whitespace-nowrap rounded-full border px-3 py-1.5 text-sm", lowOnly ? "border-warning bg-warning/10 font-semibold" : "hover:bg-muted")}
           >
             Low stock
           </Link>
         </nav>
-        <form className="ml-auto" role="search">
+        <form className="w-full sm:ml-auto sm:w-auto" role="search">
           <label htmlFor="product-search" className="sr-only">
             Search products
           </label>
-          <Input id="product-search" name="q" defaultValue={q} placeholder="Search title or SKU" className="h-9 w-56" />
+          <Input id="product-search" name="q" defaultValue={q} placeholder="Search title or SKU" className="h-9 w-full sm:w-56" />
           {status !== "all" && <input type="hidden" name="status" value={status} />}
         </form>
       </div>

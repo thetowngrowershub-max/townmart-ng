@@ -84,3 +84,4 @@ export type PromotionInput = z.input<typeof promotionInputSchema>;
 export type PromotionData = z.output<typeof promotionInputSchema>;
 
 export const promotionIdSchema = z.uuid();
+export const promotionChangeSchema = z.object({ id: promotionIdSchema, change: z.enum(["pause", "resume", "end"]) });

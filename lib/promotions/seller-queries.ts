@@ -104,3 +104,13 @@ export function promotionToFormValues(p: Prisma.PromotionGetPayload<{ select: ty
 export function describeDiscount(p: { discountType: "percentage" | "fixed"; discountValue: bigint }) {
   return p.discountType === "percentage" ? `${p.discountValue}% off` : `${formatPrice(p.discountValue)} off each item`;
 }
+
+/** What TownMart's own promotions can target: every active category. */
+export async function platformPickOptions(tx: Tx) {
+  const categories = await tx.category.findMany({
+    where: { isActive: true },
+    orderBy: [{ kind: "asc" }, { parentId: { sort: "asc", nulls: "first" } }, { name: "asc" }],
+    select: { id: true, name: true, parent: { select: { name: true } } },
+  });
+  return { products: [], services: [], categories: categories.map((c) => ({ id: c.id, label: c.parent ? `${c.parent.name} › ${c.name}` : `${c.name} (all)` })) };
+}

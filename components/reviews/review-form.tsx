@@ -14,8 +14,12 @@ import { cn } from "@/lib/utils";
 
 const WORDS = ["", "Poor", "Fair", "Good", "Very good", "Excellent"];
 
-/** Stars, a few words and up to 4 photos. */
-export function ReviewForm({ orderItemId }: { orderItemId: string }) {
+/**
+ * Stars, a few words and up to 4 photos. For a booked service it is the
+ * "Rate my service" form: the words and prompts are about the provider's work.
+ */
+export function ReviewForm({ orderItemId, kind = "product", providerName }: { orderItemId: string; kind?: "product" | "service"; providerName?: string }) {
+  const service = kind === "service";
   const router = useRouter();
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
@@ -58,12 +62,12 @@ export function ReviewForm({ orderItemId }: { orderItemId: string }) {
       }}
     >
       <fieldset>
-        <legend className="mb-2 text-sm font-medium">Your rating</legend>
+        <legend className="mb-2 text-sm font-medium">{service ? `How would you rate ${providerName ?? "the provider"}\u2019s service?` : "Your rating"}</legend>
         <div className="flex items-center gap-1" onMouseLeave={() => setHover(0)}>
           {[1, 2, 3, 4, 5].map((n) => (
             <label key={n} className="cursor-pointer" onMouseEnter={() => setHover(n)}>
               <input type="radio" name="rating" value={n} className="sr-only" checked={rating === n} onChange={() => setRating(n)} />
-              <Star className={cn("size-9 transition-colors", n <= shown ? "fill-accent text-accent" : "text-muted-foreground/40")} aria-hidden />
+              <Star className={cn("size-9 transition-colors", n <= shown ? "fill-accent text-accent-strong" : "text-muted-foreground/40")} aria-hidden />
               <span className="sr-only">
                 {n} star{n === 1 ? "" : "s"}
               </span>
@@ -76,12 +80,12 @@ export function ReviewForm({ orderItemId }: { orderItemId: string }) {
         {errors.rating && <p className="mt-1 text-sm text-danger">{errors.rating}</p>}
       </fieldset>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="review-body">Your review</Label>
-        <Textarea id="review-body" rows={5} maxLength={2000} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What did you like? Was anything not as described?" aria-invalid={Boolean(errors.body)} />
+        <Label htmlFor="review-body">{service ? "Tell others about the job" : "Your review"}</Label>
+        <Textarea id="review-body" rows={5} maxLength={2000} value={body} onChange={(e) => setBody(e.target.value)} placeholder={service ? "Were they on time? How was the quality of the work and the price? Would you hire them again?" : "What did you like? Was anything not as described?"} aria-invalid={Boolean(errors.body)} />
         {errors.body && <p className="text-sm text-danger">{errors.body}</p>}
       </div>
       <div className="flex flex-col gap-2">
-        <span className="text-sm font-medium">Photos (optional, up to 4)</span>
+        <span className="text-sm font-medium">{service ? "Photos of the finished job (optional, up to 4)" : "Photos (optional, up to 4)"}</span>
         <div className="flex flex-wrap gap-3">
           {photos.map((p) => (
             <div key={p.key} className="relative size-20 overflow-hidden rounded-xl bg-muted">
@@ -104,7 +108,7 @@ export function ReviewForm({ orderItemId }: { orderItemId: string }) {
       </div>
       {errors._form && <Alert variant="danger">{errors._form}</Alert>}
       <Button type="submit" disabled={pending || uploading} className="self-start">
-        {pending ? "Posting…" : "Post review"}
+        {pending ? "Posting…" : service ? "Submit my rating" : "Post review"}
       </Button>
       <p className="text-xs text-muted-foreground">Your review shows your first name and initial. Reviews must follow our Acceptable Use Policy.</p>
     </form>

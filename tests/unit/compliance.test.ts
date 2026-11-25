@@ -99,11 +99,12 @@ describe("signed links and cookies", () => {
   it("accepts a pending two-step sign-in only untampered and in time", () => {
     const userId = randomUUID();
     const exp = now.getTime() + 10 * 60_000;
-    const value = encodePending({ userId, next: "/account/orders", exp });
-    expect(decodePending(value, now.getTime())).toEqual({ userId, next: "/account/orders", exp });
+    const value = encodePending({ userId, next: "/account/orders", exp, via: "password" });
+    expect(decodePending(value, now.getTime())).toEqual({ userId, next: "/account/orders", exp, via: "password" });
     expect(decodePending(value, exp + 1)).toBeNull();
     expect(decodePending(value.replace(userId, randomUUID()), now.getTime())).toBeNull();
-    expect(decodePending(encodePending({ userId, next: null, exp }), now.getTime())?.next).toBeNull();
+    expect(decodePending(encodePending({ userId, next: null, exp, via: "sms" }), now.getTime())?.next).toBeNull();
+    expect(decodePending(value.replace(".password.", ".google."), now.getTime())).toBeNull();
     expect(decodePending("a.b.c", now.getTime())).toBeNull();
   });
 
