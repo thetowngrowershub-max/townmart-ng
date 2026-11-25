@@ -1,15 +1,16 @@
 import { env, isProduction } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { isTestMode } from "@/lib/platform";
 
 /**
  * Verifies a Cloudflare Turnstile token server-side.
- * Without TURNSTILE_SECRET_KEY the check is skipped in development and fails
- * closed in production.
+ * Without TURNSTILE_SECRET_KEY the check is skipped in development and on a
+ * test-mode site, and fails closed in production.
  */
 export async function verifyTurnstile(token: string | undefined, ip?: string): Promise<boolean> {
   const secret = env().TURNSTILE_SECRET_KEY;
   if (!secret) {
-    if (isProduction()) {
+    if (isProduction() && !isTestMode()) {
       logger.error("TURNSTILE_SECRET_KEY is not set in production; rejecting request");
       return false;
     }

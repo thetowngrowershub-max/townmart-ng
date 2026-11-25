@@ -34,7 +34,7 @@ export type RawSearchParams = Record<string, string | string[] | undefined>;
 
 export function parseSearchParams(
   raw: RawSearchParams,
-  defaults: { categoryId?: string; pageSize?: number } = {},
+  defaults: { categoryId?: string; pageSize?: number; near?: { lat: number; lng: number } | null } = {},
 ): SearchQuery {
   const flat = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]));
   const p = searchParamsSchema.parse(flat);
@@ -42,6 +42,7 @@ export function parseSearchParams(
     q: p.q?.trim() || undefined,
     kind: p.kind,
     sort: p.sort,
+    near: defaults.near ?? undefined,
     page: p.page,
     pageSize: defaults.pageSize ?? (p.kind === "all" ? 8 : 24),
     categoryId: defaults.categoryId,

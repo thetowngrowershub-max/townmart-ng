@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import Script from "next/script";
 import { allowedScripts, NO_CONSENT, needsConsent } from "@/lib/consent/cookie";
 import { cookiePolicyVersion, readConsent } from "@/lib/consent/server";
@@ -10,7 +11,8 @@ import { ConsentBanner } from "./consent-banner";
  * rendered before consent.
  */
 export async function ConsentManager() {
-  const [consent, version] = await Promise.all([readConsent(), cookiePolicyVersion()]);
+  const [consent, version, h] = await Promise.all([readConsent(), cookiePolicyVersion(), headers()]);
+  const nonce = h.get("x-nonce") ?? undefined;
   const e = env();
   const scripts = allowedScripts(consent, version, { analytics: e.ANALYTICS_SCRIPT_URL, marketing: e.MARKETING_SCRIPT_URL });
   const current = consent ? { functional: consent.functional, analytics: consent.analytics, marketing: consent.marketing } : NO_CONSENT;
@@ -18,7 +20,7 @@ export async function ConsentManager() {
     <>
       <ConsentBanner initialOpen={needsConsent(consent, version)} current={current} />
       {scripts.map((src) => (
-        <Script key={src} src={src} strategy="afterInteractive" />
+        <Script key={src} src={src} strategy="afterInteractive" nonce={nonce} />
       ))}
     </>
   );

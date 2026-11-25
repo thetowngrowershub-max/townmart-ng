@@ -39,7 +39,7 @@ export default async function CategoriesPage() {
           <h2 id={`h-${kind}`} className="mb-3 font-heading text-lg font-semibold">
             {kind === "product" ? "Product categories" : "Service categories"}
           </h2>
-          <Card className="overflow-x-auto">
+          <Card className="overflow-x-auto" tabIndex={0} role="region" aria-label="Categories">
             <table className="w-full min-w-[560px] text-sm">
               <thead className="border-b text-left text-xs text-muted-foreground">
                 <tr>

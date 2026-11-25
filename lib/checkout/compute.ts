@@ -5,8 +5,13 @@ import { toRule } from "@/lib/promotions/live";
 import { loadSchedule } from "@/lib/bookings/schedule";
 import { findSlot, type Interval } from "@/lib/bookings/slots";
 import { getCheckoutSettings, type CheckoutSettings } from "@/lib/settings";
-import { DEFAULT_ITEM_WEIGHT_G, quoteDelivery, type DeliveryQuote } from "./delivery";
+import { DEFAULT_ITEM_WEIGHT_G, quoteDelivery, quoteDistanceDelivery, type DeliveryQuote } from "./delivery";
+import type { CustomerPoint } from "@/lib/geo/distance";
+import { loadDestination } from "./destination";
+import { roadDistance, type RoadDistance } from "@/lib/geo/routes";
 import { buildQuote, roundBps, type OrderQuote } from "./quote";
+import { openState, parseOpeningHours } from "@/lib/catalogue/opening-hours";
+import { checkChoices, MealChoiceError, parseMealBuilder, type CheckedChoices } from "@/lib/catalogue/meal-builder";
 
 /**
  * Everything checkout needs, worked out from the database in one place: the
@@ -25,7 +30,11 @@ export type LineProblem =
   | { kind: "below_minimum"; minimum: string }
   | { kind: "fraction_not_allowed" }
   | { kind: "slot_unavailable" }
-  | { kind: "outside_area" };
+  | { kind: "outside_area" }
+  /** Food from a seller that's closed or has paused orders. `label` says when they open. */
+  | { kind: "store_closed"; label: string }
+  /** A built plate that no longer fits the menu (an item finished or removed). */
+  | { kind: "meal_changed"; message: string };
 
 /** A service line: one booking at a chosen time. */
 export type BookingLine = {
@@ -102,6 +111,8 @@ export type CheckoutComputation = {
   payOnDeliveryAvailable: boolean;
   /** Whether delivery was priced for an address (the cart page has none yet). */
   hasAddress: boolean;
+  /** The drop-off point delivery was priced from, if any. */
+  point: CustomerPoint | null;
   /** Reasons the order can't be placed as it stands. */
   blockers: string[];
 };
@@ -149,8 +160,12 @@ export async function computeCheckout(
   input: {
     cartId: string | null;
     userId: string | null;
-    /** Where it's going; null before the shopper has chosen an address. */
-    address: { stateId: number; lgaId: number } | null;
+    /**
+     * Where it's going; null before the shopper has chosen an address. `point`
+     * is the drop-off on the map (lib/geo/customer-location.ts resolves it);
+     * with it, delivery is priced by distance from each shop that has set its location.
+     */
+    address: { stateId: number; lgaId: number; point?: CustomerPoint | null } | null;
     /** The shopper's choice per seller; anything missing gets the default. */
     methods?: Readonly<Record<string, "delivery" | "pickup">>;
     now?: Date;
@@ -158,6 +173,12 @@ export async function computeCheckout(
 ): Promise<CheckoutComputation> {
   const now = input.now ?? new Date();
   const settings = await getCheckoutSettings(tx);
+  // A caller that gives only a state and LGA gets the same point placeOrder
+  // would resolve (the area's centre), so quotes and orders agree.
+  if (input.address && input.address.point === undefined) {
+    const { destination } = await loadDestination(tx, { userId: null, stateId: input.address.stateId, lgaId: input.address.lgaId });
+    input = { ...input, address: { ...input.address, point: destination?.point ?? null } };
+  }
   const cart = input.cartId
     ? await tx.cart.findUnique({
         where: { id: input.cartId },
@@ -169,7 +190,7 @@ export async function computeCheckout(
                 include: {
                   product: {
                     include: {
-                      category: { select: { parentId: true } },
+                      category: { select: { parentId: true, isFood: true, parent: { select: { isFood: true } } } },
                       images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }], take: 1, select: { storageKey: true, altText: true, variantId: true } },
                     },
                   },
@@ -189,8 +210,11 @@ export async function computeCheckout(
                   slug: true,
                   city: true,
                   status: true,
+                  lgaId: true,
+                  latitude: true,
+                  longitude: true,
                   state: { select: { name: true } },
-                  policy: { select: { deliveryOptions: true, acceptsPayOnDelivery: true, returnWindowDays: true } },
+                  policy: { select: { deliveryOptions: true, acceptsPayOnDelivery: true, returnWindowDays: true, openingHours: true, ordersPaused: true } },
                 },
               },
             },
@@ -221,12 +245,29 @@ export async function computeCheckout(
       const v = i.variant;
       const p = v.product;
       const live = p.status === "active" && p.deletedAt === null && p.takenDownAt === null && i.business.status === "approved";
+      // Restaurants' build-your-plate items: the plate's choices add to the price, read from the menu now.
+      const builder = parseMealBuilder(p.mealBuilder);
+      let plate: CheckedChoices | null = null;
+      let plateError: string | null = null;
+      if (builder) {
+        try {
+          plate = checkChoices(builder, i.choices ?? {});
+        } catch (err) {
+          if (!(err instanceof MealChoiceError)) throw err;
+          plateError = err.message;
+        }
+      }
       let problem: LineProblem | null = null;
       if (!live) problem = { kind: "unavailable" };
+      else if (plateError) problem = { kind: "meal_changed", message: plateError };
       else if (!p.allowFractionalQty && !i.qty.isInteger()) problem = { kind: "fraction_not_allowed" };
       else if (i.qty.lessThan(p.minOrderQty)) problem = { kind: "below_minimum", minimum: p.minOrderQty.toString() };
       else if (p.trackInventory && !p.allowBackorder && i.qty.greaterThan(v.stockQty))
         problem = v.stockQty.lte(0) ? { kind: "out_of_stock" } : { kind: "not_enough", available: v.stockQty.toString() };
+      else if (p.category.isFood || p.category.parent?.isFood) {
+        const state = openState(parseOpeningHours(i.business.policy?.openingHours), i.business.policy?.ordersPaused ?? false, now);
+        if (!state.open) problem = { kind: "store_closed", label: state.label };
+      }
       all.push({
         cartItemId: i.id,
         kind: "product",
@@ -239,7 +280,7 @@ export async function computeCheckout(
         title: p.title,
         slug: p.slug,
         sku: v.sku,
-        optionValues: (v.optionValues ?? {}) as Record<string, string>,
+        optionValues: { ...((v.optionValues ?? {}) as Record<string, string>), ...(plate?.labels ?? {}) },
         imageKey: p.images[0]?.storageKey ?? null,
         imageAlt: p.images[0]?.altText ?? null,
         unit: p.unit,
@@ -250,7 +291,7 @@ export async function computeCheckout(
         allowBackorder: p.allowBackorder,
         stockQty: v.stockQty,
         weightG: Math.ceil((p.weightGrams ?? DEFAULT_ITEM_WEIGHT_G) * i.qty.toNumber()),
-        unitPriceKobo: v.priceKobo,
+        unitPriceKobo: v.priceKobo + (plate?.extraKobo ?? 0n),
         payLaterKobo: 0n,
         problem,
         savedForLater: i.savedForLater,
@@ -265,7 +306,8 @@ export async function computeCheckout(
     const live = sv.status === "active" && sv.deletedAt === null && sv.takenDownAt === null && i.business.status === "approved" && (pkg === null || pkg.serviceId === sv.id);
     let problem: LineProblem | null = null;
     if (!live) problem = { kind: "unavailable" };
-    else if (!atProvider && input.address && sv.serviceLgaIds.length > 0 && !sv.serviceLgaIds.includes(input.address.lgaId)) problem = { kind: "outside_area" };
+    // Providers only work in the LGA they're registered in.
+    else if (!atProvider && input.address && input.address.lgaId !== i.business.lgaId) problem = { kind: "outside_area" };
     else if (!i.savedForLater && !(await slotOpen(sv.id, startsAt, durationMinutes))) problem = { kind: "slot_unavailable" };
     all.push({
       cartItemId: i.id,
@@ -342,6 +384,17 @@ export async function computeCheckout(
     const total = pricedByKey.get(l.cartItemId)?.totalKobo ?? 0n;
     l.payLaterKobo = total - roundBps(total, l.booking!.depositPercent * 100);
   }
+  // Road distance from each shop that has pinned its location to the drop-off.
+  const point = input.address?.point ?? null;
+  const roads = new Map<string, RoadDistance>();
+  if (point) {
+    await Promise.all(
+      businessIds.map(async (id) => {
+        const b = cart!.items.find((i) => i.businessId === id)!.business;
+        if (b.latitude !== null && b.longitude !== null) roads.set(id, await roadDistance({ lat: b.latitude, lng: b.longitude }, point, settings.deliveryRoadFactor));
+      }),
+    );
+  }
   const sellers: SellerDelivery[] = businessIds.map((businessId) => {
     // Only goods are delivered; bookings happen at the address or the provider's place.
     const own = sellable.filter((l) => l.businessId === businessId && l.kind === "product");
@@ -350,8 +403,15 @@ export async function computeCheckout(
     const offersDelivery = opts.delivery !== false;
     const offersPickup = opts.pickup === true;
     const goods = own.reduce((a, l) => a + (pricedByKey.get(l.cartItemId)?.totalKobo ?? 0n), 0n);
+    const road = roads.get(businessId);
     const delivery =
-      input.address && offersDelivery
+      input.address && offersDelivery && point && road
+        ? quoteDistanceDelivery({
+            road,
+            source: point.source,
+            rates: { perKmKobo: settings.deliveryPerKmKobo, roadFactor: settings.deliveryRoadFactor, maxKm: settings.deliveryMaxKm },
+          })
+        : input.address && offersDelivery
         ? quoteDelivery({
             zones: zones.map((z) => ({ id: z.id, name: z.name, stateIds: z.stateIds, lgaIds: z.lgaIds, priority: z.priority })),
             rates,
@@ -425,6 +485,7 @@ export async function computeCheckout(
     couponCode,
     payOnDeliveryAvailable: settings.payOnDeliveryEnabled && sellers.length > 0 && sellers.every((s) => s.acceptsPayOnDelivery),
     hasAddress: input.address !== null,
+    point: input.address?.point ?? null,
     blockers,
   };
 }

@@ -6,9 +6,11 @@ This describes the system as of **Phase 1**. Each phase updates it.
 
 ```mermaid
 flowchart LR
-  browser[Browser] -->|HTTPS| proxy[Caddy / Nginx<br/>Phase 8]
+  browser[Browser] -->|HTTPS| proxy[Caddy]
   proxy --> web[Next.js 15 app<br/>Server Components + Server Actions]
-  web -->|townmart_app role, RLS| pg[(PostgreSQL 16)]
+  web -->|townmart_app role, RLS| bouncer[PgBouncer<br/>transaction pooling]
+  bouncer -->|TLS| pg[(PostgreSQL 16)]
+  backup[Backup service<br/>pgBackRest + encrypted dumps] --> pg
   web --> redis[(Redis 7)]
   web -->|enqueue| redis
   worker[Worker process<br/>BullMQ] -->|consume| redis
@@ -353,11 +355,30 @@ Shops answer questions at `/dashboard/questions` (`question.answer`); an answere
 
 ### System health
 
-`/admin/system` (`lib/system/health.ts`) shows database size and connections, the largest tables, queries running over 5 seconds, the slowest statements (when `pg_stat_statements` is loaded), every BullMQ queue's counts and recent failures with retry buttons (`jobs.retry`), the last run of each scheduled job, and the last backup and restore drill. Each section fails on its own, so a Redis outage shows as "unavailable" rather than breaking the page. Backups and restore drills are recorded by the ops scripts with `pnpm ops:record backup|restore_test --ok|--failed` into the append-only `ops_events`.
+`/admin/system` (`lib/system/health.ts`) shows database size and connections, the largest tables, queries running over 5 seconds, the slowest statements (when `pg_stat_statements` is loaded), every BullMQ queue's counts and recent failures with retry buttons (`jobs.retry`), the last run of each scheduled job, and the last backup and restore drill. Each section fails on its own, so a Redis outage shows as "unavailable" rather than breaking the page. Backups and restore drills record themselves into the append-only `ops_events` (Phase 8); `pnpm ops:record backup|restore_test --ok|--failed` records one taken by hand.
 
 ### Staff
 
 Store owners invite people by email at `/dashboard/staff` and choose what each can do (products and services, orders, bookings, promotions, reviews and questions). The emailed link (`/invite/[token]`, hashed, 7 days, resendable and revocable) is accepted while signed in with that email; an account that owns or already works for a store can't accept. Owners change permissions or remove staff at any time, and the change applies on the next request.
+
+## Phase 8: hardening and operations
+
+### Production stack
+
+`docker-compose.prod.yml` puts only Caddy on the internet. The app and worker reach Postgres through PgBouncer in transaction mode over TLS; that is safe because every advisory lock is transaction-scoped and `withRls()` sets its settings with `set_config(…, true)`, so nothing outlives a transaction (all database tests also pass through PgBouncer). Postgres accepts TCP only over TLS, loads `pg_stat_statements` and archives WAL with pgBackRest. App containers get blanked superuser and migrator passwords; migrations run in a one-off `migrate` container as the schema owner. Step by step: DEPLOYMENT.md.
+
+### Backups
+
+The `backup` service (`scripts/db/scheduler.sh`) runs pgBackRest backups (point-in-time recovery, WAL every minute), a nightly `pg_dump` of one consistent snapshot encrypted with age (`backup.sh`), copies both to a second location, and a monthly restore drill (`verify-restore.sh`) that restores the newest dump into a scratch database and compares every table's row count with counts taken in the dump's own snapshot. Runbooks: DATABASE.md.
+
+### Content-Security-Policy
+
+`middleware.ts` makes a fresh nonce for every page request and sets a strict policy built by `lib/security/csp.ts`: scripts need the nonce (plus `'strict-dynamic'` for what they load), and only the configured storage, Turnstile, payment pages and consent-gated analytics are allowed. Next.js reads the nonce from the request's policy and adds it to its own scripts; `ConsentManager` passes it to the analytics and marketing scripts. API routes get `default-src 'none'`. The full review is SECURITY.md.
+
+### Tests at the edges
+
+- `pnpm load:oversell` (`scripts/load/`) forks one process per buyer, each with its own connection, waits until all are connected, releases them together and checks exactly the stock was sold. It then pays every order through the running app's webhook endpoint three times at once and checks each was paid and booked in the ledger once.
+- `tests/e2e/` (Playwright, Pixel 7 screen): a guest purchase, a refund after delivery approved by the seller, and a booking confirmed by the provider, each through the real pages and the fake payment page, plus an axe audit (WCAG 2.2 AA rules) of 32 storefront, account, seller and admin pages. CI runs both against a production build with the worker.
 
 ## Design system
 

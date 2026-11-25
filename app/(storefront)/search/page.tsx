@@ -10,6 +10,8 @@ import { requestMeta } from "@/lib/request";
 import { parseSearchParams, searchProvider, type RawSearchParams, type SearchKind } from "@/lib/search";
 import { locationOptions, withParams } from "@/lib/search/locations";
 import { cn } from "@/lib/utils";
+import { NearMeButton } from "@/components/geo/use-location";
+import { nearMe } from "@/lib/geo/near-me";
 
 type Props = { searchParams: Promise<RawSearchParams> };
 
@@ -27,7 +29,8 @@ const KINDS: { kind: SearchKind; label: string }[] = [
 
 export default async function SearchPage({ searchParams }: Props) {
   const raw = await searchParams;
-  const query = parseSearchParams(raw);
+  const near = await nearMe();
+  const query = parseSearchParams(raw, { near });
   const meta = await requestMeta();
   const limited = !(await rateLimit(`search:${meta.ipHash}`, 120, 60)).allowed;
 
@@ -62,6 +65,7 @@ export default async function SearchPage({ searchParams }: Props) {
             </Link>
           ))}
         </nav>
+        {query.sort !== "nearest" || !near ? <NearMeButton known={near !== null} href={withParams("/search", raw, { sort: "nearest", page: undefined })} /> : null}
       </div>
 
       <div className="grid gap-8 lg:grid-cols-[240px_1fr]">

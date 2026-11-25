@@ -27,7 +27,7 @@ export default async function LogsPage() {
             <CardTitle>Staff access to personal data</CardTitle>
             <CardDescription>Written automatically whenever an admin page shows contact details, documents or a data request.</CardDescription>
           </CardHeader>
-          <CardContent className="overflow-x-auto">
+          <CardContent className="overflow-x-auto" tabIndex={0} role="region" aria-label="Staff access to personal data">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="text-xs text-muted-foreground">
                 <tr>
@@ -61,7 +61,7 @@ export default async function LogsPage() {
             <CardTitle>Cookie choices</CardTitle>
             <CardDescription>Each choice as made, with the Cookie Policy version shown at the time. IP addresses are stored only as a keyed hash.</CardDescription>
           </CardHeader>
-          <CardContent className="overflow-x-auto">
+          <CardContent className="overflow-x-auto" tabIndex={0} role="region" aria-label="Cookie choices">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="text-xs text-muted-foreground">
                 <tr>

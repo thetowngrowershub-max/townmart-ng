@@ -53,7 +53,7 @@ export default async function CommissionPage() {
             <CommissionRuleForm categories={categories.map((c) => ({ id: c.id, name: `${c.name} (${c.kind})` }))} sellers={sellers} />
           </CardContent>
         </Card>
-        <Card className="relative overflow-x-auto">
+        <Card className="relative overflow-x-auto" tabIndex={0} role="region" aria-label="Commission rules">
           <table className="w-full min-w-[640px] text-sm">
             <caption className="sr-only">Commission rules</caption>
             <thead className="border-b text-left text-xs text-muted-foreground">

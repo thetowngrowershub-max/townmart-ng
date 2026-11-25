@@ -1,5 +1,6 @@
 import { Star } from "lucide-react";
 import Image from "next/image";
+import type { ReactNode } from "react";
 import type { ReviewView } from "@/lib/reviews/reviews";
 import { ReportReview } from "./report-review";
 
@@ -7,21 +8,49 @@ export function Stars({ rating, className = "size-4" }: { rating: number; classN
   return (
     <span className="inline-flex" aria-label={`${rating} out of 5 stars`} role="img">
       {[1, 2, 3, 4, 5].map((n) => (
-        <Star key={n} className={`${className} ${n <= rating ? "fill-accent text-accent" : "text-muted-foreground/30"}`} aria-hidden />
+        <Star key={n} className={`${className} ${n <= rating ? "fill-accent text-accent-strong" : "text-muted-foreground/30"}`} aria-hidden />
       ))}
     </span>
   );
 }
 
-/** A listing's reviews: average, star breakdown and the latest reviews, each with any seller reply. */
-export function ReviewList({ avg, total, breakdown, reviews, signedIn }: { avg: number; total: number; breakdown: number[]; reviews: ReviewView[]; signedIn: boolean }) {
+/**
+ * Reviews with their average, star breakdown and the latest few, each with any
+ * seller reply. Used for a listing's reviews and for a provider's "Rate my
+ * service" ratings (where each review names the service it was for).
+ */
+export function ReviewList({
+  avg,
+  total,
+  breakdown,
+  reviews,
+  signedIn,
+  title = "Reviews",
+  emptyText = "No reviews yet. Only customers who bought this through TownMart can review it.",
+  verifiedLabel = "Verified purchase",
+  action,
+}: {
+  avg: number;
+  total: number;
+  breakdown: number[];
+  reviews: (ReviewView & { about?: string | null })[];
+  signedIn: boolean;
+  title?: string;
+  emptyText?: string;
+  verifiedLabel?: string;
+  /** e.g. a "Rate my service" link, shown beside the heading. */
+  action?: ReactNode;
+}) {
   return (
     <section id="reviews" aria-labelledby="reviews-title" className="flex flex-col gap-4">
-      <h2 id="reviews-title" className="text-lg font-bold">
-        Reviews
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="reviews-title" className="text-lg font-bold">
+          {title}
+        </h2>
+        {action}
+      </div>
       {total === 0 ? (
-        <p className="text-sm text-muted-foreground">No reviews yet. Only customers who bought this through TownMart can review it.</p>
+        <p className="text-sm text-muted-foreground">{emptyText}</p>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-6">
@@ -50,8 +79,11 @@ export function ReviewList({ avg, total, breakdown, reviews, signedIn }: { avg: 
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <Stars rating={r.rating} />
                   <span className="font-medium">{r.author}</span>
-                  <span className="text-xs text-muted-foreground">· Verified purchase · {r.date}</span>
+                  <span className="text-xs text-muted-foreground">
+                    · {verifiedLabel} · {r.date}
+                  </span>
                 </div>
+                {r.about && <p className="text-xs text-muted-foreground">For {r.about}</p>}
                 <p className="text-sm whitespace-pre-wrap">{r.body}</p>
                 {r.images.length > 0 && (
                   <ul className="flex gap-2">

@@ -57,6 +57,7 @@ const DEFAULT_SETTINGS: { key: string; value: unknown; description: string }[] =
   { key: "fees.service_fee_cap_naira", value: 1000, description: "Maximum service fee per order (₦)." },
   { key: "bookings.lead_minutes", value: 120, description: "How soon a booking can start (minutes from now)." },
   { key: "bookings.days_ahead", value: 60, description: "How far ahead customers can book (days)." },
+  { key: "delivery.per_km_naira", value: 250, description: "Delivery price per km from the shop to the customer (₦)." },
   { key: "orders.auto_complete_days", value: 7, description: "Days after delivery before an order completes if the customer doesn't confirm." },
   { key: "auth.max_failed_logins", value: 5, description: "Failed sign-ins before a temporary lockout." },
 ];
@@ -80,7 +81,8 @@ async function seedStaffAccount(email: string, name: string, roles: Role[], envV
   }
   let password = process.env[envVar];
   if (!password) {
-    if (isProd) throw new Error(`${envVar} must be set to seed ${email} in production`);
+    // A test-mode site signs staff in from /auth/demo, so their passwords can stay unknown.
+    if (isProd && process.env.TOWNMART_TEST_MODE !== "true") throw new Error(`${envVar} must be set to seed ${email} in production`);
     password = randomBytes(12).toString("base64url");
   }
   const user = await prisma.user.create({

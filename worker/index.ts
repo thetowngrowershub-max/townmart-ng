@@ -10,96 +10,13 @@
  *   maintenance   — scheduled clean-up jobs, recorded in job_runs
  */
 import "dotenv/config";
-import { Queue, Worker, type Job } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import { prisma } from "@/lib/db";
+import { handleImport, handleMaintenance, handleNotification, handleOrder, handlePrivacy } from "@/lib/jobs/handlers";
 import { logger } from "@/lib/logger";
-import { runProductImport } from "@/lib/catalogue/import";
-import { sendLowStockAlert } from "@/lib/catalogue/low-stock-alert";
-import { emailProvider, type EmailMessage } from "@/lib/notifications/email";
-import { smsProvider } from "@/lib/notifications/sms";
-import { sendFulfilmentNotice } from "@/lib/fulfilment/notify";
-import { sendOrderConfirmed } from "@/lib/orders/notify";
-import { processPaymentEvent } from "@/lib/orders/payment";
-import { buildDataExport } from "@/lib/privacy/export";
-import { QUEUES, type ImportJobs, type NotificationJobs, type OrderJobs, type PrivacyJobs } from "@/lib/queue";
+import { QUEUES } from "@/lib/queue";
 import { newRedisConnection } from "@/lib/redis";
 import { maintenanceJobs } from "./jobs/maintenance";
-import { trackJobRun } from "./job-runs";
-
-async function handleNotification(job: Job) {
-  switch (job.name) {
-    case "email.send": {
-      const message = job.data as EmailMessage;
-      const { id } = await emailProvider().send(message);
-      logger.info({ jobId: job.id, provider: emailProvider().name, messageId: id }, "email sent");
-      return;
-    }
-    case "sms.send": {
-      const message = job.data as NotificationJobs["sms.send"];
-      const { id } = await smsProvider().send(message);
-      // Never log the body: it holds one-time codes.
-      logger.info({ jobId: job.id, provider: smsProvider().name, messageId: id }, "sms sent");
-      return;
-    }
-    case "stock.low": {
-      const { businessId, variantIds } = job.data as NotificationJobs["stock.low"];
-      const sent = await sendLowStockAlert(businessId, variantIds);
-      logger.info({ jobId: job.id, businessId, items: sent }, "low-stock alert processed");
-      return;
-    }
-    default:
-      throw new Error(`Unknown notifications job: ${job.name}`);
-  }
-}
-
-async function handleImport(job: Job) {
-  if (job.name !== "products.csv") throw new Error(`Unknown imports job: ${job.name}`);
-  const { importJobId, businessId } = job.data as ImportJobs["products.csv"];
-  const result = await runProductImport(importJobId, businessId);
-  logger.info({ importJobId, ...result }, "product import finished");
-  return result;
-}
-
-async function handleOrder(job: Job) {
-  switch (job.name) {
-    case "order.confirmed": {
-      const { orderId } = job.data as OrderJobs["order.confirmed"];
-      const sent = await sendOrderConfirmed(orderId);
-      logger.info({ jobId: job.id, orderId, sent }, "order confirmation processed");
-      return;
-    }
-    case "payment.event": {
-      const { eventId } = job.data as OrderJobs["payment.event"];
-      await processPaymentEvent(eventId);
-      logger.info({ jobId: job.id, eventId }, "payment event processed");
-      return;
-    }
-    case "fulfilment.notice": {
-      const { notice } = job.data as OrderJobs["fulfilment.notice"];
-      await sendFulfilmentNotice(notice);
-      logger.info({ jobId: job.id, type: notice.type }, "notice processed");
-      return;
-    }
-    default:
-      throw new Error(`Unknown orders job: ${job.name}`);
-  }
-}
-
-async function handlePrivacy(job: Job) {
-  if (job.name !== "privacy.export") throw new Error(`Unknown privacy job: ${job.name}`);
-  const { requestId } = job.data as PrivacyJobs["privacy.export"];
-  const result = await buildDataExport(requestId);
-  logger.info({ jobId: job.id, requestId, result }, "data export processed");
-  return result;
-}
-
-async function handleMaintenance(job: Job) {
-  const def = maintenanceJobs[job.name];
-  if (!def) throw new Error(`Unknown maintenance job: ${job.name}`);
-  const result = await trackJobRun(job.name, def.run);
-  logger.info({ job: job.name, result }, "maintenance job finished");
-  return result;
-}
 
 async function main() {
   const maintenanceQueue = new Queue(QUEUES.maintenance, { connection: newRedisConnection() });

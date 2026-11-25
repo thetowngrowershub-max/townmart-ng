@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/current-user";
 import { encrypt } from "@/lib/crypto";
 import { withRls } from "@/lib/db";
 import { requestMeta } from "@/lib/request";
+import { checkServiceArea } from "@/lib/service-area-db";
 import { newAddressSchema } from "@/lib/validation/checkout";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
 
@@ -21,8 +22,8 @@ export async function addAddressAction(input: z.input<typeof newAddressSchema>):
   const res = await withRls({ userId: user.id }, async (tx) => {
     const count = await tx.address.count({ where: { userId: user.id } });
     if (count >= MAX_ADDRESSES) return { ok: false as const, error: `You can save up to ${MAX_ADDRESSES} addresses. Remove one first.` };
-    const lga = await tx.lga.findFirst({ where: { id: a.lgaId, stateId: a.stateId }, select: { id: true } });
-    if (!lga) return { ok: false as const, error: "Please check the highlighted fields.", fieldErrors: { lgaId: ["Choose an LGA in the selected state"] } };
+    const place = await checkServiceArea(tx, a);
+    if (!place.ok) return { ok: false as const, error: place.error, fieldErrors: place.fieldErrors };
     await tx.address.create({
       data: {
         userId: user.id,
@@ -31,7 +32,7 @@ export async function addAddressAction(input: z.input<typeof newAddressSchema>):
         line1Encrypted: encrypt(a.line1),
         line2Encrypted: a.line2 ? encrypt(a.line2) : null,
         landmark: a.landmark || null,
-        city: a.city,
+        city: place.city,
         stateId: a.stateId,
         lgaId: a.lgaId,
         isDefault: count === 0,

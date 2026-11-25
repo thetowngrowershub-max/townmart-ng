@@ -3,6 +3,7 @@ import { cache } from "react";
 import { withRls } from "@/lib/db";
 import type { StoreHit } from "@/lib/search/provider";
 import { publicImageUrl } from "@/lib/storage";
+import { IN_SERVICE_AREA } from "@/lib/service-area-db";
 
 /** Public reads of TownMart's own content run as a guest; RLS hides inactive banners and unpublished answers. */
 const asGuest = <T,>(fn: Parameters<typeof withRls<T>>[1]) => withRls({ userId: null }, fn);
@@ -22,7 +23,7 @@ export async function getHomepageBanners(now = new Date()) {
 export async function getFeaturedStores(): Promise<StoreHit[]> {
   const rows = await asGuest((tx) =>
     tx.featuredStore.findMany({
-      where: { business: { status: "approved" } },
+      where: { business: { status: "approved", lga: IN_SERVICE_AREA } },
       orderBy: { sortOrder: "asc" },
       select: { business: { select: { id: true, name: true, slug: true, type: true, logoKey: true, city: true, ratingAvg: true, ratingCount: true, state: { select: { name: true } } } } },
     }),
