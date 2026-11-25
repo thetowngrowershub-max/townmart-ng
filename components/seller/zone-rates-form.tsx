@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { savePlatformRatesAction } from "@/lib/admin/catalogue-actions";
 import { resetZoneRatesAction, saveZoneRatesAction } from "@/lib/delivery/actions";
 
 export type BandRow = { upToKg: string; fee: string; freeOver: string; etaMin: string; etaMax: string };
@@ -15,8 +16,9 @@ const empty: BandRow = { upToKg: "", fee: "", freeOver: "", etaMin: "1", etaMax:
 /**
  * Edits a seller's weight bands for one zone, starting from their own bands
  * or a copy of TownMart's defaults. Saving replaces all of the zone's bands.
+ * With `platform`, it edits TownMart's own default bands from the admin console.
  */
-export function ZoneRatesForm({ zoneId, zoneName, initial, custom }: { zoneId: string; zoneName: string; initial: BandRow[]; custom: boolean }) {
+export function ZoneRatesForm({ zoneId, zoneName, initial, custom, platform = false }: { zoneId: string; zoneName: string; initial: BandRow[]; custom: boolean; platform?: boolean }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [bands, setBands] = useState<BandRow[]>(initial.length ? initial : [empty]);
@@ -31,9 +33,9 @@ export function ZoneRatesForm({ zoneId, zoneName, initial, custom }: { zoneId: s
     return (
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-          {custom ? "Edit your rates" : "Set your own rates"}
+          {platform ? (initial.length ? "Edit TownMart's rates" : "Add TownMart's rates") : custom ? "Edit your rates" : "Set your own rates"}
         </Button>
-        {custom && (
+        {custom && !platform && (
           <Button
             size="sm"
             variant="ghost"
@@ -59,7 +61,7 @@ export function ZoneRatesForm({ zoneId, zoneName, initial, custom }: { zoneId: s
       onSubmit={(e) => {
         e.preventDefault();
         start(async () => {
-          const res = await saveZoneRatesAction({ zoneId, bands });
+          const res = await (platform ? savePlatformRatesAction : saveZoneRatesAction)({ zoneId, bands });
           if (res.ok) {
             setEditing(false);
             setErrors({});

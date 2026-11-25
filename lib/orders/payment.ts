@@ -8,8 +8,11 @@ import { env } from "@/lib/env";
 import { paymentCapturedPostings } from "@/lib/ledger/entries";
 import { postLedgerTransaction } from "@/lib/ledger/post";
 import { logger } from "@/lib/logger";
+import { GATEWAY_TEST_SUFFIX, gatewayTestChargeKobo, isGatewayTestReference, isPaymentTester, liveGatewayTest } from "@/lib/payments/gateway-test";
 import { paymentProvider, paymentProviderOrder, PaymentProviderError, type ProviderName, type VerifiedPayment } from "@/lib/payments";
 import { enqueueOrderEvent } from "@/lib/queue";
+import { syncPayoutByReference } from "@/lib/payouts/payouts";
+import { refundUnappliedPayment, syncRefundsForPayment } from "@/lib/refunds/core";
 import { writeRedemptions } from "./place";
 import { moveSellerOrders } from "./status";
 
@@ -25,22 +28,30 @@ export async function startOnlinePayment(orderId: string, accessToken: string): 
   if (!order || order.paymentStatus !== "unpaid" || order.cancelledAt) throw new PaymentError("This order can't be paid for any more.");
   if (order.paymentDueAt && order.paymentDueAt <= new Date()) throw new PaymentError("The time to pay for this order has run out, so its items went back on sale. Please order again.");
 
+  // Live key on the test site: only payment testers, a small fixed charge, refunded and never applied.
+  const gatewayTest = liveGatewayTest();
+  if (gatewayTest) {
+    const user = order.userId ? await withSystemContext((tx) => tx.user.findUnique({ where: { id: order.userId! }, select: { email: true, emailVerified: true } })) : null;
+    if (!isPaymentTester(user)) throw new PaymentError("Card payments are switched off on this test site. Please choose pay on delivery.");
+  }
+  const chargeKobo = gatewayTest ? gatewayTestChargeKobo() : order.totalKobo;
+
   const callback = `${env().APP_URL}/checkout/complete/${order.orderNumber}?t=${encodeURIComponent(accessToken)}`;
   let lastError: unknown;
   for (const provider of paymentProviderOrder()) {
-    const reference = `${order.orderNumber}-${randomToken(6).replace(/[^A-Za-z0-9]/g, "x")}`;
+    const reference = `${order.orderNumber}-${randomToken(6).replace(/[^A-Za-z0-9]/g, "x")}${gatewayTest ? GATEWAY_TEST_SUFFIX : ""}`;
     await withSystemContext(async (tx) => {
-      await tx.payment.create({ data: { orderId: order.id, provider, providerReference: reference, amountKobo: order.totalKobo } });
+      await tx.payment.create({ data: { orderId: order.id, provider, providerReference: reference, amountKobo: chargeKobo } });
       await tx.order.update({ where: { id: order.id }, data: { paymentMethod: provider } });
     });
     try {
       return await paymentProvider(provider).start({
         reference,
-        amountKobo: order.totalKobo,
+        amountKobo: chargeKobo,
         email: order.contactEmail,
         name: order.customerName,
         callbackUrl: callback,
-        description: `TownMart order ${order.orderNumber}`,
+        description: gatewayTest ? `TownMart payment test for ${order.orderNumber} (refunded)` : `TownMart order ${order.orderNumber}`,
       });
     } catch (err) {
       lastError = err;
@@ -51,7 +62,7 @@ export async function startOnlinePayment(orderId: string, accessToken: string): 
   throw new PaymentError(lastError instanceof PaymentProviderError ? "We couldn't reach the payment provider. Please try again in a moment." : "We couldn't start the payment. Please try again.");
 }
 
-type ConfirmResult = "paid" | "already_paid" | "not_paid" | "needs_attention";
+type ConfirmResult = "paid" | "already_paid" | "not_paid" | "needs_attention" | "test_refunded";
 
 /** Locks a row so concurrent webhooks, callbacks and the expiry job take turns. */
 async function lockOrder(tx: Tx, orderId: string) {
@@ -112,7 +123,7 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
   if (!payment) throw new PaymentError(`Unknown payment reference ${reference}`);
   const order = await lockOrder(tx, payment.orderId);
   const current = await tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
-  if (current.status === "success") return "already_paid" as const;
+  if (current.status === "success") return isGatewayTestReference(reference) ? ("test_refunded" as const) : ("already_paid" as const);
 
   if (verified.status !== "success") {
     if (verified.status === "failed" || verified.status === "abandoned") {
@@ -125,6 +136,8 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
   if (verified.amountKobo !== current.amountKobo || verified.currency !== "NGN") {
     await tx.payment.update({ where: { id: payment.id }, data: { status: "failed", rawVerification: verified.raw as Prisma.InputJsonValue } });
     logger.error({ reference, expected: current.amountKobo.toString(), got: verified.amountKobo.toString(), currency: verified.currency }, "payment amount mismatch");
+    // Whatever arrived goes back (in naira; another currency is left for a person to sort out).
+    if (verified.currency === "NGN") await refundUnappliedPayment(tx, { paymentId: payment.id, amountKobo: verified.amountKobo, why: "Paid the wrong amount" });
     return "needs_attention" as const;
   }
 
@@ -133,9 +146,17 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
     data: { status: "success", channel: verified.channel, paidAt: verified.paidAt ?? new Date(), rawVerification: verified.raw as Prisma.InputJsonValue },
   });
 
+  if (isGatewayTestReference(reference)) {
+    // A live-gateway test on the test site: never pays for the order, always goes straight back.
+    logger.info({ reference, orderNumber: order.orderNumber }, "gateway test payment received: refunding it");
+    await refundUnappliedPayment(tx, { paymentId: payment.id, amountKobo: current.amountKobo, why: "Payment gateway test on the test site" });
+    return "test_refunded" as const;
+  }
+
   if (order.paymentStatus === "paid") {
-    // A second successful attempt for an already-paid order: money to give back (Phase 5 refunds).
-    logger.error({ reference, orderNumber: order.orderNumber }, "duplicate payment for a paid order: refund needed");
+    // A second successful attempt for an already-paid order: refunded in full.
+    logger.warn({ reference, orderNumber: order.orderNumber }, "duplicate payment for a paid order: refunding it");
+    await refundUnappliedPayment(tx, { paymentId: payment.id, amountKobo: current.amountKobo, why: "Paid twice for the same order" });
     return "needs_attention" as const;
   }
   if (order.cancelledAt) {
@@ -143,7 +164,8 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
     if (!(await retakeHolds(tx, order.id))) {
       // Paid after the hold expired and the stock or time has gone: the order stays cancelled and is refunded.
       await tx.$executeRaw`ROLLBACK TO SAVEPOINT retake`;
-      logger.error({ reference, orderNumber: order.orderNumber }, "late payment for an order whose stock or booking time has gone: refund needed");
+      logger.warn({ reference, orderNumber: order.orderNumber }, "late payment for an order whose stock or booking time has gone: refunding it");
+      await refundUnappliedPayment(tx, { paymentId: payment.id, amountKobo: current.amountKobo, why: "Paid after the items sold out" });
       return "needs_attention" as const;
     }
     await tx.$executeRaw`RELEASE SAVEPOINT retake`;
@@ -173,16 +195,20 @@ export async function applyVerifiedPaymentTx(tx: Tx, reference: string, verified
 
 export async function applyVerifiedPayment(reference: string, verified: VerifiedPayment): Promise<ConfirmResult> {
   const result = await withSystemContext((tx) => applyVerifiedPaymentTx(tx, reference, verified));
+  // Refunds of unusable payments are sent by the refunds job (lib/refunds/core.ts processRefunds).
   if (typeof result === "string") return result;
   await enqueueOrderEvent({ kind: "order.confirmed", orderId: result.orderId });
   return "paid";
 }
 
-/** Asks the provider about a payment and applies the answer. */
-export async function verifyAndApply(reference: string): Promise<ConfirmResult> {
+/**
+ * Asks the provider about a payment and applies the answer. `transactionId`
+ * comes from a signed webhook and only narrows which attempt is checked.
+ */
+export async function verifyAndApply(reference: string, transactionId?: string | null): Promise<ConfirmResult> {
   const payment = await withSystemContext((tx) => tx.payment.findUnique({ where: { providerReference: reference }, select: { provider: true } }));
   if (!payment || payment.provider === "pay_on_delivery") return "not_paid";
-  const verified = await paymentProvider(payment.provider as ProviderName).verify(reference);
+  const verified = await paymentProvider(payment.provider as ProviderName).verify(reference, transactionId);
   return applyVerifiedPayment(reference, verified);
 }
 
@@ -195,9 +221,16 @@ export async function processPaymentEvent(eventId: string): Promise<void> {
   if (!event || event.processedAt || !event.signatureValid) return;
   let error: string | null = null;
   try {
-    if (event.reference) {
+    // Refund and transfer events are hints too: the refund or payout is checked with the provider's API.
+    if (event.eventType.startsWith("refund.") && event.reference) {
+      await syncRefundsForPayment(event.reference);
+    } else if (event.eventType.startsWith("transfer.")) {
+      const ref = paymentProvider(event.provider as ProviderName).parseWebhook(JSON.stringify(event.payload)).transferReference;
+      if (ref) await syncPayoutByReference(ref);
+    } else if (event.reference) {
       const known = await withSystemContext((tx) => tx.payment.findUnique({ where: { providerReference: event.reference! }, select: { id: true } }));
-      if (known) await verifyAndApply(event.reference);
+      const parsed = paymentProvider(event.provider as ProviderName).parseWebhook(JSON.stringify(event.payload));
+      if (known) await verifyAndApply(event.reference, parsed.providerTransactionId);
     }
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);

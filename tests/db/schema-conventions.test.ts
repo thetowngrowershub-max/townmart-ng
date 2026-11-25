@@ -111,6 +111,32 @@ describe("conventions", () => {
     expect(await prisma.lga.count()).toBe(774);
   });
 
+  it("stores every encrypted column, and every *Encrypted key in JSON, as v1 ciphertext", async () => {
+    // Column encryption audit (DATABASE.md "Personal data and encryption").
+    // Read as the owner so RLS hides nothing.
+    const CIPHERTEXT = "^v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*$";
+    const columns = await owner.$queryRaw<{ table_name: string; column_name: string; data_type: string }[]>`
+      SELECT c.table_name, c.column_name, c.data_type FROM information_schema.columns c
+      JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+      WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+        AND (c.column_name LIKE '%\\_encrypted' OR c.data_type = 'jsonb')
+      ORDER BY 1, 2`;
+    const plain = columns.filter((c) => c.data_type !== "jsonb");
+    expect(plain.length).toBeGreaterThanOrEqual(9);
+    const offenders: string[] = [];
+    for (const c of columns) {
+      const sql =
+        c.data_type === "jsonb"
+          ? `SELECT count(*) AS n FROM "${c.table_name}" t,
+               jsonb_path_query(t."${c.column_name}", 'strict $.** ? (@.type() == "object")') o, jsonb_each(o) kv
+              WHERE kv.key LIKE '%Encrypted' AND jsonb_typeof(kv.value) = 'string' AND (kv.value #>> '{}') !~ $1`
+          : `SELECT count(*) AS n FROM "${c.table_name}" WHERE "${c.column_name}" IS NOT NULL AND "${c.column_name}" !~ $1`;
+      const [row] = await owner.$queryRawUnsafe<{ n: bigint }[]>(sql, CIPHERTEXT);
+      if (row!.n > 0n) offenders.push(`${c.table_name}.${c.column_name} (${row!.n})`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it("rejects an address whose LGA is in a different state", async () => {
     const user = await createUser("lga-check");
     const lagos = await owner.state.findUniqueOrThrow({ where: { code: "LA" } });

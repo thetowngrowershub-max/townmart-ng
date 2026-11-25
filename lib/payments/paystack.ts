@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { PaymentProviderError, type PaymentProvider, type StartPayment, type VerifiedPayment, type WebhookEvent } from "./provider";
+import { PaymentProviderError, type PaymentProvider, type ProviderRefund, type StartPayment, type StartRefund, type VerifiedPayment, type WebhookEvent } from "./provider";
 
 type Res<T> = { status: boolean; message: string; data: T };
 
@@ -51,14 +51,40 @@ export class PaystackProvider implements PaymentProvider {
   }
 
   parseWebhook(rawBody: string): WebhookEvent {
-    const body = JSON.parse(rawBody) as { event?: string; data?: { id?: number | string; reference?: string } };
+    const body = JSON.parse(rawBody) as { event?: string; data?: { id?: number | string; reference?: string; transaction_reference?: string; status?: string } };
     const eventType = body.event ?? "unknown";
+    const kind = eventType.startsWith("charge.") ? "charge" : eventType.startsWith("refund.") ? "refund" : eventType.startsWith("transfer.") ? "transfer" : "other";
     return {
-      eventId: `${eventType}:${body.data?.id ?? body.data?.reference ?? "none"}`,
+      // Refund events repeat with each status; the status keeps them apart.
+      eventId: `${eventType}:${body.data?.id ?? body.data?.reference ?? "none"}${kind === "refund" ? `:${body.data?.status ?? ""}` : ""}`,
       eventType,
-      reference: body.data?.reference ?? null,
+      reference: kind === "refund" ? (body.data?.transaction_reference ?? null) : kind === "charge" ? (body.data?.reference ?? null) : null,
       isChargeSuccess: eventType === "charge.success",
+      kind,
+      transferReference: kind === "transfer" ? (body.data?.reference ?? null) : null,
       payload: body,
     };
+  }
+
+  private refundResult(res: Res<{ id: number; status: string }>): ProviderRefund {
+    if (!res.status) return { providerRefundReference: null, status: "failed", message: res.message, raw: res };
+    const s = res.data.status;
+    return {
+      providerRefundReference: String(res.data.id),
+      status: s === "processed" ? "completed" : s === "failed" ? "failed" : "processing",
+      raw: res.data,
+    };
+  }
+
+  async refund(p: StartRefund): Promise<ProviderRefund> {
+    const res = await this.call<{ id: number; status: string }>("/refund", {
+      method: "POST",
+      body: JSON.stringify({ transaction: p.paymentReference, amount: p.amountKobo.toString(), currency: "NGN", merchant_note: `TownMart refund ${p.refundNumber}` }),
+    });
+    return this.refundResult(res);
+  }
+
+  async refundStatus(providerRefundReference: string): Promise<ProviderRefund> {
+    return this.refundResult(await this.call<{ id: number; status: string }>(`/refund/${encodeURIComponent(providerRefundReference)}`));
   }
 }

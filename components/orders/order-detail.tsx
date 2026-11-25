@@ -1,4 +1,4 @@
-import { CalendarCheck, Store, Truck } from "lucide-react";
+import { CalendarCheck, LifeBuoy, Store, Truck } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { OrderSummary } from "@/components/cart/order-summary";
@@ -35,6 +35,23 @@ export function OrderDetail({ order, token = null, conversations = {} }: { order
                   {s.method === "delivery" ? <Truck className="size-4" aria-hidden /> : s.method === "pickup" ? <Store className="size-4" aria-hidden /> : <CalendarCheck className="size-4" aria-hidden />}
                   {s.method === "delivery" ? `Delivery${s.eta ? `, ${s.eta}` : ""}` : s.method === "pickup" ? "Pickup from the seller" : "Booking"}
                 </CardDescription>
+                {s.rider && (
+                  <div className="mt-2 rounded-lg border border-primary/30 bg-primary-soft px-3 py-2 text-sm">
+                    <p>
+                      <span className="font-medium">{s.rider.onTheWay ? `${s.rider.name} is on the way` : `${s.rider.name} will deliver this`}</span>
+                      {" · "}
+                      <a href={`tel:${s.rider.phone}`} className="font-medium text-primary underline">
+                        {s.rider.phone}
+                      </a>
+                    </p>
+                    {s.rider.code && (
+                      <p className="mt-1">
+                        Delivery code: <span className="font-mono text-base font-bold tracking-widest">{s.rider.code}</span>
+                        <span className="text-muted-foreground"> · give it to the rider once you have your items</span>
+                      </p>
+                    )}
+                  </div>
+                )}
                 {s.tracking && (
                   <p className="mt-1 text-sm">
                     Tracking: {s.tracking.carrier ? `${s.tracking.carrier} ` : ""}
@@ -74,7 +91,7 @@ export function OrderDetail({ order, token = null, conversations = {} }: { order
                       )}
                       {i.canReview && (
                         <Link href={`/account/reviews/new?item=${i.id}`} className="mt-1 inline-block text-sm font-medium text-primary underline">
-                          Write a review
+                          {i.booking ? "Rate my service" : "Write a review"}
                         </Link>
                       )}
                       {i.reviewRating !== null && <p className="mt-1 text-xs text-muted-foreground">You rated this {i.reviewRating}/5. Thank you!</p>}
@@ -99,6 +116,22 @@ export function OrderDetail({ order, token = null, conversations = {} }: { order
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary-soft p-3 text-sm">
                   <p>Has it arrived in good condition?</p>
                   <ConfirmReceived orderNumber={order.orderNumber} token={token} sellerOrderId={s.id} />
+                </div>
+              )}
+              {(live || s.refunds.refunded) && s.statusKey !== "pending_payment" && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm">
+                  <p className="text-muted-foreground">
+                    {s.refunds.disputeOpen
+                      ? "TownMart is looking into this part of your order."
+                      : s.refunds.waiting
+                        ? "Your refund request is with the seller."
+                        : s.refunds.refunded
+                          ? `${s.refunds.refunded} refunded.`
+                          : "Something not right?"}
+                  </p>
+                  <Link href={`/orders/${order.orderNumber}/help/${s.id}${token ? `?t=${encodeURIComponent(token)}` : ""}`} className="inline-flex items-center gap-1 font-medium text-primary underline">
+                    <LifeBuoy className="size-4" aria-hidden /> {s.refunds.waiting || s.refunds.disputeOpen ? "See details" : "Cancel, return or get help"}
+                  </Link>
                 </div>
               )}
               {live && s.timeline.length > 0 && (

@@ -8,6 +8,7 @@ import { formatBookingTime, formatDateTime } from "@/lib/datetime";
 import type { Tx } from "@/lib/db";
 import { formatPrice } from "@/lib/money";
 import { publicImageUrl } from "@/lib/storage";
+import { deliveryCode } from "@/lib/fulfilment/rider-job";
 import type { ShippingSnapshot } from "./place";
 
 export { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, PROVIDER_LABELS };
@@ -37,6 +38,9 @@ const detailInclude = {
         },
       },
       business: { select: { name: true, slug: true, city: true } },
+      rider: { select: { name: true, phoneEncrypted: true } },
+      refunds: { select: { status: true, amountKobo: true, feeKobo: true, vatKobo: true } },
+      disputes: { where: { status: "open" }, select: { id: true } },
       statusHistory: { orderBy: { createdAt: "asc" }, select: { toStatus: true, note: true, createdAt: true } },
       _count: { select: { messages: true } },
     },
@@ -66,10 +70,14 @@ export type OrderDetailView = {
     method: "delivery" | "pickup" | "none";
     eta: string | null;
     tracking: { carrier: string | null; number: string } | null;
+    /** The shop's rider on this delivery, and the code to give them, until it's delivered. */
+    rider: { name: string; phone: string; code: string | null; onTheWay: boolean } | null;
     /** Delivered and waiting for the customer to say it arrived. */
     canConfirmReceived: boolean;
     timeline: { label: string; note: string | null; at: string }[];
     messageCount: number;
+    /** Refunds paid or on their way, and whether a request or dispute is open. */
+    refunds: { refunded: string | null; waiting: boolean; disputeOpen: boolean };
     items: {
       id: string;
       title: string;
@@ -137,10 +145,22 @@ export async function loadOrderDetail(tx: Tx, where: { id: string } | { orderNum
       statusKey: so.status,
       method: so.deliveryMethod,
       eta: so.etaDaysMin !== null && so.etaDaysMax !== null ? `${so.etaDaysMin}–${so.etaDaysMax} working days` : null,
-      tracking: so.trackingNumber ? { carrier: so.carrier, number: so.trackingNumber } : null,
+      tracking: so.trackingNumber && !so.rider ? { carrier: so.carrier, number: so.trackingNumber } : null,
+      rider:
+        so.rider && ["paid", "processing", "shipped"].includes(so.status)
+          ? { name: so.rider.name, phone: decrypt(so.rider.phoneEncrypted), code: deliveryCode(so), onTheWay: so.pickedUpAt !== null }
+          : null,
       canConfirmReceived: so.status === "delivered",
       timeline: mergeTimeline(so.statusHistory, so.items),
       messageCount: so._count.messages,
+      refunds: {
+        refunded: (() => {
+          const owed = so.refunds.filter((r) => ["approved", "processing", "completed", "failed"].includes(r.status)).reduce((t, r) => t + r.amountKobo + r.feeKobo + r.vatKobo, 0n);
+          return owed > 0n ? formatPrice(owed) : null;
+        })(),
+        waiting: so.refunds.some((r) => r.status === "requested"),
+        disputeOpen: so.disputes.length > 0,
+      },
       items: so.items.map((i) => {
         const s = i.snapshot as { kind?: "product" | "service"; title: string; slug: string; options: Record<string, string>; imageKey: string | null };
         const b = i.booking;

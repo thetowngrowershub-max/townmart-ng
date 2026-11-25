@@ -82,13 +82,13 @@ const CANCELLABLE: readonly OrderStatus[] = ["processing", "ready_for_pickup"];
 /**
  * Cancels a seller's part of a pay-on-delivery order before handover:
  * stock goes back on sale and bookings are released. System scope. Paid
- * orders are cancelled through a refund instead (Phase 5).
+ * orders are cancelled with a refund (lib/refunds/cancel.ts).
  */
 export async function cancelSellerOrder(tx: Tx, p: { sellerOrderId: string; businessId: string; actorUserId: string | null; reason: string; by: "seller" | "customer" }): Promise<void> {
   await tx.$queryRaw`SELECT id FROM seller_orders WHERE id = ${p.sellerOrderId}::uuid FOR UPDATE`;
   const so = await tx.sellerOrder.findFirst({ where: { id: p.sellerOrderId, businessId: p.businessId } });
   if (!so) throw new FulfilmentError("Order not found.");
-  if (!so.payOnDelivery) throw new FulfilmentError("Paid orders are cancelled with a refund. Refunds arrive in the next release.");
+  if (!so.payOnDelivery) throw new FulfilmentError("Paid orders are cancelled with a refund.");
   if (!CANCELLABLE.includes(so.status)) throw new FulfilmentError("This order can't be cancelled any more.");
 
   const reservations = await tx.stockReservation.findMany({ where: { sellerOrderId: so.id, status: { in: ["held", "converted"] } }, orderBy: { variantId: "asc" } });
@@ -129,9 +129,12 @@ export async function settleBookingOrder(tx: Tx, sellerOrderId: string, escrowRe
   const happened = so.bookings.some((b) => b.status === "completed");
   // Moved bookings point to a newer booking on the same seller order, so "rescheduled" alone never settles it.
   const to: OrderStatus = happened ? "completed" : "cancelled";
+  // Either way escrow is released after the usual period: what's left after any
+  // refund (a late cancellation's kept share, a no-show's deposit) is the provider's.
+  const escrowReleaseAt = new Date(now.getTime() + escrowReleaseDays * 86_400_000);
   await tx.sellerOrder.update({
     where: { id: so.id },
-    data: { status: to, ...(happened ? { deliveredAt: now, completedAt: now, escrowReleaseAt: new Date(now.getTime() + escrowReleaseDays * 86_400_000) } : {}) },
+    data: { status: to, escrowReleaseAt, ...(happened ? { deliveredAt: now, completedAt: now } : {}) },
   });
   await recordStatus(tx, { sellerOrderId: so.id, businessId: so.businessId, from: so.status, to, note: happened ? "All bookings done" : "No booking took place" });
 }

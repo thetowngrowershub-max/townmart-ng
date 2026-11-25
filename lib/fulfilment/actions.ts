@@ -9,6 +9,8 @@ import { getSellerContext, withSellerRls, type SellerContext } from "@/lib/selle
 import { getCheckoutSettings } from "@/lib/settings";
 import { advanceOrderSchema, cancelReasonSchema, messageSchema, sellerOrderIdSchema } from "@/lib/validation/fulfilment";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
+import { cancelPaidSellerOrder } from "@/lib/refunds/cancel";
+import { RefundError, sendRefund } from "@/lib/refunds/core";
 import { advanceSellerOrder, cancelSellerOrder, FulfilmentError, markCashCollected } from "./orders";
 
 async function seller(permission: "order.read" | "order.manage"): Promise<SellerContext> {
@@ -19,7 +21,7 @@ async function seller(permission: "order.read" | "order.manage"): Promise<Seller
 }
 
 function failure(err: unknown): ActionResult<never> {
-  if (err instanceof AuthzError || err instanceof FulfilmentError) return { ok: false, error: err.message };
+  if (err instanceof AuthzError || err instanceof FulfilmentError || err instanceof RefundError) return { ok: false, error: err.message };
   // The status trigger refusing a step the page offered: someone else moved the order first.
   if (err instanceof Error && /can't move/.test(err.message)) return { ok: false, error: "This order has already moved on. Refresh the page to see its status." };
   logger.error({ err }, "order action failed");
@@ -72,19 +74,35 @@ export async function markCashCollectedAction(input: { id: string }): Promise<Ac
 }
 
 /**
- * Cancels the seller's part of a pay-on-delivery order before handover. It
- * puts stock back across sellers' shared tables, so it runs in the system
- * scope after the permission check, scoped to the seller's business id.
+ * Cancels the seller's part of an order before handover: a paid order with a
+ * full refund, a pay-on-delivery one without. It puts stock back across
+ * sellers' shared tables, so it runs in the system scope after the
+ * permission check, scoped to the seller's business id.
  */
 export async function cancelSellerOrderAction(input: { id: string; reason: string }): Promise<ActionResult> {
   const parsed = cancelReasonSchema.safeParse(input);
   if (!parsed.success) return validationError(parsed.error);
   try {
     const ctx = await seller("order.manage");
-    await withSystemContext((tx) => cancelSellerOrder(tx, { sellerOrderId: parsed.data.id, businessId: ctx.business.id, actorUserId: ctx.user.id, reason: parsed.data.reason, by: "seller" }));
+    // Paid online: cancelled with a full refund. Pay on delivery: nothing was paid.
+    const refund = await withSystemContext(async (tx) => {
+      const so = await tx.sellerOrder.findFirst({ where: { id: parsed.data.id, businessId: ctx.business.id }, select: { payOnDelivery: true } });
+      if (!so) throw new FulfilmentError("Order not found.");
+      if (!so.payOnDelivery) return cancelPaidSellerOrder(tx, { sellerOrderId: parsed.data.id, businessId: ctx.business.id, by: "seller", actorUserId: ctx.user.id, reason: parsed.data.reason });
+      await cancelSellerOrder(tx, { sellerOrderId: parsed.data.id, businessId: ctx.business.id, actorUserId: ctx.user.id, reason: parsed.data.reason, by: "seller" });
+      return null;
+    });
     await enqueueNotice({ type: "order.status", sellerOrderId: parsed.data.id, status: "cancelled" });
+    if (refund) {
+      await enqueueNotice({ type: "refund.update", refundId: refund.id, status: "approved" });
+      try {
+        if ((await sendRefund(refund.id)) === "completed") await enqueueNotice({ type: "refund.update", refundId: refund.id, status: "completed" });
+      } catch (err) {
+        logger.error({ err, refundId: refund.id }, "sending refund failed; the job will retry");
+      }
+    }
     refresh(parsed.data.id);
-    return { ok: true, message: "Order cancelled." };
+    return { ok: true, message: refund ? "Order cancelled. The customer is being refunded in full." : "Order cancelled." };
   } catch (err) {
     return failure(err);
   }

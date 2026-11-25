@@ -204,7 +204,8 @@ export async function loadSellerOrder(tx: Tx, businessId: string, id: string, no
       payLater: so.payLaterKobo > 0n ? formatPrice(so.payLaterKobo) : null,
     },
     steps: nextSteps(so).map((to) => ({ to, label: STEP_LABELS[to] })),
-    canCancel: so.payOnDelivery && (so.status === "processing" || so.status === "ready_for_pickup"),
+    // Before handover; a paid order is cancelled with a full refund. Booking-only orders are cancelled booking by booking.
+    canCancel: so.deliveryMethod !== "none" && (so.payOnDelivery ? ["processing", "ready_for_pickup"] : ["paid", "processing", "ready_for_pickup"]).includes(so.status),
     canMarkCash: so.payOnDelivery && !so.cashCollectedAt && (["shipped", "ready_for_pickup", "delivered", "completed"].includes(so.status) || so.deliveryMethod === "none"),
     timeline: mergeTimeline(so.statusHistory, so.items),
   };

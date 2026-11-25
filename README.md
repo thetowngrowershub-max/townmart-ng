@@ -4,7 +4,7 @@
 
 TownMart owns its whole data layer: PostgreSQL 16, Redis 7 and S3-compatible storage, all self-hosted. There is no Backend-as-a-Service.
 
-> **Status:** Phases 0 (Foundations) and 1 (Sellers, catalogue and search) of the build plan in `TOWNMART_BUILD_PROMPT.md`. See [DEFERRED.md](DEFERRED.md) for what each later phase adds.
+> **Status:** All nine phases (0 to 8) of the build plan in `TOWNMART_BUILD_PROMPT.md`: foundations; sellers, catalogue and search; promotions; cart, checkout and payments; fulfilment, bookings and reviews; refunds, disputes and payouts; legal pages, consent and privacy; admin console and analytics; hardening and operations. [DEPLOYMENT.md](DEPLOYMENT.md) covers going live, [SECURITY.md](SECURITY.md) the security review, and [DEFERRED.md](DEFERRED.md) what is left before and after launch.
 
 ## Quick start
 
@@ -39,7 +39,7 @@ It also seeds the category tree and six approved demo sellers in Lagos, Ogun and
 
 Demo promotions start at the hour the seed runs: flash deals on rice (Ikeja Fresh Mart) and tomatoes (Ogun Harvest Farms) that end within two days, money off selected gadgets and plumbing services, and coupon codes `IKEJAFRESH10` and `YABA15`. A store that already has promotions is skipped, so to refresh expired demo deals, delete that store's promotions and seed again.
 
-It also creates a demo shopper (`bola@demo.townmart.ng`, password printed once) with orders through the real checkout: a delivered and reviewed grocery order, a pay-on-delivery order waiting to be sent, a plumbing request waiting for the provider to confirm, an upcoming tailoring booking, and a completed, reviewed one. Skipped if the shopper already exists.
+It also creates a demo shopper (`bola@demo.townmart.ng`, password printed once) with orders through the real checkout: a delivered and reviewed grocery order, a pay-on-delivery order waiting to be sent, a plumbing request waiting for the provider to confirm, an upcoming tailoring booking, and a completed, reviewed one. Skipped if the shopper already exists. With the fake payment and transfer providers it then adds a returned Yaba Threads item (refunded after the money reached Yaba Threads, which is then paid out), a cancelled and refunded phone case, and a declined power-bank refund now in an open dispute for TownMart to decide.
 
 Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DIR`, no MinIO needed), `SMS_PROVIDER=console` (codes appear in the worker log) and `BANK_VERIFIER=fake` (any 10-digit account resolves to `TEST ACCOUNT nnnn`) and `PAYMENT_PROVIDER=fake` (checkout goes to a local test payment page with Pay and Decline buttons; set `paystack` with test keys to use Paystack's sandbox). `next start` refuses to run with any of these.
 
@@ -51,10 +51,18 @@ Local development drivers: `STORAGE_DRIVER=local` (files under `LOCAL_STORAGE_DI
 | `pnpm worker` | BullMQ worker (`worker/`) |
 | `pnpm lint` / `pnpm typecheck` | ESLint, `tsc --noEmit` (strict) |
 | `pnpm test` | Unit tests (no database needed) |
-| `pnpm test:db` | Database tests: RLS and cross-seller isolation, order and booking status guards, overselling and double booking, verified reviews, stock, search, append-only logs, conventions. Needs a migrated, seeded DB |
+| `pnpm test:db` | Database tests: RLS and cross-seller isolation, order and booking status guards, overselling and double booking, verified reviews, refunds, disputes, escrow and payouts, policy acceptances and consent, account deletion and retention jobs, moderation and take-downs, questions, staff invitations, CMS and reference-data writes, stock, search, append-only logs, encrypted columns, conventions. Needs a migrated, seeded DB |
+| `pnpm test:e2e` | Playwright browser tests on a phone-sized screen: a guest purchase, a refund after delivery, a booking confirmed by the provider, and an axe accessibility audit of 32 pages. Needs the app and worker running with `PAYMENT_PROVIDER=fake` and the demo seed (see `playwright.config.ts`) |
+| `pnpm load:oversell` | Overselling load test: 50 buyers in separate processes race for 10 units, then each order is paid through three duplicate webhooks. Checks nothing is oversold or paid twice and the ledger balances. Options `--buyers`, `--stock`, `--no-webhooks` |
 | `pnpm db:bootstrap` | Creates roles and the database on an existing server (superuser) |
 | `pnpm db:migrate` / `pnpm db:deploy` | `prisma migrate dev` / `deploy` |
 | `pnpm db:seed` | Idempotent seed |
+
+## Production
+
+`docker-compose.prod.yml` runs the whole stack on one server: Caddy (HTTPS), the app and worker, PgBouncer, Postgres with TLS and point-in-time recovery, Redis and a backup service with nightly encrypted dumps and a monthly restore drill. Step by step: [DEPLOYMENT.md](DEPLOYMENT.md). Restore runbooks: [DATABASE.md](DATABASE.md#backups-and-restore).
+
+Lighthouse (mobile, production build, Phase 8): home 99 / 100 / 100 / 100 (performance, accessibility, best practices, SEO); product page 94 / 100 / 100 / 100; service page 94 / 100 / 100 / 100; store page 98 / 100 / 100 / 100; search 95 / 100 / 100 / 66, because search results are `noindex` on purpose.
 
 ## Project layout
 

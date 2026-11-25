@@ -20,6 +20,18 @@ export type CheckoutSettings = {
   bookingDaysAhead: number;
   /** Delivered orders the customer hasn't confirmed are completed after this many days. */
   autoCompleteDays: number;
+  /** A seller has this long to answer a refund request before it goes to TownMart. */
+  refundResponseHours: number;
+  /** Share of a booking refunded when the customer cancels less than 24 hours before the start. */
+  lateCancelRefundPercent: number;
+  /** Smallest available balance paid out automatically (sellers can ask for any positive amount). */
+  payoutMinimumKobo: bigint;
+  /** Delivery priced by distance from the shop: per km, road factor and the furthest a shop delivers. */
+  deliveryPerKmKobo: bigint;
+  deliveryRoadFactor: number;
+  deliveryMaxKm: number;
+  /** Riders this close to the shop count as nearby. */
+  riderNearbyKm: number;
 };
 
 export const CHECKOUT_DEFAULTS: CheckoutSettings = {
@@ -33,6 +45,13 @@ export const CHECKOUT_DEFAULTS: CheckoutSettings = {
   bookingLeadMinutes: 120,
   bookingDaysAhead: 60,
   autoCompleteDays: 7,
+  refundResponseHours: 48,
+  lateCancelRefundPercent: 50,
+  payoutMinimumKobo: 100_000n,
+  deliveryPerKmKobo: 25_000n,
+  deliveryRoadFactor: 1.3,
+  deliveryMaxKm: 25,
+  riderNearbyKm: 5,
 };
 
 const KEYS = [
@@ -46,6 +65,13 @@ const KEYS = [
   "bookings.lead_minutes",
   "bookings.days_ahead",
   "orders.auto_complete_days",
+  "refunds.seller_response_hours",
+  "refunds.late_cancel_percent",
+  "payouts.minimum_naira",
+  "delivery.per_km_naira",
+  "delivery.road_factor",
+  "delivery.max_km",
+  "riders.nearby_km",
 ] as const;
 
 const num = (v: unknown, min: number, max: number): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : undefined);
@@ -56,6 +82,8 @@ export async function getCheckoutSettings(tx: Tx): Promise<CheckoutSettings> {
   const d = CHECKOUT_DEFAULTS;
   const percentToBps = (p: number | undefined, fallback: number) => (p === undefined ? fallback : Math.round(p * 100));
   const cap = num(v.get("fees.service_fee_cap_naira"), 0, 1_000_000);
+  const payoutMin = num(v.get("payouts.minimum_naira"), 0, 10_000_000);
+  const perKm = num(v.get("delivery.per_km_naira"), 0, 100_000);
   return {
     stockHoldMinutes: num(v.get("checkout.stock_hold_minutes"), 5, 120) ?? d.stockHoldMinutes,
     payOnDeliveryEnabled: typeof v.get("payments.pay_on_delivery_enabled") === "boolean" ? (v.get("payments.pay_on_delivery_enabled") as boolean) : d.payOnDeliveryEnabled,
@@ -67,5 +95,12 @@ export async function getCheckoutSettings(tx: Tx): Promise<CheckoutSettings> {
     bookingLeadMinutes: num(v.get("bookings.lead_minutes"), 0, 7 * 24 * 60) ?? d.bookingLeadMinutes,
     bookingDaysAhead: num(v.get("bookings.days_ahead"), 1, 365) ?? d.bookingDaysAhead,
     autoCompleteDays: num(v.get("orders.auto_complete_days"), 1, 60) ?? d.autoCompleteDays,
+    refundResponseHours: num(v.get("refunds.seller_response_hours"), 1, 14 * 24) ?? d.refundResponseHours,
+    lateCancelRefundPercent: num(v.get("refunds.late_cancel_percent"), 0, 100) ?? d.lateCancelRefundPercent,
+    payoutMinimumKobo: payoutMin === undefined ? d.payoutMinimumKobo : BigInt(Math.round(payoutMin * 100)),
+    deliveryPerKmKobo: perKm === undefined ? d.deliveryPerKmKobo : BigInt(Math.round(perKm * 100)),
+    deliveryRoadFactor: num(v.get("delivery.road_factor"), 1, 3) ?? d.deliveryRoadFactor,
+    deliveryMaxKm: num(v.get("delivery.max_km"), 1, 500) ?? d.deliveryMaxKm,
+    riderNearbyKm: num(v.get("riders.nearby_km"), 0.5, 100) ?? d.riderNearbyKm,
   };
 }

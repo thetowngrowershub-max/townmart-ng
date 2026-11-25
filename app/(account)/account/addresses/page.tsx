@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/layout/app-shell";
 import { requirePermission } from "@/lib/auth/current-user";
 import { decrypt } from "@/lib/crypto";
 import { withRls } from "@/lib/db";
+import { serviceAreaOptions } from "@/lib/service-area-db";
 
 export const metadata: Metadata = { title: "Addresses" };
 
@@ -12,7 +13,7 @@ export default async function AddressesPage() {
   const [addresses, states] = await withRls({ userId: user.id }, (tx) =>
     Promise.all([
       tx.address.findMany({ where: { userId: user.id }, orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }], include: { state: true, lga: true } }),
-      tx.state.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, lgas: { orderBy: { name: "asc" }, select: { id: true, name: true } } } }),
+      serviceAreaOptions(tx),
     ]),
   );
   const rows = addresses.map((a) => ({

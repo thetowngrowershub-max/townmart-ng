@@ -24,6 +24,7 @@ export default async function ServicesPage() {
         id: true,
         title: true,
         status: true,
+        takenDownAt: true,
         pricingModel: true,
         basePriceKobo: true,
         images: { orderBy: { sortOrder: "asc" }, take: 1, select: { storageKey: true } },
@@ -58,7 +59,7 @@ export default async function ServicesPage() {
             price: `${PRICE_PREFIX[s.pricingModel]}${formatPrice(s.basePriceKobo)}${s.pricingModel === "hourly" ? "/hr" : ""}`,
             status: s.status,
             detail: s._count.availability ? `${s._count.availability} weekly time window${s._count.availability === 1 ? "" : "s"}` : "No availability set",
-            warning: s._count.availability ? undefined : "Can't publish",
+            warning: s.takenDownAt ? "Taken down by TownMart" : s._count.availability ? undefined : "Can't publish",
           }))}
         />
       )}

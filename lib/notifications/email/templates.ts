@@ -1,15 +1,23 @@
+import { platformAppUrl } from "@/lib/platform-url";
 import type { EmailMessage } from "./provider";
 
 const escape = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-function layout(title: string, bodyHtml: string): string {
+/** The wordmark as a PNG (mail apps don't show SVG); plain text when the site has no address. */
+function brandHeader(): string {
+  const base = platformAppUrl()?.replace(/\/$/, "");
+  if (!base) return `<p style="margin:0 0 24px;font-weight:700;font-size:20px;color:#0F6B3E">TownMart</p>`;
+  return `<p style="margin:0 0 24px"><img src="${escape(base)}/brand/townmart-logo-email.png" width="152" height="40" alt="TownMart" style="display:block;border:0;height:40px;width:152px;color:#0F6B3E;font-weight:700;font-size:20px"></p>`;
+}
+
+function layout(title: string, bodyHtml: string, footer = "You received this email because of activity on your TownMart account. If this wasn't you, you can ignore it."): string {
   return `<!doctype html><html lang="en"><body style="margin:0;background:#FAFAF7;font-family:Inter,Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
-<table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;padding:32px">
-<tr><td><p style="margin:0 0 24px;font-weight:700;font-size:20px;color:#0F6B3E">TownMart</p>
+<table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;border-top:4px solid #FF9934;padding:32px">
+<tr><td>${brandHeader()}
 <h1 style="margin:0 0 16px;font-size:22px">${escape(title)}</h1>${bodyHtml}
-<p style="margin:32px 0 0;font-size:12px;color:#64748b">You received this email because of activity on your TownMart account. If this wasn't you, you can ignore it.</p>
+<p style="margin:32px 0 0;font-size:12px;color:#64748b">${footer}</p>
 </td></tr></table></td></tr></table></body></html>`;
 }
 
@@ -28,6 +36,19 @@ export function verifyEmailTemplate(params: { to: string; name: string | null; u
       `<p>${escape(greeting)}</p><p>Please confirm your email address to finish setting up your TownMart account. This link expires in 24 hours.</p>${button(params.url, "Confirm email")}`,
     ),
     text: `${greeting}\n\nConfirm your TownMart email address (link expires in 24 hours):\n${params.url}\n`,
+  };
+}
+
+export function twoFactorEmailTemplate(params: { to: string; name: string | null; code: string; minutes: number }): EmailMessage {
+  const greeting = params.name ? `Hi ${params.name},` : "Hi,";
+  return {
+    to: params.to,
+    subject: `${params.code} is your TownMart sign-in code`,
+    html: layout(
+      "Your sign-in code",
+      `<p>${escape(greeting)}</p><p>Use this code to finish signing in to TownMart. It expires in ${params.minutes} minutes and works once.</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${escape(params.code)}</p><p>Never share this code. TownMart staff will never ask for it. If you didn't try to sign in, change your password now.</p>`,
+    ),
+    text: `${greeting}\n\nYour TownMart sign-in code is ${params.code}. It expires in ${params.minutes} minutes. Never share it.\nIf you didn't try to sign in, change your password now.\n`,
   };
 }
 
@@ -208,5 +229,20 @@ export function noticeTemplate(params: { to: string; subject: string; title: str
     subject: params.subject,
     html: layout(params.title, `${params.lines.map((l) => `<p>${escape(l)}</p>`).join("")}${button(params.url, params.buttonLabel)}`),
     text: `${params.title}\n\n${params.lines.join("\n\n")}\n\n${params.buttonLabel}: ${params.url}\n`,
+  };
+}
+
+/**
+ * Marketing email: only for people who opted in (lib/marketing.ts), with a
+ * one-click unsubscribe link in the footer and in the List-Unsubscribe headers.
+ */
+export function marketingTemplate(params: { to: string; subject: string; title: string; lines: string[]; url: string; buttonLabel: string; unsubscribeUrl: string; oneClickUrl: string }): EmailMessage {
+  const footer = `You're getting this because you asked for offers from TownMart. <a href="${escape(params.unsubscribeUrl)}" style="color:#64748b">Unsubscribe</a> with one click.`;
+  return {
+    to: params.to,
+    subject: params.subject,
+    html: layout(params.title, `${params.lines.map((l) => `<p>${escape(l)}</p>`).join("")}${button(params.url, params.buttonLabel)}`, footer),
+    text: `${params.title}\n\n${params.lines.join("\n\n")}\n\n${params.buttonLabel}: ${params.url}\n\nUnsubscribe: ${params.unsubscribeUrl}\n`,
+    headers: { "List-Unsubscribe": `<${params.oneClickUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
   };
 }

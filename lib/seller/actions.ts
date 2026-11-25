@@ -6,10 +6,11 @@ import { writeAudit } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { assertCan, AuthzError } from "@/lib/authz";
 import { RESERVED_STORE_SLUGS } from "@/lib/catalogue/slug";
+import { timeToMinutes } from "@/lib/catalogue/units";
 import { decrypt, encrypt, phoneHash } from "@/lib/crypto";
 import { withRls, withSystemContext, type Tx } from "@/lib/db";
 import { env } from "@/lib/env";
-import { DPA_VERSION, SELLER_AGREEMENT_VERSION } from "@/lib/legal";
+import { ACCEPTED_AT, recordAcceptances } from "@/lib/legal/documents";
 import { logger } from "@/lib/logger";
 import { sellerSubmittedTemplate } from "@/lib/notifications/email/templates";
 import { issueOtp, verifyOtp } from "@/lib/otp";
@@ -20,17 +21,20 @@ import { requestMeta } from "@/lib/request";
 import { storage } from "@/lib/storage";
 import { finaliseDocument, imagePrefix, UploadError } from "@/lib/storage/uploads";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
+import { checkServiceArea } from "@/lib/service-area-db";
 import {
   agreementsSchema,
   brandingSchema,
   businessDetailsSchema,
   kycSchema,
+  openingHoursSchema,
   payoutAccountSchema,
   storeSettingsSchema,
   verifyPhoneSchema,
   type BrandingInput,
   type BusinessDetailsInput,
   type KycInput,
+  type OpeningHoursInput,
   type PayoutAccountInput,
   type StoreSettingsInput,
 } from "@/lib/validation/seller";
@@ -42,14 +46,14 @@ const TOO_MANY = "Too many attempts. Please wait a few minutes and try again.";
 /** A problem the seller can fix; its message is safe to show. */
 class SellerError extends Error {}
 
-type OwnBusiness = { userId: string; business: { id: string; name: string; status: BusinessStatus; email: string } };
+type OwnBusiness = { userId: string; business: { id: string; name: string; status: BusinessStatus; email: string; sellsServices: boolean } };
 
 /** The signed-in owner's own business, after the app-layer authz check. */
 async function ownBusiness(): Promise<OwnBusiness> {
   const user = await getCurrentUser();
   assertCan(user, "seller.onboard");
   const business = await withRls({ userId: user.id }, (tx) =>
-    tx.business.findFirst({ where: { ownerUserId: user.id }, select: { id: true, name: true, status: true, email: true } }),
+    tx.business.findFirst({ where: { ownerUserId: user.id }, select: { id: true, name: true, status: true, email: true, sellsServices: true } }),
   );
   if (!business) throw new SellerError("Start with your business details.");
   assertCan({ ...user, businesses: [{ id: business.id, role: "owner" }] }, "store.manage", { businessId: business.id });
@@ -88,8 +92,9 @@ export async function saveBusinessDetailsAction(input: BusinessDetailsInput): Pr
   const d = parsed.data;
   if (RESERVED_STORE_SLUGS.has(d.slug)) return { ok: false, error: "That store address is reserved.", fieldErrors: { slug: ["Choose another address"] } };
 
-  const lga = await withRls({ userId: user.id }, (tx) => tx.lga.findUnique({ where: { id: d.lgaId }, select: { stateId: true } }));
-  if (!lga || lga.stateId !== d.stateId) return { ok: false, error: "Choose an LGA in the selected state.", fieldErrors: { lgaId: ["Not in this state"] } };
+  // Businesses can only be based inside the service area (lib/service-area.ts).
+  const place = await withRls({ userId: user.id }, (tx) => checkServiceArea(tx, d));
+  if (!place.ok) return { ok: false, error: place.error, fieldErrors: place.fieldErrors };
 
   const meta = await requestMeta();
   const fields = {
@@ -101,7 +106,7 @@ export async function saveBusinessDetailsAction(input: BusinessDetailsInput): Pr
     phoneEncrypted: encrypt(d.phone),
     phoneHash: phoneHash(d.phone),
     addressEncrypted: encrypt(d.addressLine),
-    city: d.city,
+    city: place.city,
     stateId: d.stateId,
     lgaId: d.lgaId,
     sellsProducts: d.sellsProducts,
@@ -245,6 +250,7 @@ export async function savePayoutAccountAction(input: PayoutAccountInput): Promis
     if (!bank) throw new SellerError("Choose your bank from the list.");
     // Commission is set per split at checkout (Phase 3), so the subaccount's default charge is 0.
     const sub = await verifier.createSubaccount({ businessName: own.business.name, bankCode, accountNumber, percentageCharge: 0 });
+    const recipient = await verifier.createTransferRecipient({ accountName: resolved.accountName, bankCode, accountNumber });
     // Only the last 4 digits are stored; the full number lives with the payment provider.
     const data = {
       bankCode,
@@ -252,6 +258,7 @@ export async function savePayoutAccountAction(input: PayoutAccountInput): Promis
       accountNumberLast4: accountNumber.slice(-4),
       accountName: resolved.accountName,
       providerSubaccountCode: sub.subaccountCode,
+      providerRecipientCode: recipient.recipientCode,
       verifiedAt: new Date(),
     };
     await withOwnBusiness(async ({ tx, business, userId }) => {
@@ -315,15 +322,17 @@ export async function submitApplicationAction(input: { acceptSellerAgreement: bo
     await withOwnBusiness(async ({ tx, business, userId }) => {
       assertEditable(business.status);
       const now = new Date();
+      const slugs = business.sellsServices ? [...ACCEPTED_AT.seller_onboarding, "service-provider-terms" as const] : ACCEPTED_AT.seller_onboarding;
+      const accepted = await recordAcceptances(tx, { context: "seller_onboarding", userId, businessId: business.id, ipHash: meta.ipHash, userAgent: meta.userAgent, slugs });
       await tx.business.update({
         where: { id: business.id },
         data: {
           status: "pending",
           submittedAt: now,
           rejectionReason: null,
-          sellerAgreementVersion: SELLER_AGREEMENT_VERSION,
+          sellerAgreementVersion: accepted["seller-agreement"],
           sellerAgreementAcceptedAt: now,
-          dpaVersion: DPA_VERSION,
+          dpaVersion: accepted.dpa,
           dpaAcceptedAt: now,
         },
       });
@@ -332,7 +341,7 @@ export async function submitApplicationAction(input: { acceptSellerAgreement: bo
         action: "business.submitted",
         entityType: "business",
         entityId: business.id,
-        after: { sellerAgreementVersion: SELLER_AGREEMENT_VERSION, dpaVersion: DPA_VERSION },
+        after: { accepted },
         ipHash: meta.ipHash,
       });
     });
@@ -368,4 +377,29 @@ export async function saveStoreSettingsAction(input: StoreSettingsInput): Promis
   }
   revalidatePath("/dashboard/settings");
   return { ok: true, message: "Store policies saved." };
+}
+
+/** Opening hours and the "pause orders" switch, for restaurants and other food sellers. */
+export async function saveOpeningHoursAction(input: OpeningHoursInput): Promise<ActionResult> {
+  const parsed = openingHoursSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  const d = parsed.data;
+  const openingHours = d.useHours ? d.days.map((day) => (day.isOpen ? { open: timeToMinutes(day.open), close: day.close === "00:00" ? 1440 : timeToMinutes(day.close) } : null)) : Prisma.DbNull;
+  try {
+    await withOwnBusiness(async ({ tx, business, userId }) => {
+      const data = { openingHours, ordersPaused: d.ordersPaused };
+      await tx.storePolicy.upsert({ where: { businessId: business.id }, create: { ...data, businessId: business.id }, update: data });
+      await writeAudit(tx, {
+        actorUserId: userId,
+        action: "store_policy.hours_updated",
+        entityType: "business",
+        entityId: business.id,
+        after: { openingHours: d.useHours ? openingHours : null, ordersPaused: d.ordersPaused },
+      });
+    });
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/dashboard/settings");
+  return { ok: true, message: d.ordersPaused ? "Saved. New orders are paused until you switch them back on." : "Opening hours saved." };
 }

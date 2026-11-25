@@ -6,13 +6,15 @@ import { PhoneCodeFlow } from "@/components/auth/phone-code-flow";
 import { Button } from "@/components/ui/button";
 import { removeAccountPhoneAction, sendPhoneVerificationCodeAction, verifyAccountPhoneAction } from "@/lib/auth/phone-actions";
 
-export function AccountPhone({ masked }: { masked: string | null }) {
+export function AccountPhone({ masked, pendingPhone, pendingMessage }: { masked: string | null; pendingPhone?: string; pendingMessage?: string }) {
   const router = useRouter();
   const [changing, setChanging] = useState(!masked);
   const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   if (masked && !changing) {
     return (
       <div className="flex flex-wrap items-center gap-3">
+        {error && <p className="basis-full text-sm font-medium text-danger">{error}</p>}
         <p className="text-sm">
           <strong>{masked}</strong> is verified. You can use it to sign in with a code.
         </p>
@@ -25,7 +27,8 @@ export function AccountPhone({ masked }: { masked: string | null }) {
           disabled={pending}
           onClick={() =>
             start(async () => {
-              await removeAccountPhoneAction();
+              const res = await removeAccountPhoneAction();
+              setError(res.ok ? null : res.error);
               router.refresh();
             })
           }
@@ -41,6 +44,8 @@ export function AccountPhone({ masked }: { masked: string | null }) {
         send={sendPhoneVerificationCodeAction}
         verify={verifyAccountPhoneAction}
         submitLabel="Verify number"
+        initialPhone={pendingPhone}
+        initialSentMessage={pendingPhone ? pendingMessage : undefined}
         onVerified={() => {
           setChanging(false);
           router.refresh();

@@ -1,6 +1,7 @@
 import type { OrderStatus } from "@prisma/client";
 import { dateToLagosLocal } from "@/lib/datetime";
 import type { Tx } from "@/lib/db";
+import { businessBalances } from "@/lib/payouts/balances";
 
 /** Orders that count as sales: placed (paid, or pay on delivery) and not cancelled or refunded. */
 export const SALE_STATUSES: OrderStatus[] = ["paid", "processing", "ready_for_pickup", "shipped", "delivered", "completed"];
@@ -31,11 +32,7 @@ export async function sellerKpis(tx: Tx, businessId: string, now = new Date()): 
        GROUP BY 1`,
     tx.sellerOrder.count({ where: { businessId, status: { in: ["paid", "processing", "ready_for_pickup"] } } }),
     tx.booking.count({ where: { businessId, status: { in: ["requested", "confirmed"] }, startsAt: { gt: now, lt: new Date(now.getTime() + 7 * 86_400_000) } } }),
-    tx.$queryRaw<{ type: string; balance: bigint }[]>`
-      SELECT a.type::text AS type, coalesce(sum(e.credit_kobo - e.debit_kobo), 0)::bigint AS balance
-        FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
-       WHERE e.business_id = ${businessId}::uuid AND a.owner_type = 'business'
-       GROUP BY 1`,
+    businessBalances(tx, businessId),
     tx.$queryRaw<{ product_id: string; title: string; qty: string; kobo: bigint }[]>`
       SELECT i.product_id, max(i.snapshot->>'title') AS title, sum(i.qty)::text AS qty, sum(i.line_total_kobo)::bigint AS kobo
         FROM order_items i JOIN seller_orders so ON so.id = i.seller_order_id
@@ -54,8 +51,8 @@ export async function sellerKpis(tx: Tx, businessId: string, now = new Date()): 
     todayOrders: last.orders,
     pendingOrders,
     upcomingBookings,
-    escrowKobo: balances.find((b) => b.type === "escrow")?.balance ?? 0n,
-    availableKobo: balances.find((b) => b.type === "available")?.balance ?? 0n,
+    escrowKobo: balances.escrowKobo,
+    availableKobo: balances.availableKobo,
     daily: series,
     topProducts: top.map((t) => ({ productId: t.product_id, title: t.title, qty: t.qty, kobo: t.kobo })),
   };
