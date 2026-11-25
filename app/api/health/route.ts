@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
+import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -30,11 +31,25 @@ const reason = (c: PromiseSettledResult<unknown>) =>
     : undefined;
 
 /**
- * Liveness/readiness probe for Docker and the reverse proxy. Reveals no details,
- * except on a test-mode site, where it names what failed so setup problems can
- * be read without server logs.
+ * Whether ?key= matches HEALTH_KEY. Read straight from process.env, so a live
+ * site whose settings don't validate can still show what's wrong.
  */
-export async function GET() {
+function detailsKeyMatches(req: NextRequest): boolean {
+  const want = process.env.HEALTH_KEY?.trim();
+  const got = req.nextUrl.searchParams.get("key");
+  if (!want || want.length < 24 || !got) return false;
+  const a = Buffer.from(got);
+  const b = Buffer.from(want);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * Liveness/readiness probe for Docker and the reverse proxy. Reveals no details,
+ * except on a test-mode site, or with ?key=<HEALTH_KEY> on a live one, where it
+ * names what failed (never a secret) so setup problems can be read without
+ * server logs.
+ */
+export async function GET(req: NextRequest) {
   const checks = await Promise.allSettled([
     Promise.resolve().then(() => env()),
     within(prisma.$queryRaw`SELECT 1`, "database"),
@@ -52,8 +67,9 @@ export async function GET() {
       status: ok ? "ok" : "degraded",
       db: db.status === "fulfilled",
       redis: cache.status === "fulfilled",
-      ...(isTestMode()
+      ...(isTestMode() || detailsKeyMatches(req)
         ? {
+            mode: isTestMode() ? "test" : "live",
             settings: settings.status === "fulfilled",
             errors: {
               settings: reason(settings),

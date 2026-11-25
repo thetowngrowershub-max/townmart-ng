@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
-import { env } from "@/lib/env";
+import { env, keyBytes } from "@/lib/env";
 
 /**
  * Column-level encryption for personal data (phone numbers, addresses, KYC refs).
@@ -16,12 +16,12 @@ type Keyring = { currentId: string; keys: Map<string, Buffer> };
 
 function keyring(): Keyring {
   const e = env();
-  const keys = new Map<string, Buffer>([[e.DATA_ENCRYPTION_KEY_ID, Buffer.from(e.DATA_ENCRYPTION_KEY, "base64")]]);
+  const keys = new Map<string, Buffer>([[e.DATA_ENCRYPTION_KEY_ID, keyBytes(e.DATA_ENCRYPTION_KEY)]]);
   // Previous keys stay available for decryption during rotation:
   // DATA_ENCRYPTION_KEY_<ID>=<base64>
   for (const [name, value] of Object.entries(process.env)) {
     const m = /^DATA_ENCRYPTION_KEY_([A-Za-z0-9_-]{1,16})$/.exec(name);
-    if (m && m[1] !== "ID" && value) keys.set(m[1]!, Buffer.from(value, "base64"));
+    if (m && m[1] !== "ID" && value) keys.set(m[1]!, keyBytes(value));
   }
   return { currentId: e.DATA_ENCRYPTION_KEY_ID, keys };
 }
@@ -63,7 +63,7 @@ export function decryptNullable(value: string | null | undefined): string | null
  * (e.g. `phone_hash`) and for pseudonymising IPs. HMAC-SHA256, hex.
  */
 export function lookupHash(value: string, purpose: string): string {
-  return createHmac("sha256", Buffer.from(env().DATA_HASH_KEY, "base64"))
+  return createHmac("sha256", keyBytes(env().DATA_HASH_KEY))
     .update(`${purpose}:${value}`)
     .digest("hex");
 }
