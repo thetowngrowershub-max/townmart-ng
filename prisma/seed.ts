@@ -22,6 +22,7 @@ import { seedCompliance } from "./seed-legal";
 import { seedDeliveryAndCommission } from "./seed-delivery";
 import { seedDemoMoney } from "./seed-money";
 import { seedDemoOrders } from "./seed-orders";
+import { demoAccountEmails, grantRoleToExistingAccount, retireDemoAccounts } from "./seed-accounts";
 
 const url = process.env.MIGRATE_DATABASE_URL;
 if (!url) throw new Error("MIGRATE_DATABASE_URL is required to seed");
@@ -74,34 +75,46 @@ async function seedSettings() {
 }
 
 const isLive = isProd && process.env.TOWNMART_TEST_MODE !== "true";
+/** Demo shops, shopper and shared staff logins: always in development; on a deployed site only with SEED_DEMO_DATA=true. */
+const withDemo = !isProd || process.env.SEED_DEMO_DATA === "true";
 
 /**
- * Creates a staff account once; later runs leave it alone. The email can be
- * given (SEED_SUPER_ADMIN_EMAIL, SEED_ADMIN_EMAIL), so a live site's first
- * super admin is a real person who receives TownMart's emails. In production
- * the super admin's password must be given; the plain admin is optional there.
+ * Creates a staff account once. The email can be given (SEED_SUPER_ADMIN_EMAIL,
+ * SEED_ADMIN_EMAIL), so a deployed site's staff are real people who receive
+ * TownMart's emails. On a deployed site without demo data the email must be
+ * given and can't be a demo account. If that account already exists (say the
+ * owner signed up on the test site), it is given the role instead, once it has
+ * confirmed its email. Two-step sign-in is then compulsory before the admin
+ * console opens. Later runs leave the account alone.
  */
 async function seedStaffAccount(defaultEmail: string, name: string, roles: Role[], prefix: string, opts: { requiredInProduction: boolean }) {
-  const email = (process.env[`${prefix}_EMAIL`]?.trim() || defaultEmail).toLowerCase();
+  const given = process.env[`${prefix}_EMAIL`]?.trim().toLowerCase();
   const passwordVar = `${prefix}_PASSWORD`;
+  if (!withDemo) {
+    if (!given) {
+      if (isLive && opts.requiredInProduction) throw new Error(`${prefix}_EMAIL and ${passwordVar} must be set to create the first ${name} in production`);
+      console.log(`• ${name} skipped (set ${prefix}_EMAIL to your own account's email)`);
+      return;
+    }
+    if (demoAccountEmails().includes(given)) throw new Error(`${prefix}_EMAIL can't be a demo account (${given})`);
+  }
+  const email = given || defaultEmail;
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
-    console.log(`• ${email} already exists (password unchanged)`);
+    if (given) await grantRoleToExistingAccount(prisma, email, roles[0]!, `${prefix}_EMAIL`);
+    else console.log(`• ${email} already exists (password unchanged)`);
     return;
   }
   let password = process.env[passwordVar];
   if (!password) {
-    // A test-mode site signs staff in from /auth/demo, so their passwords can stay unknown.
-    if (isLive) {
-      if (!opts.requiredInProduction) {
-        console.log(`• ${defaultEmail} skipped (set ${passwordVar} to create it)`);
-        return;
-      }
-      throw new Error(`${prefix}_EMAIL and ${passwordVar} must be set to create the first ${name} in production`);
+    if (isProd) {
+      if (isLive && opts.requiredInProduction) throw new Error(`${prefix}_EMAIL and ${passwordVar} must be set to create the first ${name} in production`);
+      console.log(`• ${email} has no account yet: sign up with it and confirm the email, then redeploy (or set ${passwordVar} to create it)`);
+      return;
     }
     password = randomBytes(12).toString("base64url");
   }
-  if (isLive && password.length < 12) throw new Error(`${passwordVar} must be 12 characters or more`);
+  if (isProd && password.length < 12) throw new Error(`${passwordVar} must be 12 characters or more`);
   const user = await prisma.user.create({
     data: {
       email,
@@ -128,10 +141,12 @@ async function main() {
   await seedDeliveryAndCommission(prisma);
   await seedDemoCatalogue(prisma);
   await seedContent(prisma);
-  if (!isProd || process.env.SEED_DEMO_DATA === "true") {
+  if (withDemo) {
     await seedDemoOrders(prisma);
     await seedDemoMoney(prisma);
     await seedDemoContent(prisma);
+  } else {
+    await retireDemoAccounts(prisma);
   }
 }
 

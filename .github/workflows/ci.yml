@@ -176,7 +176,7 @@ jobs:
           # Production refuses the development drivers and payment test keys; placeholders keep it starting.
           sed -i "s|^NODE_ENV=.*|NODE_ENV=production|; s|^SMS_PROVIDER=.*|SMS_PROVIDER=termii|; s|^TERMII_API_KEY=.*|TERMII_API_KEY=ci-placeholder|; s|^PAYSTACK_SECRET_KEY=.*|PAYSTACK_SECRET_KEY=sk_live_ci_placeholder|; s|^APP_URL=.*|APP_URL=https://localhost|; s|^AUTH_URL=.*|AUTH_URL=https://localhost|" .env
           sed -i "s|^DOMAIN=.*|DOMAIN=localhost|; s|^ACME_EMAIL=.*|ACME_EMAIL=ci@example.com|; s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$(openssl rand -hex 16)|" .env
-          sed -i "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=$(openssl rand -hex 12)|; s|^SEED_SUPER_ADMIN_PASSWORD=.*|SEED_SUPER_ADMIN_PASSWORD=$(openssl rand -hex 12)|" .env
+          sed -i "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=$(openssl rand -hex 12)|; s|^SEED_SUPER_ADMIN_PASSWORD=.*|SEED_SUPER_ADMIN_PASSWORD=$(openssl rand -hex 12)|; s|^SEED_SUPER_ADMIN_EMAIL=.*|SEED_SUPER_ADMIN_EMAIL=owner@example.com|" .env
           sudo apt-get install -y --no-install-recommends age
           mkdir -p secrets
           age-keygen -o secrets/backup-age-identity.txt 2> /tmp/age-public.txt

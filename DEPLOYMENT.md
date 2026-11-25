@@ -80,7 +80,7 @@ In `.env`, set at least:
 | `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM` | `resend`, the key, and an address on a domain verified in Resend (SPF, DKIM, DMARC) |
 | `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | from Cloudflare Turnstile |
 | `S3_*` | your storage endpoint, keys and buckets; `S3_PUBLIC_BASE_URL` is the public bucket's URL |
-| `SEED_ADMIN_PASSWORD`, `SEED_SUPER_ADMIN_PASSWORD` | strong passwords for the first staff accounts; change them after signing in |
+| `SEED_SUPER_ADMIN_EMAIL`, `SEED_SUPER_ADMIN_PASSWORD` | your own email and a strong password (12+ characters) for the first super admin. There are no shared staff logins on a deployed site. Remove the password after the first deploy |
 | `IMAGE_TAG` | a release name, e.g. the git commit (`git rev-parse --short HEAD`) |
 
 The app refuses to start in production with development drivers (local storage, console SMS, fake payments or bank checks), or without the keys those drivers need.
@@ -113,14 +113,14 @@ export COMPOSE_FILE=docker-compose.prod.yml
 docker compose --profile tools build
 docker compose up -d --wait postgres redis pgbouncer
 docker compose run --rm migrate                 # apply migrations
-docker compose run --rm migrate pnpm db:seed    # reference data and staff accounts, first time only
+docker compose run --rm migrate pnpm db:seed    # reference data, first time only
 docker compose up -d --wait web worker caddy backup
 ```
 
 Then check:
 
 1. `https://townmart.ng/api/health` answers `{"status":"ok",…}` and the home page loads with a padlock.
-2. Sign in as `superadmin@townmart.local` with `SEED_SUPER_ADMIN_PASSWORD`, change the password, and turn on two-step sign-in.
+2. Sign in with `SEED_SUPER_ADMIN_EMAIL` and its password, and turn on two-step sign-in: the admin console stays closed until you do. Give staff their own accounts and roles from the console.
 3. `/admin/system` shows a backup and its time. After the first drill (or run one now, below) it shows the restore drill too.
 4. Make a ₦100 test purchase with a real card against your own test store, and refund it from the seller dashboard.
 5. Fill in the company details on `/admin/compliance/retention` and the processors on `/admin/compliance`, and publish the lawyer-reviewed legal texts.
@@ -189,7 +189,7 @@ The live site is a **second Vercel project** on the same repository, with its ow
 What changes without test mode:
 
 - **Only production builds run.** `scripts/vercel/prepare.ts` stops a preview build, so a work-in-progress branch never migrates the live database. Set the project's Ignored Build Step to "Only build production" so previews skip quietly instead of failing.
-- **The seed runs as production:** reference data only, no demo shops, orders or accounts, and no `/auth/demo` or test inbox. The first super admin comes from `SEED_SUPER_ADMIN_EMAIL` and `SEED_SUPER_ADMIN_PASSWORD` (12+ characters); the build fails until both are set. The plain admin account is created only if `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` are set too. Existing accounts are never changed, so remove the passwords from Vercel after the first deploy.
+- **The seed runs as production:** reference data only, no demo shops, orders or accounts, and no test inbox. The first super admin comes from `SEED_SUPER_ADMIN_EMAIL` and `SEED_SUPER_ADMIN_PASSWORD` (12+ characters); the build fails until both are set. The plain admin account is created only if `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` are set too. An existing account with that email keeps its password and is only given the role (once its email is confirmed), so remove the passwords from Vercel after the first deploy.
 - **Real providers are required.** The pretend drivers are refused, and so are payment test keys (`FLWSECK_TEST-…`, `sk_test_…`). `DATA_ENCRYPTION_KEY` and `DATA_HASH_KEY` must be set: 32 bytes, base64 or 64 hex characters. Keep a copy somewhere safe, because encrypted phone numbers and addresses can't be read without the first, and lookups break without the second. Turnstile fails closed without `TURNSTILE_SECRET_KEY`.
 - **Scheduled jobs need a clock.** Jobs still run inline (no worker), but page views alone are not reliable. Set `CRON_SECRET` (24+ characters) and have a scheduler call `GET /api/jobs/tick` every minute with `Authorization: Bearer <CRON_SECRET>`: cron-job.org works on any Vercel plan, and Vercel Cron sends that header by itself on Pro. Each call starts at most one pass a minute.
 - **Setup report.** `/api/health` shows no details on a live site. Set `HEALTH_KEY` (24+ characters) and open `/api/health?key=<HEALTH_KEY>` to see the same report as on the test site (settings, database, Redis, payments, SMS, email and recent page errors, never secrets).
@@ -217,7 +217,7 @@ A staging site people can click through, with no real money, emails or SMS. Verc
 
 1. **Database roles.** With Vercel's Neon integration (`DATABASE_URL` is the owner's pooled connection, `DATABASE_URL_UNPOOLED` its direct one), the build creates `townmart_migrator`, `townmart_app` and `townmart_readonly` and a separate `townmart` database, like `roles.sql`. Their passwords are derived from `AUTH_SECRET`, and at runtime the app connects through the pooler as `townmart_app`, so row-level security still applies (`lib/platform.ts`). Set `DATABASE_ROLES=manual` to give `DATABASE_URL` and `MIGRATE_DATABASE_URL` yourself instead.
 2. **Migrations** (`prisma migrate deploy`) as `townmart_migrator`.
-3. **Seed.** Reference data always; the demo shops, orders and accounts on a test-mode site. The seed is idempotent.
+3. **Seed.** Reference data always. The demo shops, orders and accounts only with `SEED_DEMO_DATA=true`; otherwise any demo accounts already in the database are suspended and signed out, and their shops hidden (`prisma/seed-accounts.ts`; nothing is deleted, and an admin can restore one from the console). If `SEED_SUPER_ADMIN_EMAIL` names an account that already exists, that account is made super admin once it has confirmed its email; with `SEED_SUPER_ADMIN_PASSWORD` too, a new account is created if there isn't one. The seed is idempotent.
 
 **Background jobs.** On Vercel (`VERCEL=1`), `JOBS_INLINE` defaults to true: each queued job runs in the same function straight after the response, with the worker's handlers (`lib/jobs/inline.ts`). Scheduled jobs (unpaid orders expiring, refunds, escrow, payouts, retention) run when people use the site: a page view asks `/api/jobs/tick` at most once a minute, and each job keeps its own interval from its cron pattern (every N minutes, hourly, or daily). With no visitors, nothing runs. A live site should run the worker instead.
 
@@ -225,8 +225,8 @@ A staging site people can click through, with no real money, emails or SMS. Verc
 
 - a banner on every page says no real money moves, and robots are told not to index anything;
 - payments use the pretend payment page and bank checks are faked, unless real providers are set;
-- emails and SMS go to the test inbox at `/test-inbox` (anyone on the site can read it, so testers should use made-up details);
-- `/auth/demo` signs in as any seeded demo account (admin, super admin, the six sellers, the demo shopper) without a password;
+- emails and SMS go to the test inbox at `/test-inbox` (anyone on the site can read it, so testers should use made-up details). Once both `EMAIL_PROVIDER` and `SMS_PROVIDER` really send, the test inbox closes;
+- there is no passwordless or shared sign-in: testers make their own accounts, and admins (including the owner, via `SEED_SUPER_ADMIN_EMAIL`) must turn on two-step sign-in like on the live site;
 - Turnstile is skipped if it isn't configured, and `DATA_ENCRYPTION_KEY` and `DATA_HASH_KEY` are derived from `AUTH_SECRET` if not set.
 
 Never set it on the live site.
@@ -236,7 +236,8 @@ Never set it on the live site.
 | Variable | Value |
 |---|---|
 | `TOWNMART_TEST_MODE` | `true` |
-| `TEST_SITE_PASSWORD` | a password for your testers. Every page asks for it first. Set it before turning on real email or SMS, because anyone on the test site can sign in as the demo admin |
+| `TEST_SITE_PASSWORD` | a password for your testers. Every page asks for it first, so strangers can't use the test site's real email and SMS credit |
+| `SEED_SUPER_ADMIN_EMAIL` | your own account's email. Sign up and confirm it first; the next deploy makes it super admin |
 | `AUTH_SECRET` | 32 or more random characters |
 | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | set by the Neon integration (leave its prefix empty) |
 | `REDIS_URL` (or `KV_URL`) | set by the Redis integration (Upstash) |

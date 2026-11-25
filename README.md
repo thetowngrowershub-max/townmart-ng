@@ -33,7 +33,7 @@ Without Docker (an existing Postgres 16 server): set the `POSTGRES_*` superuser 
 
 ### Seeded accounts (development)
 
-`pnpm db:seed` creates `admin@townmart.local` and `superadmin@townmart.local` and prints random passwords once. Set `SEED_ADMIN_PASSWORD` / `SEED_SUPER_ADMIN_PASSWORD` to choose them. In production these variables are required and passwords are never printed.
+`pnpm db:seed` creates `admin@townmart.local` and `superadmin@townmart.local` and prints random passwords once. Set `SEED_ADMIN_PASSWORD` / `SEED_SUPER_ADMIN_PASSWORD` to choose them. On a deployed site (`NODE_ENV=production`) these demo staff logins aren't created. Instead `SEED_SUPER_ADMIN_EMAIL` names your own account (created with `SEED_SUPER_ADMIN_PASSWORD`, or an existing confirmed one given the role), and any demo accounts already in the database are suspended and their shops hidden unless `SEED_DEMO_DATA=true` (`prisma/seed-accounts.ts`).
 
 It also seeds the category tree and six approved demo sellers in Lagos, Ogun and Oyo (59 products with variants and stock, 10 services, generated placeholder images), and prints each owner's email and password once. Demo data is skipped in production unless `SEED_DEMO_DATA=true`.
 

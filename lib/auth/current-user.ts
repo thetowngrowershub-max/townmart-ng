@@ -4,18 +4,7 @@ import { forbidden, redirect } from "next/navigation";
 import { cache } from "react";
 import { can, type GlobalPermission } from "@/lib/authz";
 import { withRls } from "@/lib/db";
-import { isTestMode } from "@/lib/platform";
-import { DEMO_ACCOUNTS } from "@/lib/test-mode/demo-accounts";
 import { auth } from "./config";
-
-/**
- * Two-step sign-in is compulsory for TownMart admins. The shared demo admins
- * on a test site are the exception: testers all use them, so one person's
- * authenticator would lock everyone else out.
- */
-function twoFactorExempt(email: string): boolean {
-  return isTestMode() && DEMO_ACCOUNTS.some((a) => a.email === email);
-}
 
 export type CurrentUser = {
   id: string;
@@ -23,7 +12,7 @@ export type CurrentUser = {
   name: string | null;
   emailVerified: Date | null;
   roles: Role[];
-  /** An admin without two-step sign-in: admin powers stay off until it's on. See lib/authz. */
+  /** An admin without two-step sign-in: admin powers stay off until it's on, on every site. See lib/authz. */
   adminNeedsTwoFactor: boolean;
 };
 
@@ -48,7 +37,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     name: user.name,
     emailVerified: user.emailVerified,
     roles,
-    adminNeedsTwoFactor: isAdmin && !user.twoFactorEnabledAt && !twoFactorExempt(user.email),
+    adminNeedsTwoFactor: isAdmin && !user.twoFactorEnabledAt,
   };
 });
 
