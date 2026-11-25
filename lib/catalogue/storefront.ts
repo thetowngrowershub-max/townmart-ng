@@ -1,0 +1,142 @@
+import "server-only";
+import { cache } from "react";
+import { categoryAttributeDefs } from "@/lib/catalogue/attributes";
+import { withRls } from "@/lib/db";
+import { loadListingRules } from "@/lib/promotions/live";
+import { listPortfolio } from "@/lib/portfolio/portfolio";
+import { listingReviews, providerReviews } from "@/lib/reviews/reviews";
+import { IN_SERVICE_AREA } from "@/lib/service-area-db";
+
+/** Public reads run as a guest so the storefront shows exactly what anyone can see. */
+const asGuest = <T,>(fn: Parameters<typeof withRls<T>>[1]) => withRls({ userId: null }, fn);
+
+// Only businesses based inside the service area (lib/service-area.ts) are public.
+const live = { status: "active", deletedAt: null, takenDownAt: null, business: { status: "approved", lga: IN_SERVICE_AREA } } as const;
+
+export const getPublicProduct = cache((slug: string) =>
+  asGuest((tx) =>
+    tx.product.findFirst({
+      where: { slug, ...live },
+      include: {
+        images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }] },
+        options: { orderBy: { position: "asc" } },
+        variants: { orderBy: { position: "asc" } },
+        category: { select: { name: true, slug: true, parentId: true, isFood: true, parent: { select: { name: true, slug: true, isFood: true } } } },
+        business: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            logoKey: true,
+            city: true,
+            ratingAvg: true,
+            ratingCount: true,
+            createdAt: true,
+            state: { select: { name: true } },
+            policy: { select: { returnWindowDays: true, deliveryOptions: true, acceptsPayOnDelivery: true, openingHours: true, ordersPaused: true } },
+          },
+        },
+      },
+    }),
+  ),
+);
+
+export const getRelatedProducts = (productId: string, categoryId: string) =>
+  asGuest((tx) =>
+    tx.product.findMany({
+      where: { ...live, categoryId, id: { not: productId } },
+      orderBy: [{ ratingCount: "desc" }, { createdAt: "desc" }],
+      take: 4,
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        businessId: true,
+        categoryId: true,
+        category: { select: { parentId: true } },
+        basePriceKobo: true,
+        compareAtPriceKobo: true,
+        unit: true,
+        ratingAvg: true,
+        ratingCount: true,
+        trackInventory: true,
+        allowBackorder: true,
+        images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }], take: 1, select: { storageKey: true, altText: true } },
+        variants: { select: { stockQty: true } },
+        business: { select: { name: true, slug: true, city: true, state: { select: { name: true } } } },
+      },
+    }),
+  );
+
+export const getPublicService = cache((slug: string) =>
+  asGuest((tx) =>
+    tx.service.findFirst({
+      where: { slug, ...live },
+      include: {
+        images: { orderBy: { sortOrder: "asc" } },
+        packages: { orderBy: { position: "asc" } },
+        availability: { orderBy: [{ weekday: "asc" }, { startMinute: "asc" }] },
+        blackouts: { where: { endsAt: { gt: new Date() } }, orderBy: { startsAt: "asc" }, take: 10 },
+        category: { select: { name: true, slug: true, parentId: true, parent: { select: { name: true, slug: true } } } },
+        business: {
+          select: {
+            name: true,
+            slug: true,
+            logoKey: true,
+            city: true,
+            lgaId: true,
+            ratingAvg: true,
+            ratingCount: true,
+            createdAt: true,
+            state: { select: { name: true } },
+            lga: { select: { name: true } },
+          },
+        },
+      },
+    }),
+  ),
+);
+
+/** Live automatic promotions for these sellers (and platform-wide), as a guest sees them. */
+export const getListingRules = (businessIds: string[]) => asGuest((tx) => loadListingRules(tx, businessIds));
+
+export const getPublicStore = cache((slug: string) =>
+  asGuest((tx) =>
+    tx.business.findFirst({
+      where: { slug, status: "approved", lga: IN_SERVICE_AREA },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        type: true,
+        description: true,
+        logoKey: true,
+        bannerKey: true,
+        city: true,
+        ratingAvg: true,
+        ratingCount: true,
+        createdAt: true,
+        state: { select: { name: true } },
+        lga: { select: { name: true } },
+        policy: { select: { returnWindowDays: true, deliveryOptions: true, acceptsPayOnDelivery: true, openingHours: true, ordersPaused: true } },
+      },
+    }),
+  ),
+);
+
+/** A listing's public reviews (hidden ones never show to guests). */
+export const getListingReviews = (where: { productId: string } | { serviceId: string }) => asGuest((tx) => listingReviews(tx, where));
+
+/** A provider's "Rate my service" ratings across all its services. */
+export const getProviderReviews = cache((businessId: string) => asGuest((tx) => providerReviews(tx, businessId)));
+
+/** A provider's job photos, public while the shop is approved. */
+export const getPortfolio = cache((businessId: string, take?: number) => asGuest((tx) => listPortfolio(tx, businessId, take)));
+
+/** A product's attribute values with their names, in the category's order. Values for attributes the category no longer asks for aren't shown. */
+export async function getProductSpecs(categoryId: string, values: unknown): Promise<{ name: string; value: string }[]> {
+  const v = (values ?? {}) as Record<string, unknown>;
+  if (Object.keys(v).length === 0) return [];
+  const defs = (await asGuest((tx) => categoryAttributeDefs(tx, [categoryId]))).get(categoryId) ?? [];
+  return defs.filter((d) => v[d.slug] !== undefined && v[d.slug] !== "").map((d) => ({ name: d.name, value: String(v[d.slug]) }));
+}
