@@ -8,12 +8,21 @@ import {
   formatDuration,
   servicePriceLabel,
 } from "@/components/storefront/listing-cards";
+import { QuestionsSection } from "@/components/listings/questions-section";
+import { ReportListing } from "@/components/listings/report-listing";
+import { JobPhotos } from "@/components/portfolio/job-photos";
+import { ReviewList } from "@/components/reviews/review-list";
+import { WishlistButton } from "@/components/storefront/wishlist-button";
+import { isSaved } from "@/lib/wishlist";
+import { BookService } from "@/components/storefront/book-service";
 import { SellerCard } from "@/components/storefront/seller-card";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getCurrentUser } from "@/lib/auth/current-user";
+import { listingQuestions } from "@/lib/questions/questions";
 import {
-  getLgaNames,
+  getListingReviews,
+  getPortfolio,
   getListingRules,
   getPublicService,
 } from "@/lib/catalogue/storefront";
@@ -59,7 +68,9 @@ const LOCATION_TEXT = {
 export default async function ServicePage({ params }: Props) {
   const s = await getPublicService((await params).slug);
   if (!s) notFound();
-  const lgas = await getLgaNames(s.serviceLgaIds);
+  const [reviews, viewer, jobPhotos] = await Promise.all([getListingReviews({ serviceId: s.id }), getCurrentUser(), getPortfolio(s.businessId, 8)]);
+  const questions = await listingQuestions({ serviceId: s.id }, viewer?.id ?? null);
+  const saved = await isSaved(viewer?.id, { serviceId: s.id });
   const now = new Date();
   const rules = await getListingRules([s.businessId]);
   const item = {
@@ -112,7 +123,10 @@ export default async function ServicePage({ params }: Props) {
       </nav>
       <div className="grid gap-8 lg:grid-cols-[3fr_2fr]">
         <div className="flex flex-col gap-6">
-          <h1 className="text-2xl font-bold sm:text-3xl">{s.title}</h1>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-2xl font-bold sm:text-3xl">{s.title}</h1>
+            <WishlistButton target={{ serviceId: s.id }} saved={saved} signedIn={Boolean(viewer)} returnTo={`/s/${s.slug}`} />
+          </div>
           {cover && (
             <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-muted">
               <Image
@@ -194,8 +208,8 @@ export default async function ServicePage({ params }: Props) {
               </p>
               {s.depositPercent > 0 && (
                 <p className="text-sm">
-                  {s.depositPercent}% deposit when you book; the rest after the
-                  job.
+                  {s.depositPercent}% deposit when you book; you pay the rest
+                  to the provider on the day.
                 </p>
               )}
               <p className="text-sm text-muted-foreground">
@@ -203,10 +217,20 @@ export default async function ServicePage({ params }: Props) {
                   ? "The provider confirms each booking."
                   : "Bookings are confirmed instantly when a slot is free."}
               </p>
-              <Alert variant="info">
-                Online booking opens soon. Check the schedule below and save
-                this page.
-              </Alert>
+              <BookService
+                serviceId={s.id}
+                locationMode={s.locationMode}
+                requiresPackage={s.pricingModel === "packages" && s.packages.length > 0}
+                packages={s.packages.map((pkg) => {
+                  const pkgDeal = dealFor(item, pkg.priceKobo, rules, now);
+                  return {
+                    id: pkg.id,
+                    name: pkg.name,
+                    price: formatPrice(pkgDeal ? pkgDeal.finalKobo : pkg.priceKobo),
+                    duration: formatDuration(pkg.durationMinutes),
+                  };
+                })}
+              />
             </CardContent>
           </Card>
           <SellerCard business={s.business} label="Provided by" />
@@ -302,29 +326,46 @@ export default async function ServicePage({ params }: Props) {
               <CardTitle>Service area</CardTitle>
             </CardHeader>
             <CardContent className="text-sm">
-              {s.locationMode === "at_provider" ? (
-                <p>
-                  Based in {s.business.lga.name}, {s.business.state.name}.
-                </p>
-              ) : (
-                <>
-                  {lgas.length > 0 && (
-                    <p>
-                      {lgas
-                        .map((l) => `${l.name} (${l.state.name})`)
-                        .join(", ")}
-                    </p>
-                  )}
-                  {s.radiusKm && (
-                    <p className="mt-1">
-                      Within {s.radiusKm} km of {s.business.city}.
-                    </p>
-                  )}
-                </>
-              )}
+              {/* Providers are locked to the LGA they're registered in. */}
+              <p>
+                {s.locationMode === "at_provider" ? "Based in" : "Works only in"} {s.business.city}, {s.business.lga.name}, {s.business.state.name}.
+              </p>
+              {s.locationMode !== "at_provider" && s.radiusKm && <p className="mt-1">Travels up to {s.radiusKm} km from their base.</p>}
             </CardContent>
           </Card>
         </div>
+      </div>
+      {jobPhotos.length > 0 && (
+        <Card className="mt-10">
+          <CardContent className="flex flex-col gap-4 pt-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-lg font-bold">Jobs done by {s.business.name}</h2>
+              <Link href={`/store/${s.business.slug}#jobs`} className="text-sm font-medium text-primary underline">
+                See all job photos
+              </Link>
+            </div>
+            <JobPhotos photos={jobPhotos} compact />
+          </CardContent>
+        </Card>
+      )}
+      <Card className="mt-10">
+        <CardContent className="pt-6">
+          <ReviewList
+            title="Rate my service"
+            verifiedLabel="Booked on TownMart"
+            emptyText="No ratings yet. Customers who book this service through TownMart can rate it once the job is done."
+            avg={Number(s.ratingAvg)} total={reviews.total} breakdown={reviews.breakdown} reviews={reviews.reviews} signedIn={Boolean(viewer)} />
+        </CardContent>
+      </Card>
+
+      <Card className="mt-10">
+        <CardContent className="pt-6">
+          <QuestionsSection kind="service" id={s.id} questions={questions} viewerId={viewer?.id ?? null} returnTo={`/s/${s.slug}`} />
+        </CardContent>
+      </Card>
+
+      <div className="mt-6">
+        <ReportListing kind="service" id={s.id} signedIn={Boolean(viewer)} returnTo={`/s/${s.slug}`} />
       </div>
     </main>
   );

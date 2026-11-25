@@ -12,21 +12,24 @@ export class PromotionError extends Error {
 }
 
 /**
- * Creates or updates a seller's promotion, its targets and its coupon in the
- * caller's transaction (RLS-scoped to the seller). Targets are checked
- * against the seller's own listings here as well as by the database.
+ * Creates or updates a promotion, its targets and its coupon in the caller's
+ * transaction: a seller's (RLS-scoped to the seller, targets checked against
+ * their own listings here as well as by the database), or TownMart's
+ * platform-wide one when businessId is null (admin scope).
  */
 export async function savePromotion(
   tx: Tx,
-  params: { businessId: string; actorUserId: string; data: PromotionData; promotionId?: string },
+  params: { businessId: string | null; actorUserId: string; data: PromotionData; promotionId?: string },
 ): Promise<{ id: string }> {
   const { businessId, data } = params;
 
-  if (data.productIds.length) {
+  // TownMart's promotions target everything or whole categories, never one seller's listings.
+  if (businessId === null && (data.productIds.length || data.serviceIds.length)) throw new PromotionError("TownMart promotions cover everything or whole categories", "scope");
+  if (businessId !== null && data.productIds.length) {
     const found = await tx.product.count({ where: { id: { in: data.productIds }, businessId, deletedAt: null } });
     if (found !== new Set(data.productIds).size) throw new PromotionError("Some of those products aren't in your store", "productIds");
   }
-  if (data.serviceIds.length) {
+  if (businessId !== null && data.serviceIds.length) {
     const found = await tx.service.count({ where: { id: { in: data.serviceIds }, businessId, deletedAt: null } });
     if (found !== new Set(data.serviceIds).size) throw new PromotionError("Some of those services aren't in your store", "serviceIds");
   }
@@ -97,6 +100,31 @@ export async function savePromotion(
 
   return { id };
 }
+
+/** Pause and resume flip is_active; "end" stops a promotion now and keeps its history. */
+export async function changePromotion(tx: Tx, businessId: string | null, id: string, change: "pause" | "resume" | "end") {
+  const p = await tx.promotion.findFirst({ where: { id, businessId }, select: { startsAt: true, endsAt: true } });
+  if (!p) throw new PromotionError("Promotion not found");
+  const now = new Date();
+  if (now >= p.endsAt) throw new PromotionError("This promotion has already ended.");
+  const data =
+    change === "end"
+      ? // ends_at must stay after starts_at; a promotion that hasn't started yet ends the moment it would start.
+        { endsAt: p.startsAt > now ? new Date(p.startsAt.getTime() + 1000) : now, isActive: false }
+      : { isActive: change === "resume" };
+  await tx.promotion.update({ where: { id }, data });
+}
+
+/** Only promotions nobody has used can be deleted; used ones are ended instead, so order history stays intact. */
+export async function deletePromotion(tx: Tx, businessId: string | null, id: string): Promise<{ name: string }> {
+  const p = await tx.promotion.findFirst({ where: { id, businessId }, select: { name: true, redemptionCount: true } });
+  if (!p) throw new PromotionError("Promotion not found");
+  if (p.redemptionCount > 0) throw new PromotionError("Customers have used this promotion, so it can't be deleted. End it instead.");
+  await tx.promotion.delete({ where: { id } });
+  return { name: p.name };
+}
+
+export const changeLabel = (change: "pause" | "resume" | "end") => (change === "end" ? "ended" : change === "pause" ? "paused" : "resumed");
 
 export type PromotionStatus = "scheduled" | "live" | "paused" | "ended" | "used_up";
 

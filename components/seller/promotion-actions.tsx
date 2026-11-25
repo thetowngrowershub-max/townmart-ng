@@ -5,12 +5,15 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { changePlatformPromotionAction, deletePlatformPromotionAction } from "@/lib/admin/promotion-actions";
 import { changePromotionAction, deletePromotionAction } from "@/lib/promotions/actions";
 import type { PromotionStatus } from "@/lib/promotions/promotions";
 import type { ActionResult } from "@/lib/validation/form-result";
 
 /** Pause, resume, end now, or delete (only if nobody has used it). */
-export function PromotionActions({ id, status, used }: { id: string; status: PromotionStatus; used: boolean }) {
+export function PromotionActions({ id, status, used, platform = false }: { id: string; status: PromotionStatus; used: boolean; platform?: boolean }) {
+  const change = platform ? changePlatformPromotionAction : changePromotionAction;
+  const remove = platform ? deletePlatformPromotionAction : deletePromotionAction;
   const router = useRouter();
   const [pending, start] = useTransition();
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -25,12 +28,12 @@ export function PromotionActions({ id, status, used }: { id: string; status: Pro
     <div className="flex flex-col items-end gap-2">
       <div className="flex flex-wrap justify-end gap-2">
         {(status === "live" || status === "scheduled") && (
-          <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => run(() => changePromotionAction({ id, change: "pause" }))}>
+          <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => run(() => change({ id, change: "pause" }))}>
             <Pause aria-hidden /> Pause
           </Button>
         )}
         {status === "paused" && (
-          <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => run(() => changePromotionAction({ id, change: "resume" }))}>
+          <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => run(() => change({ id, change: "resume" }))}>
             <Play aria-hidden /> Resume
           </Button>
         )}
@@ -41,7 +44,7 @@ export function PromotionActions({ id, status, used }: { id: string; status: Pro
             size="sm"
             disabled={pending}
             onClick={() => {
-              if (window.confirm("End this promotion now? Shoppers stop getting the discount straight away.")) run(() => changePromotionAction({ id, change: "end" }));
+              if (window.confirm("End this promotion now? Shoppers stop getting the discount straight away.")) run(() => change({ id, change: "end" }));
             }}
           >
             <Square aria-hidden /> End now
@@ -54,7 +57,7 @@ export function PromotionActions({ id, status, used }: { id: string; status: Pro
             size="sm"
             disabled={pending}
             onClick={() => {
-              if (window.confirm("Delete this promotion? This can't be undone.")) run(() => deletePromotionAction(id), () => router.push("/dashboard/promotions"));
+              if (window.confirm("Delete this promotion? This can't be undone.")) run(() => remove(id), () => router.push(platform ? "/admin/catalogue/promotions" : "/dashboard/promotions"));
             }}
           >
             <Trash2 aria-hidden /> Delete

@@ -1,13 +1,17 @@
 import { ImageOff, MapPin, Store } from "lucide-react";
+import { formatDistance } from "@/lib/geo/distance";
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { formatDuration, servicePriceLabel } from "@/lib/catalogue/format";
 import { formatDateTime } from "@/lib/datetime";
 import { formatPrice } from "@/lib/money";
 import type { ListingDeal } from "@/lib/pricing";
 import type { ProductHit, ServiceHit, StoreHit } from "@/lib/search";
 import { publicImageUrl } from "@/lib/storage";
 import { Rating } from "./rating";
+
+export { formatDuration, servicePriceLabel };
 
 const IMAGE_SIZES = "(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw";
 
@@ -73,25 +77,11 @@ export function ProductCard({ p }: { p: ProductHit }) {
       </p>
       {deal?.isFlashDeal && <DealEnds deal={deal} />}
       <p className="flex items-center gap-1 text-xs text-muted-foreground">
-        <MapPin className="size-3" aria-hidden /> {p.business.name} · {p.business.city}
+        <MapPin className="size-3" aria-hidden /> {p.business.name} · {p.business.distanceMetres != null ? `${formatDistance(p.business.distanceMetres)} away` : p.business.city}
       </p>
       <Rating avg={p.ratingAvg} count={p.ratingCount} />
     </article>
   );
-}
-
-export function servicePriceLabel(model: string, kobo: bigint) {
-  if (model === "hourly") return `${formatPrice(kobo)}/hr`;
-  if (model === "from" || model === "packages") return `From ${formatPrice(kobo)}`;
-  return formatPrice(kobo);
-}
-
-export function formatDuration(minutes: number) {
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h >= 24 && m === 0 && h % 24 === 0) return `${h / 24} day${h === 24 ? "" : "s"}`;
-  return m ? `${h} hr ${m} min` : `${h} hr`;
 }
 
 export function ServiceCard({ s }: { s: ServiceHit }) {
@@ -110,7 +100,7 @@ export function ServiceCard({ s }: { s: ServiceHit }) {
       </p>
       {s.deal?.isFlashDeal && <DealEnds deal={s.deal} />}
       <p className="text-xs text-muted-foreground">
-        About {formatDuration(s.durationMinutes)} · {s.business.name}, {s.business.city}
+        About {formatDuration(s.durationMinutes)} · {s.business.name}, {s.business.distanceMetres != null ? `${formatDistance(s.business.distanceMetres)} away` : s.business.city}
       </p>
       <Rating avg={s.ratingAvg} count={s.ratingCount} />
     </article>
@@ -133,8 +123,8 @@ export function StoreCard({ s }: { s: StoreHit }) {
             {s.name}
           </Link>
         </h3>
-        <p className="text-xs capitalize text-muted-foreground">
-          {s.type.replace("_", " ")} · {s.city}, {s.stateName}
+        <p className="text-xs text-muted-foreground">
+          <span className="capitalize">{s.type.replace("_", " ")}</span> · {s.distanceMetres != null ? `${formatDistance(s.distanceMetres)} away` : `${s.city}, ${s.stateName}`}
         </p>
         <Rating avg={s.ratingAvg} count={s.ratingCount} />
       </div>

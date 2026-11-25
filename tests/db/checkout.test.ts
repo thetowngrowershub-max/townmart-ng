@@ -1,0 +1,527 @@
+import { createHmac, randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { POST as webhook } from "@/app/api/webhooks/[provider]/route";
+import { prisma, withRls, withSystemContext } from "@/lib/db";
+import { computeCheckout } from "@/lib/checkout/compute";
+import { applyVerifiedPayment, expireUnpaidOrders, processPaymentEvent } from "@/lib/orders/payment";
+import { OrderError, placeOrder, type PlacedOrder } from "@/lib/orders/place";
+import { FakePaymentProvider } from "@/lib/payments/fake";
+import type { VerifiedPayment } from "@/lib/payments";
+import { createUser, deleteMoneyTrail, deleteUsers, lagosIkeja, moweOgun, owner } from "./helpers";
+
+/**
+ * Checkout end to end at the database layer: placing orders across sellers,
+ * no overselling under concurrency, payment confirmation and webhook replays
+ * applied once, a balanced append-only ledger, expiry releasing stock, and
+ * each seller seeing only its own part of an order.
+ */
+
+type Seller = { userId: string; businessId: string; productId: string; variantId: string };
+
+const tag = randomUUID().slice(0, 8);
+let categoryId: string;
+let a: Seller;
+let b: Seller;
+let buyer: { id: string; email: string };
+let stranger: { id: string };
+const carts: string[] = [];
+const sellers: Seller[] = [];
+const users: string[] = [];
+
+function asSystem<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) {
+  return owner.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.current_scope', 'system', true)`;
+    return fn(tx);
+  });
+}
+
+async function createSeller(label: string, opts: { priceKobo: bigint; stock: number; payOnDelivery: boolean }): Promise<Seller> {
+  const user = await createUser(label);
+  users.push(user.id);
+  const { stateId, lgaId } = await moweOgun();
+  return asSystem(async (tx) => {
+    const business = await tx.business.create({
+      data: {
+        ownerUserId: user.id,
+        type: "merchant",
+        name: `${label} ${tag}`,
+        slug: `${label}-${tag}`,
+        email: `${label}-${tag}@test.townmart.local`,
+        phoneEncrypted: "v1.k1.test.test.test",
+        phoneHash: `${label}-${tag}`,
+        addressEncrypted: "v1.k1.test.test.test",
+        city: "Mowe",
+        stateId,
+        lgaId,
+        status: "approved",
+        policy: { create: { acceptsPayOnDelivery: opts.payOnDelivery, deliveryOptions: { delivery: true, pickup: true } } },
+      },
+    });
+    const product = await tx.product.create({
+      data: { businessId: business.id, categoryId, title: `${label} item ${tag}`, slug: `${label}-item-${tag}`, basePriceKobo: opts.priceKobo, status: "active" },
+    });
+    const variant = await tx.productVariant.create({
+      data: { productId: product.id, businessId: business.id, sku: `${label}-${tag}`, priceKobo: opts.priceKobo, stockQty: opts.stock, isDefault: true },
+    });
+    const seller = { userId: user.id, businessId: business.id, productId: product.id, variantId: variant.id };
+    sellers.push(seller);
+    return seller;
+  });
+}
+
+async function cartWith(items: { seller: Seller; qty: number }[], userId: string | null = null): Promise<string> {
+  const cart = await owner.cart.create({
+    data: {
+      userId,
+      guestTokenHash: userId ? null : `test-${randomUUID()}`,
+      expiresAt: new Date(Date.now() + 86_400_000),
+      items: { create: items.map((i) => ({ variantId: i.seller.variantId, businessId: i.seller.businessId, qty: i.qty })) },
+    },
+  });
+  carts.push(cart.id);
+  return cart.id;
+}
+
+type Address = Awaited<ReturnType<typeof address>>;
+async function address() {
+  const { stateId, lgaId } = await moweOgun();
+  return { recipientName: "Ada Obi", phone: "08031234567", line1: "12 Ofada Road", line2: "", landmark: "", city: "Mowe", stateId, lgaId };
+}
+
+/** Prices the cart as the checkout page would, then places the order with that total. */
+async function order(cartId: string, opts: { userId?: string | null; payment?: "online" | "pay_on_delivery"; address?: Address } = {}): Promise<PlacedOrder> {
+  const addr = opts.address ?? (await address());
+  const userId = opts.userId ?? null;
+  const quote = await withSystemContext((tx) => computeCheckout(tx, { cartId, userId, address: { stateId: addr.stateId, lgaId: addr.lgaId } }));
+  return withSystemContext(
+    (tx) =>
+      placeOrder(tx, {
+        cartId,
+        userId,
+        accountEmail: userId ? buyer.email : null,
+        accountName: null,
+        ipHash: "test",
+        data: {
+          email: userId ? "" : `guest-${randomUUID()}@test.townmart.local`,
+          address: addr,
+          addressId: "",
+          saveAddress: false,
+          methods: {},
+          payment: opts.payment ?? "online",
+          acceptTerms: true,
+          marketingConsent: false,
+          expectedTotalKobo: quote.quote.totalKobo.toString(),
+        },
+      }),
+    { timeout: 60_000, maxWait: 60_000 },
+  );
+}
+
+const stock = async (s: Seller) => (await owner.productVariant.findUniqueOrThrow({ where: { id: s.variantId } })).stockQty.toNumber();
+const paymentFor = (orderId: string) => owner.payment.create({ data: { orderId, provider: "fake", providerReference: `ref-${randomUUID()}`, amountKobo: 1n } });
+const verified = (reference: string, amountKobo: bigint, status: VerifiedPayment["status"] = "success"): VerifiedPayment => ({
+  reference,
+  status,
+  amountKobo,
+  currency: "NGN",
+  channel: "card",
+  paidAt: new Date(),
+  raw: {},
+});
+
+async function setPaymentAmount(id: string, amountKobo: bigint) {
+  await owner.payment.update({ where: { id }, data: { amountKobo } });
+}
+
+beforeAll(async () => {
+  categoryId = (await owner.category.findFirstOrThrow({ where: { kind: "product", isActive: true, isFood: false, parentId: { not: null } } })).id;
+  a = await createSeller("co-a", { priceKobo: 200_000n, stock: 10, payOnDelivery: true });
+  b = await createSeller("co-b", { priceKobo: 500_000n, stock: 20, payOnDelivery: false });
+  const u = await createUser("co-buyer");
+  const s = await createUser("co-stranger");
+  users.push(u.id, s.id);
+  buyer = { id: u.id, email: u.email };
+  stranger = { id: s.id };
+});
+
+afterAll(async () => {
+  const businessIds = sellers.map((s) => s.businessId);
+  const orderIds = (await owner.sellerOrder.findMany({ where: { businessId: { in: businessIds } }, select: { orderId: true } })).map((o) => o.orderId);
+  await asSystem(async (tx) => {
+    await deleteMoneyTrail(tx, { businessIds, orderIds });
+    await tx.paymentEvent.deleteMany({ where: { payload: { path: ["tag"], equals: tag } } });
+    await tx.promotionRedemption.deleteMany({ where: { orderId: { in: orderIds } } });
+    await tx.payment.deleteMany({ where: { orderId: { in: orderIds } } });
+    await tx.order.deleteMany({ where: { id: { in: orderIds } } });
+    await tx.cart.deleteMany({ where: { id: { in: carts } } });
+    await tx.product.deleteMany({ where: { businessId: { in: businessIds } } });
+    await tx.business.deleteMany({ where: { id: { in: businessIds } } });
+  });
+  await deleteUsers(...users);
+  await owner.$disconnect();
+  await prisma.$disconnect();
+});
+
+describe("placing an order", () => {
+  it("splits one checkout across two sellers, holds the stock and empties the cart", async () => {
+    const [stockA, stockB] = [await stock(a), await stock(b)];
+    const placed = await order(await cartWith([{ seller: a, qty: 2 }, { seller: b, qty: 1 }]), { userId: buyer.id });
+
+    const o = await owner.order.findUniqueOrThrow({ where: { id: placed.orderId }, include: { sellerOrders: true, reservations: true } });
+    expect(o.orderNumber).toMatch(/^TM-\d{4}-\d{6}$/);
+    expect(o.paymentStatus).toBe("unpaid");
+    expect(o.termsVersion).toBeTruthy();
+    expect(o.refundPolicyVersion).toBeTruthy();
+    // The versions on the order come from the acceptance records written with it.
+    const accepted = await owner.policyAcceptance.findMany({ where: { orderId: o.id }, include: { document: true } });
+    expect(accepted.map((x) => [x.context, x.userId, x.document.slug, x.document.version]).sort()).toEqual([
+      ["checkout", buyer.id, "refunds", o.refundPolicyVersion],
+      ["checkout", buyer.id, "terms", o.termsVersion],
+    ]);
+    expect(o.sellerOrders.map((s) => s.businessId).sort()).toEqual([a.businessId, b.businessId].sort());
+    expect(o.sellerOrders.every((s) => s.status === "pending_payment" && s.orderNumber === o.orderNumber)).toBe(true);
+    expect(o.subtotalKobo).toBe(900_000n);
+    // Service fee: 1% capped at ₦1,000; VAT at 7.5% of the fee.
+    expect(o.serviceFeeKobo).toBe(9_000n);
+    expect(o.vatKobo).toBe(675n);
+    expect(o.totalKobo).toBe(o.subtotalKobo - o.discountKobo + o.deliveryKobo + o.serviceFeeKobo + o.vatKobo);
+    expect(o.reservations.every((r) => r.status === "held")).toBe(true);
+    expect([await stock(a), await stock(b)]).toEqual([stockA - 2, stockB - 1]);
+    expect(await owner.cartItem.count({ where: { cart: { userId: buyer.id } } })).toBe(0);
+  });
+
+  it("refuses an order whose total changed since the shopper saw it", async () => {
+    const cartId = await cartWith([{ seller: b, qty: 1 }]);
+    const addr = await address();
+    await expect(
+      withSystemContext((tx) =>
+        placeOrder(tx, {
+          cartId,
+          userId: null,
+          accountEmail: null,
+          accountName: null,
+          ipHash: "test",
+          data: { email: "x@test.townmart.local", address: addr, addressId: "", saveAddress: false, methods: {}, payment: "online", acceptTerms: true, marketingConsent: false, expectedTotalKobo: "1" },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "price_changed" });
+  });
+
+  it("only offers pay on delivery when every seller in the order accepts it", async () => {
+    await expect(order(await cartWith([{ seller: a, qty: 1 }, { seller: b, qty: 1 }]), { payment: "pay_on_delivery" })).rejects.toThrow(OrderError);
+    const placed = await order(await cartWith([{ seller: a, qty: 1 }]), { payment: "pay_on_delivery" });
+    const o = await owner.order.findUniqueOrThrow({ where: { id: placed.orderId }, include: { sellerOrders: true } });
+    expect(o.paymentStatus).toBe("pay_on_delivery");
+    expect(o.sellerOrders[0]).toMatchObject({ status: "processing", payOnDelivery: true });
+  });
+});
+
+describe("service area", () => {
+  it("refuses delivery outside Mowe, Obafemi-Owode, Ogun State", async () => {
+    const seller = await createSeller("area", { priceKobo: 100_000n, stock: 5, payOnDelivery: false });
+    const cartId = await cartWith([{ seller, qty: 1 }]);
+    const ikeja = { ...(await address()), ...(await lagosIkeja()), city: "Ikeja" };
+    await expect(order(cartId, { address: ikeja })).rejects.toThrow(/only open in Mowe, Obafemi-Owode, Ogun State/);
+    const otherTown = { ...(await address()), city: "Abeokuta" };
+    await expect(order(cartId, { address: otherTown })).rejects.toThrow(/only open in Mowe/);
+    expect(await stock(seller)).toBe(5);
+  });
+
+  it("accepts the town in any letter case and stores it as listed", async () => {
+    const seller = await createSeller("area-case", { priceKobo: 100_000n, stock: 5, payOnDelivery: false });
+    const cartId = await cartWith([{ seller, qty: 1 }]);
+    const placed = await order(cartId, { address: { ...(await address()), city: " mowe " } });
+    const o = await owner.order.findUniqueOrThrow({ where: { id: placed.orderId } });
+    expect((o.shippingAddressSnapshot as { city: string }).city).toBe("Mowe");
+  });
+});
+
+describe("overselling", () => {
+  it("sells exactly the stock there is when 50 buyers race for 10 units", async () => {
+    const racer = await createSeller("co-race", { priceKobo: 100_000n, stock: 10, payOnDelivery: false });
+    const cartIds = await Promise.all(Array.from({ length: 50 }, () => cartWith([{ seller: racer, qty: 1 }])));
+    const results = await Promise.allSettled(cartIds.map((id) => order(id)));
+    const refused = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(10);
+    expect(refused).toHaveLength(40);
+    // Refused either at the stock lock or, once it's gone, when the cart is re-checked.
+    for (const r of refused) expect(r.reason).toMatchObject({ code: "out_of_stock" });
+    expect(await stock(racer)).toBe(0);
+    expect(await owner.orderItem.count({ where: { variantId: racer.variantId } })).toBe(10);
+  });
+});
+
+describe("payment confirmation", () => {
+  it("marks the order paid once, converts the hold and posts one balanced ledger transaction", async () => {
+    const placed = await order(await cartWith([{ seller: a, qty: 1 }, { seller: b, qty: 1 }]), { userId: buyer.id });
+    const p = await paymentFor(placed.orderId);
+    await setPaymentAmount(p.id, placed.totalKobo);
+
+    expect(await applyVerifiedPayment(p.providerReference, verified(p.providerReference, placed.totalKobo))).toBe("paid");
+    expect(await applyVerifiedPayment(p.providerReference, verified(p.providerReference, placed.totalKobo))).toBe("already_paid");
+
+    const o = await owner.order.findUniqueOrThrow({ where: { id: placed.orderId }, include: { sellerOrders: true, reservations: true } });
+    expect(o.paymentStatus).toBe("paid");
+    expect(o.sellerOrders.every((s) => s.status === "paid")).toBe(true);
+    expect(o.reservations.every((r) => r.status === "converted")).toBe(true);
+
+    const txs = await owner.ledgerTransaction.findMany({ where: { referenceId: placed.orderId }, include: { entries: { include: { account: true } } } });
+    expect(txs).toHaveLength(1);
+    const entries = txs[0]!.entries;
+    const debits = entries.reduce((n, e) => n + e.debitKobo, 0n);
+    const credits = entries.reduce((n, e) => n + e.creditKobo, 0n);
+    expect(debits).toBe(credits);
+    expect(debits).toBeGreaterThanOrEqual(placed.totalKobo);
+    // Each seller's escrow holds exactly its net.
+    for (const so of o.sellerOrders) {
+      const escrow = entries.filter((e) => e.account.type === "escrow" && e.account.ownerId === so.businessId);
+      expect(escrow.reduce((n, e) => n + e.creditKobo - e.debitKobo, 0n)).toBe(so.sellerNetKobo);
+    }
+  });
+
+  it("doesn't accept a payment for the wrong amount", async () => {
+    const placed = await order(await cartWith([{ seller: b, qty: 1 }]));
+    const p = await paymentFor(placed.orderId);
+    await setPaymentAmount(p.id, placed.totalKobo);
+    expect(await applyVerifiedPayment(p.providerReference, verified(p.providerReference, placed.totalKobo - 100n))).toBe("needs_attention");
+    expect((await owner.order.findUniqueOrThrow({ where: { id: placed.orderId } })).paymentStatus).toBe("unpaid");
+    expect(await owner.ledgerTransaction.count({ where: { referenceId: placed.orderId } })).toBe(0);
+  });
+});
+
+describe("live gateway test on the test site", () => {
+  it("refunds a gateway-test payment and never marks the order paid", async () => {
+    const placed = await order(await cartWith([{ seller: b, qty: 1 }]), { userId: buyer.id });
+    const p = await owner.payment.create({ data: { orderId: placed.orderId, provider: "fake", providerReference: `ref-${randomUUID()}-GWTEST`, amountKobo: 10_000n } });
+    expect(await applyVerifiedPayment(p.providerReference, verified(p.providerReference, 10_000n))).toBe("test_refunded");
+    expect(await applyVerifiedPayment(p.providerReference, verified(p.providerReference, 10_000n))).toBe("test_refunded");
+    expect((await owner.order.findUniqueOrThrow({ where: { id: placed.orderId } })).paymentStatus).toBe("unpaid");
+    const refunds = await owner.refund.findMany({ where: { paymentId: p.id } });
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0]).toMatchObject({ amountKobo: 10_000n, reason: "payment_problem" });
+    expect(await owner.ledgerTransaction.count({ where: { referenceId: placed.orderId, kind: "payment_captured" } })).toBe(0);
+  });
+});
+
+describe("webhooks", () => {
+  const sign = (body: string) => createHmac("sha256", process.env.AUTH_SECRET!).update(body).digest("hex");
+  const deliver = (body: string, signature = sign(body)) =>
+    webhook(new Request("http://localhost/api/webhooks/fake", { method: "POST", body, headers: { "x-fake-signature": signature } }), { params: Promise.resolve({ provider: "fake" }) });
+
+  it("stores a replayed event once and applies the payment once", async () => {
+    const placed = await order(await cartWith([{ seller: b, qty: 1 }]));
+    const p = await paymentFor(placed.orderId);
+    await setPaymentAmount(p.id, placed.totalKobo);
+    await new FakePaymentProvider().start({ reference: p.providerReference, amountKobo: placed.totalKobo, email: "x@test.townmart.local", name: "x", callbackUrl: "http://localhost", description: "test" });
+    await FakePaymentProvider.settle(p.providerReference, "success");
+
+    const body = JSON.stringify({ id: `evt-${randomUUID()}`, event: "charge.success", reference: p.providerReference, tag });
+    const first = await deliver(body);
+    const second = await deliver(body);
+    expect(first.status).toBe(200);
+    expect(await second.json()).toMatchObject({ duplicate: true });
+
+    const events = await owner.paymentEvent.findMany({ where: { reference: p.providerReference } });
+    expect(events).toHaveLength(1);
+    await processPaymentEvent(events[0]!.id);
+    await processPaymentEvent(events[0]!.id);
+    expect((await owner.order.findUniqueOrThrow({ where: { id: placed.orderId } })).paymentStatus).toBe("paid");
+    expect(await owner.ledgerTransaction.count({ where: { referenceId: placed.orderId } })).toBe(1);
+  });
+
+  it("rejects a bad signature and never acts on it", async () => {
+    const body = JSON.stringify({ id: `evt-${randomUUID()}`, event: "charge.success", reference: "nope", tag });
+    const res = await deliver(body, "forged");
+    expect(res.status).toBe(401);
+    const stored = await owner.paymentEvent.findFirstOrThrow({ where: { reference: "nope", payload: { path: ["tag"], equals: tag } } });
+    expect(stored.signatureValid).toBe(false);
+  });
+});
+
+describe("expiry", () => {
+  it("cancels unpaid orders after the hold and puts the stock back", async () => {
+    const seller = await createSeller("co-exp", { priceKobo: 100_000n, stock: 8, payOnDelivery: false });
+    const placed = await order(await cartWith([{ seller, qty: 3 }]));
+    expect(await stock(seller)).toBe(5);
+    const due = (await owner.order.findUniqueOrThrow({ where: { id: placed.orderId } })).paymentDueAt!;
+
+    await expireUnpaidOrders(new Date(due.getTime() + 1000));
+    const o = await owner.order.findUniqueOrThrow({ where: { id: placed.orderId }, include: { reservations: true, sellerOrders: true } });
+    expect(o.cancelledAt).not.toBeNull();
+    expect(o.reservations.every((r) => r.status === "released")).toBe(true);
+    expect(o.sellerOrders[0]!.status).toBe("cancelled");
+    expect(await stock(seller)).toBe(8);
+  });
+});
+
+describe("ledger rules", () => {
+  it("rejects an unbalanced transaction", async () => {
+    await expect(
+      asSystem(async (tx) => {
+        const account = await tx.ledgerAccount.create({ data: { ownerType: "business", ownerId: a.businessId, ownerKey: a.businessId, type: "available" } });
+        const ref = { referenceType: "test", referenceId: randomUUID() };
+        const t = await tx.ledgerTransaction.create({ data: { kind: "test", ...ref, memo: "unbalanced" } });
+        await tx.ledgerEntry.create({ data: { transactionId: t.id, accountId: account.id, businessId: a.businessId, debitKobo: 100n, creditKobo: 0n, ...ref } });
+      }),
+    ).rejects.toThrow(/balance/i);
+  });
+
+  it("never lets the app change or delete ledger entries", async () => {
+    const entry = await owner.ledgerEntry.findFirstOrThrow({ where: { businessId: a.businessId } });
+    await expect(withSystemContext((tx) => tx.ledgerEntry.update({ where: { id: entry.id }, data: { debitKobo: 1n } }))).rejects.toThrow();
+    await expect(withSystemContext((tx) => tx.ledgerEntry.delete({ where: { id: entry.id } }))).rejects.toThrow();
+  });
+});
+
+describe("RLS: orders and money", () => {
+  const as = (s: Seller) => ({ userId: s.userId, businessId: s.businessId });
+
+  it("shows each seller only its own part of a shared order", async () => {
+    const placed = await order(await cartWith([{ seller: a, qty: 1 }, { seller: b, qty: 1 }]), { userId: buyer.id });
+    const sellerOrders = await withRls(as(a), (tx) => tx.sellerOrder.findMany({ where: { orderId: placed.orderId } }));
+    expect(sellerOrders.map((s) => s.businessId)).toEqual([a.businessId]);
+    const items = await withRls(as(a), (tx) => tx.orderItem.findMany({ where: { sellerOrder: { orderId: placed.orderId } } }));
+    expect(items.every((i) => i.businessId === a.businessId)).toBe(true);
+    expect(items).toHaveLength(1);
+    // The order row (customer contact, other sellers' totals) is not the seller's to read.
+    expect(await withRls(as(a), (tx) => tx.order.findMany({ where: { id: placed.orderId } }))).toEqual([]);
+    const reservations = await withRls(as(a), (tx) => tx.stockReservation.findMany({ where: { orderId: placed.orderId } }));
+    expect(reservations.every((r) => r.businessId === a.businessId)).toBe(true);
+  });
+
+  it("shows a shopper their own orders and payments, and nobody else's", async () => {
+    const mine = await withRls({ userId: buyer.id }, (tx) => tx.order.findMany({ where: { userId: buyer.id } }));
+    expect(mine.length).toBeGreaterThan(0);
+    const all = await withRls({ userId: buyer.id }, (tx) => tx.sellerOrder.findMany({ where: { orderId: { in: mine.map((o) => o.id) } } }));
+    expect(all.length).toBeGreaterThanOrEqual(mine.length);
+    expect(await withRls({ userId: stranger.id }, (tx) => tx.order.findMany({ where: { userId: buyer.id } }))).toEqual([]);
+    expect(await withRls({ userId: stranger.id }, (tx) => tx.payment.findMany({ where: { order: { userId: buyer.id } } }))).toEqual([]);
+    expect(await withRls({ userId: null }, (tx) => tx.order.findMany({ where: { userId: buyer.id } }))).toEqual([]);
+  });
+
+  it("shows a seller only its own ledger accounts and entries", async () => {
+    const accounts = await withRls(as(a), (tx) => tx.ledgerAccount.findMany({ where: { ownerId: { in: [a.businessId, b.businessId] } } }));
+    expect(accounts.length).toBeGreaterThan(0);
+    expect(accounts.every((x) => x.ownerId === a.businessId)).toBe(true);
+    const entries = await withRls(as(a), (tx) => tx.ledgerEntry.findMany({ where: { businessId: { in: [a.businessId, b.businessId] } } }));
+    expect(entries.every((e) => e.businessId === a.businessId)).toBe(true);
+    // Transactions are visible through the seller's own entries.
+    const txs = await withRls(as(a), (tx) => tx.ledgerTransaction.findMany({ where: { id: { in: entries.map((e) => e.transactionId) } } }));
+    expect(txs.length).toBeGreaterThan(0);
+    // Platform accounts (commission, fees, tax) are not visible to sellers.
+    expect(await withRls(as(a), (tx) => tx.ledgerAccount.findMany({ where: { ownerType: "platform" } }))).toEqual([]);
+  });
+
+  it("can't write orders, payments or ledger rows as a user or seller", async () => {
+    const o = await owner.order.findFirstOrThrow({ where: { userId: buyer.id } });
+    const updated = await withRls({ userId: buyer.id }, (tx) => tx.order.updateMany({ where: { id: o.id }, data: { paymentStatus: "paid" } }));
+    expect(updated.count).toBe(0);
+    // Sellers may update their own orders' status columns only: money columns aren't granted.
+    await expect(withRls(as(a), (tx) => tx.sellerOrder.updateMany({ where: { businessId: a.businessId }, data: { sellerNetKobo: 999_999_999n } }))).rejects.toThrow(/permission denied/);
+    await expect(withRls(as(a), (tx) => tx.payment.create({ data: { orderId: o.id, provider: "fake", providerReference: `x-${randomUUID()}`, amountKobo: 1n } }))).rejects.toThrow();
+  });
+
+  it("keeps guest carts apart", async () => {
+    const mine = await cartWith([{ seller: a, qty: 1 }]);
+    const theirs = await cartWith([{ seller: b, qty: 1 }]);
+    const seen = await withRls({ userId: null, cartId: mine }, (tx) => tx.cart.findMany({ where: { id: { in: [mine, theirs] } } }));
+    expect(seen.map((c) => c.id)).toEqual([mine]);
+    const items = await withRls({ userId: null, cartId: mine }, (tx) => tx.cartItem.findMany({ where: { cartId: theirs } }));
+    expect(items).toEqual([]);
+    const moved = await withRls({ userId: null, cartId: mine }, (tx) => tx.cartItem.updateMany({ where: { cartId: theirs }, data: { qty: 99 } }));
+    expect(moved.count).toBe(0);
+    expect(await withRls({ userId: null }, (tx) => tx.cart.findMany({ where: { id: { in: [mine, theirs] } } }))).toEqual([]);
+  });
+});
+
+describe("food from restaurants and bakeries", () => {
+  it("can only be ordered while the seller is open", async () => {
+    const food = await createSeller("co-food", { priceKobo: 350_000n, stock: 30, payOnDelivery: true });
+    const foodCategory = await owner.category.findFirstOrThrow({ where: { isFood: true, parentId: { not: null } }, select: { id: true } });
+    // Open 8 am to 10 pm every day, Lagos time.
+    const hours = Array.from({ length: 7 }, () => ({ open: 480, close: 1320 }));
+    await asSystem(async (tx) => {
+      await tx.product.update({ where: { id: food.productId }, data: { categoryId: foodCategory.id, prepTimeMinutes: 20 } });
+      await tx.storePolicy.update({ where: { businessId: food.businessId }, data: { openingHours: hours } });
+    });
+    const cartId = await cartWith([{ seller: food, qty: 1 }]);
+    const { stateId, lgaId } = await lagosIkeja();
+    const at = (now: Date) => withSystemContext((tx) => computeCheckout(tx, { cartId, userId: null, address: { stateId, lgaId }, now }));
+
+    // 12:00 in Lagos is 11:00 UTC.
+    const lunch = await at(new Date("2026-11-17T11:00:00Z"));
+    expect(lunch.lines[0]!.problem).toBeNull();
+
+    const lateNight = await at(new Date("2026-11-17T22:30:00Z"));
+    expect(lateNight.lines[0]!.problem).toEqual({ kind: "store_closed", label: "Closed · opens 8:00 am tomorrow" });
+    expect(lateNight.blockers.length).toBeGreaterThan(0);
+
+    // Pausing stops orders even inside opening hours.
+    await asSystem((tx) => tx.storePolicy.update({ where: { businessId: food.businessId }, data: { ordersPaused: true } }));
+    expect((await at(new Date("2026-11-17T11:00:00Z"))).lines[0]!.problem).toMatchObject({ kind: "store_closed" });
+
+    // Everything else ignores opening hours.
+    await asSystem((tx) => tx.storePolicy.update({ where: { businessId: a.businessId }, data: { openingHours: hours, ordersPaused: true } }));
+    const otherCart = await cartWith([{ seller: a, qty: 1 }]);
+    const other = await withSystemContext((tx) => computeCheckout(tx, { cartId: otherCart, userId: null, address: { stateId, lgaId }, now: new Date("2026-11-17T22:30:00Z") }));
+    expect(other.lines[0]!.problem).toBeNull();
+    await asSystem((tx) => tx.storePolicy.update({ where: { businessId: a.businessId }, data: { openingHours: Prisma.DbNull, ordersPaused: false } }));
+  });
+});
+
+describe("build-your-plate meals", () => {
+  it("prices each plate from its choices, keeps different plates apart and records them on the order", async () => {
+    const kitchen = await createSeller("co-plate", { priceKobo: 20_000n, stock: 0, payOnDelivery: true });
+    const foodCategory = await owner.category.findFirstOrThrow({ where: { isFood: true, parentId: { not: null } }, select: { id: true } });
+    const mealBuilder = {
+      groups: [
+        { key: "meal", name: "Meal", min: 1, max: 2, withSwallow: false, items: [{ key: "amala", name: "Amala", priceKobo: 30_000, unit: "wrap", maxQty: 6, defaultQty: 2, swallow: true, available: true }, { key: "rice", name: "Jollof rice", priceKobo: 150_000, unit: "portion", maxQty: 2, defaultQty: 1, swallow: false, available: true }] },
+        { key: "soup", name: "Soup", min: 1, max: 1, withSwallow: true, items: [{ key: "ewedu", name: "Ewedu", priceKobo: 50_000, unit: "portion", maxQty: 1, defaultQty: 1, swallow: false, available: true }] },
+        { key: "protein", name: "Protein", min: 1, max: 2, withSwallow: false, items: [{ key: "beef", name: "Beef", priceKobo: 50_000, unit: "piece", maxQty: 4, defaultQty: 1, swallow: false, available: true }] },
+      ],
+    };
+    await asSystem((tx) => tx.product.update({ where: { id: kitchen.productId }, data: { categoryId: foodCategory.id, trackInventory: false, mealBuilder } }));
+    const swallowPlate = { meal: { amala: 3 }, soup: { ewedu: 1 }, protein: { beef: 2 } };
+    const ricePlate = { meal: { rice: 1 }, protein: { beef: 1 } };
+    const cart = await owner.cart.create({
+      data: {
+        guestTokenHash: `test-${randomUUID()}`,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        items: {
+          create: [
+            { variantId: kitchen.variantId, businessId: kitchen.businessId, qty: 2, choices: swallowPlate, choicesKey: "swallow" },
+            { variantId: kitchen.variantId, businessId: kitchen.businessId, qty: 1, choices: ricePlate, choicesKey: "rice" },
+          ],
+        },
+      },
+    });
+    carts.push(cart.id);
+    const { stateId, lgaId } = await lagosIkeja();
+    const c = await withSystemContext((tx) => computeCheckout(tx, { cartId: cart.id, userId: null, address: { stateId, lgaId }, now: new Date("2026-11-17T11:00:00Z") }));
+    const byTitle = c.lines.map((l) => [l.unitPriceKobo, l.optionValues, l.problem]).sort((x, y) => (x[0]! > y[0]! ? -1 : 1));
+    // Pack 200 + 3 wraps × 300 + ewedu 500 + 2 × beef 500 = 2,600; pack 200 + rice 1,500 + beef 500 = 2,200.
+    expect(byTitle).toEqual([
+      [260_000n, { Meal: "Amala × 3 wraps", Soup: "Ewedu", Protein: "Beef × 2 pieces" }, null],
+      [220_000n, { Meal: "Jollof rice", Protein: "Beef" }, null],
+    ]);
+    expect(c.priced.lines.reduce((s, l) => s + l.subtotalKobo, 0n)).toBe(2n * 260_000n + 220_000n);
+
+    const placed = await order(cart.id);
+    const items = await owner.orderItem.findMany({ where: { sellerOrder: { orderId: placed.orderId } }, orderBy: { unitPriceKobo: "desc" } });
+    expect(items.map((i) => [i.unitPriceKobo, (i.snapshot as { options: unknown }).options])).toEqual([
+      [260_000n, { Meal: "Amala × 3 wraps", Soup: "Ewedu", Protein: "Beef × 2 pieces" }],
+      [220_000n, { Meal: "Jollof rice", Protein: "Beef" }],
+    ]);
+
+    // A finished item turns the plate into a problem until it's rebuilt.
+    mealBuilder.groups[2]!.items[0]!.available = false;
+    await asSystem((tx) => tx.product.update({ where: { id: kitchen.productId }, data: { mealBuilder } }));
+    const cart2 = await owner.cart.create({
+      data: { guestTokenHash: `test-${randomUUID()}`, expiresAt: new Date(Date.now() + 86_400_000), items: { create: [{ variantId: kitchen.variantId, businessId: kitchen.businessId, qty: 1, choices: ricePlate, choicesKey: "rice" }] } },
+    });
+    carts.push(cart2.id);
+    const c2 = await withSystemContext((tx) => computeCheckout(tx, { cartId: cart2.id, userId: null, address: { stateId, lgaId }, now: new Date("2026-11-17T11:00:00Z") }));
+    expect(c2.lines[0]!.problem).toEqual({ kind: "meal_changed", message: "Beef is finished for today. Please choose something else." });
+  });
+});

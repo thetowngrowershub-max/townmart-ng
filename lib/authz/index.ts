@@ -20,7 +20,12 @@ export type BusinessMembership = {
   permissions?: Readonly<Record<string, boolean>>;
 };
 
-export type Actor = { id: string; roles: readonly Role[]; businesses?: readonly BusinessMembership[] } | null;
+/**
+ * `adminNeedsTwoFactor`: a TownMart admin who hasn't turned on two-step sign-in.
+ * Until they do, their admin roles grant only what a customer gets, so all they
+ * can do is reach Profile & security and set it up.
+ */
+export type Actor = { id: string; roles: readonly Role[]; businesses?: readonly BusinessMembership[]; adminNeedsTwoFactor?: boolean } | null;
 
 type OwnedResources = {
   "address.read": { userId: string };
@@ -29,7 +34,19 @@ type OwnedResources = {
 };
 type OwnedPermission = keyof OwnedResources;
 
-type BusinessPermission = "listing.read" | "listing.write" | "import.manage" | "store.manage" | "promotion.manage";
+type BusinessPermission =
+  | "listing.read"
+  | "listing.write"
+  | "import.manage"
+  | "store.manage"
+  | "promotion.manage"
+  | "order.read"
+  | "order.manage"
+  | "booking.manage"
+  | "review.manage"
+  | "payout.manage"
+  | "staff.manage"
+  | "question.answer";
 
 export type GlobalPermission =
   | "account.access"
@@ -42,7 +59,16 @@ export type GlobalPermission =
   | "system_health.view"
   | "seller.onboard"
   | "seller.review"
-  | "kyc.document.view";
+  | "kyc.document.view"
+  | "finance.manage"
+  | "dispute.manage"
+  | "compliance.manage"
+  | "analytics.view"
+  | "moderation.manage"
+  | "catalogue.manage"
+  | "content.manage"
+  | "user.manage"
+  | "jobs.retry";
 
 type AnyPermission = `${OwnedPermission | BusinessPermission}:any`;
 
@@ -66,6 +92,22 @@ const ADMIN: Grant[] = [
   "address.read:any",
   "session.revoke:any",
   "listing.read:any",
+  "order.read:any",
+  "finance.manage",
+  "dispute.manage",
+  // Data requests, breach register, RoPA, retention and legal pages.
+  "compliance.manage",
+  "analytics.view",
+  // Listing take-downs, reports, prohibited keywords, reviews and questions.
+  "moderation.manage",
+  // Categories and attributes. Commission, delivery zones, platform promotions and settings are settings.manage.
+  "catalogue.manage",
+  // Homepage banners, featured stores, help centre, about and contact.
+  "content.manage",
+  // Find users, suspend and restore them, sign them out. Changing roles is super admin only.
+  "user.manage",
+  // Retry failed background jobs from the system health page.
+  "jobs.retry",
 ];
 
 export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {
@@ -78,7 +120,20 @@ export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {
 };
 
 const OWNED: ReadonlySet<string> = new Set<OwnedPermission>(["address.read", "address.write", "session.revoke"]);
-const BUSINESS: ReadonlySet<string> = new Set<BusinessPermission>(["listing.read", "listing.write", "import.manage", "store.manage", "promotion.manage"]);
+const BUSINESS: ReadonlySet<string> = new Set<BusinessPermission>([
+  "listing.read",
+  "listing.write",
+  "import.manage",
+  "store.manage",
+  "promotion.manage",
+  "order.read",
+  "order.manage",
+  "booking.manage",
+  "review.manage",
+  "payout.manage",
+  "staff.manage",
+  "question.answer",
+]);
 
 /** Which staff permission flag unlocks each business permission. `null` = owner only. */
 const STAFF_FLAG: Record<BusinessPermission, string | null> = {
@@ -87,10 +142,23 @@ const STAFF_FLAG: Record<BusinessPermission, string | null> = {
   "import.manage": "inventory",
   "store.manage": null,
   "promotion.manage": "promotions",
+  // Orders cover order messages; bookings are a separate flag for front-desk staff.
+  "order.read": "orders",
+  "order.manage": "orders",
+  "booking.manage": "bookings",
+  "review.manage": "reviews",
+  // Balances, payouts and statements: owner only.
+  "payout.manage": null,
+  // Inviting and removing staff: owner only.
+  "staff.manage": null,
+  // Answering shoppers' questions sits with replying to reviews.
+  "question.answer": "reviews",
 };
 
+const isAdminRole = (role: Role) => role === "admin" || role === "super_admin";
+
 function hasGrant(actor: NonNullable<Actor>, grant: Grant): boolean {
-  return actor.roles.some((role) => ROLE_GRANTS[role].includes(grant));
+  return actor.roles.some((role) => (actor.adminNeedsTwoFactor && isAdminRole(role) ? CUSTOMER : ROLE_GRANTS[role]).includes(grant));
 }
 
 type ResourceArgs<P extends Permission> = P extends OwnedPermission
@@ -137,7 +205,7 @@ export function assertCan<P extends Permission>(actor: Actor, permission: P, ...
   if (!can(actor, permission, ...args)) throw new AuthzError(403);
 }
 
-export const isPlatformAdmin = (actor: Actor) => !!actor && actor.roles.some((r) => r === "admin" || r === "super_admin");
+export const isPlatformAdmin = (actor: Actor) => !!actor && !actor.adminNeedsTwoFactor && actor.roles.some(isAdminRole);
 
 /** The RLS scope to use after an authz check: admins act with `admin` scope only inside the admin console. */
 export function rlsScopeFor(actor: NonNullable<Actor>, area: "storefront" | "admin"): "user" | "admin" {

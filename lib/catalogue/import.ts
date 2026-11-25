@@ -3,6 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { withRls, withSystemContext } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { screenListing } from "@/lib/moderation/core";
 import { importFinishedTemplate } from "@/lib/notifications/email/templates";
 import { enqueueEmail } from "@/lib/queue";
 import { storage } from "@/lib/storage";
@@ -40,6 +41,8 @@ export async function runProductImport(importJobId: string, businessId: string):
       if (outcome.ok) {
         succeeded += g.rows.length;
         stockChanges.push(...outcome.stockChanges);
+        const flagged = await screenListing({ kind: "product", id: outcome.productId });
+        if (flagged.length) outcome.warnings.push(`flagged for a TownMart check: mentions ${flagged.join(", ")}`);
         if (outcome.warnings.length) report.warnings.push({ row: g.firstLine, handle: g.handle, messages: outcome.warnings });
       } else {
         failed += g.rows.length;
@@ -76,7 +79,7 @@ export async function runProductImport(importJobId: string, businessId: string):
   return { succeeded, failed };
 }
 
-type GroupOutcome = { ok: true; warnings: string[]; stockChanges: StockChange[] } | { ok: false; errors: string[] };
+type GroupOutcome = { ok: true; warnings: string[]; stockChanges: StockChange[]; productId: string } | { ok: false; errors: string[] };
 
 async function importGroup(g: ProductGroup, ctx: { userId: string; businessId: string }, categoryIdBySlug: Map<string, string>, actorUserId: string): Promise<GroupOutcome> {
   const skus = g.rows.map((r) => r.sku.trim()).filter(Boolean);
@@ -133,8 +136,9 @@ async function importGroup(g: ProductGroup, ctx: { userId: string; businessId: s
         data,
         productId: existing?.id,
         stockSource: { reason: "import", note: "CSV import" },
+        attributes: "keep",
       });
-      return { ok: true as const, warnings, stockChanges: res.stockChanges };
+      return { ok: true as const, warnings, stockChanges: res.stockChanges, productId: res.productId };
     });
   } catch (err) {
     if (err instanceof CatalogueError) return { ok: false, errors: [err.message] };
