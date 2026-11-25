@@ -182,13 +182,15 @@ export function transferProvider(): TransferProvider {
 /**
  * Whether a saved bank account can be paid by the current payout provider:
  * its recipient code must have been registered with that provider. Accounts
- * saved before the provider was recorded count as Paystack (or fake) ones.
+ * saved before the provider was recorded keep working as before with
+ * Paystack (or fake) payouts, and must be saved again for Flutterwave.
  */
 export function recipientUsable(acct: { providerRecipientCode: string | null; recipientProvider: string | null; verifiedAt: Date | null } | null | undefined): boolean {
   if (!acct?.verifiedAt || !acct.providerRecipientCode) return false;
-  const e = env();
-  const registeredWith = acct.recipientProvider ?? (acct.providerRecipientCode.startsWith(flutterwaveRecipient.prefix) ? "flutterwave" : acct.providerRecipientCode.startsWith("RCP_test_") ? "fake" : "paystack");
-  return registeredWith === e.BANK_VERIFIER;
+  const current = env().BANK_VERIFIER;
+  if (acct.recipientProvider) return acct.recipientProvider === current;
+  if (acct.providerRecipientCode.startsWith(flutterwaveRecipient.prefix)) return current === "flutterwave";
+  return current !== "flutterwave";
 }
 
 /** For tests: forget the cached provider after changing the environment. */

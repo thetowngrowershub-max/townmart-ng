@@ -89,7 +89,7 @@ export default async function RiderWalletPage() {
                           {e.at}
                         </p>
                       </div>
-                      <span className={`font-semibold tabular-nums ${e.credit ? "text-success" : ""}`}>
+                      <span className={`whitespace-nowrap font-semibold tabular-nums ${e.credit ? "text-success" : ""}`}>
                         {e.credit ? "+" : "−"}
                         {e.amount}
                       </span>

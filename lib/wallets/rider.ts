@@ -80,7 +80,7 @@ export async function riderWalletEntries(tx: Tx, riderId: string, take = 100): P
   return rows.map((r) => ({ at: r.at, kind: r.kind, memo: r.memo, kobo: r.kobo, referenceType: r.reference_type, referenceId: r.reference_id }));
 }
 
-const ENTRY_LABELS: Record<string, string> = { rider_earning: "Delivery", payout: "Paid to your bank", payout_returned: "Payout returned to your wallet" };
+const ENTRY_LABELS: Record<string, string> = { rider_earning: "Delivery", payout: "Payout to your bank", payout_returned: "Payout returned to your wallet" };
 
 export type RiderWalletView = {
   balance: string;
@@ -103,10 +103,9 @@ export async function loadRiderWallet(tx: Tx, riderId: string, now = new Date())
     getCheckoutSettings(tx),
   ]);
   const range = monthRange(lagosMonth(now))!;
-  const [month] = await tx.$queryRaw<{ earned: bigint; deliveries: bigint; paid: bigint }[]>`
+  const [month] = await tx.$queryRaw<{ earned: bigint; deliveries: bigint }[]>`
     SELECT coalesce(sum(e.credit_kobo) FILTER (WHERE t.kind = 'rider_earning'), 0)::bigint AS earned,
-           count(*) FILTER (WHERE t.kind = 'rider_earning') AS deliveries,
-           coalesce(sum(e.debit_kobo - e.credit_kobo) FILTER (WHERE t.kind IN ('payout', 'payout_returned')), 0)::bigint AS paid
+           count(*) FILTER (WHERE t.kind = 'rider_earning') AS deliveries
       FROM ledger_entries e
       JOIN ledger_accounts a ON a.id = e.account_id
       JOIN ledger_transactions t ON t.id = e.transaction_id
@@ -116,7 +115,12 @@ export async function loadRiderWallet(tx: Tx, riderId: string, now = new Date())
   return {
     balance: formatPrice(balance),
     balanceKobo: balance.toString(),
-    thisMonth: { earned: formatPrice(month?.earned ?? 0n), deliveries: Number(month?.deliveries ?? 0n), paidOut: formatPrice(month?.paid ?? 0n) },
+    thisMonth: {
+      earned: formatPrice(month?.earned ?? 0n),
+      deliveries: Number(month?.deliveries ?? 0n),
+      // Only payouts that reached the bank, not ones waiting or on their way.
+      paidOut: formatPrice(rider.payouts.filter((p) => p.status === "paid" && p.paidAt && p.paidAt >= range.from && p.paidAt < range.to).reduce((a, p) => a + p.amountKobo, 0n)),
+    },
     bank: acct ? { name: acct.bankName, last4: acct.accountNumberLast4, accountName: acct.accountName, ready: recipientUsable(acct) } : null,
     inFlight: rider.payouts.some((p) => p.status === "awaiting_approval" || p.status === "pending" || p.status === "processing"),
     needsApproval: settings.payoutRequireApproval,

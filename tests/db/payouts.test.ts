@@ -474,7 +474,7 @@ describe("TownMart pool rider wallets", () => {
 
     const wallet = await sys((tx) => loadRiderWallet(tx, rider.id));
     expect(wallet).toMatchObject({ balanceKobo: "0", inFlight: false, thisMonth: { deliveries: 1 } });
-    expect(wallet.entries.map((e) => e.label)).toEqual(["Paid to your bank", "Delivery"]);
+    expect(wallet.entries.map((e) => e.label)).toEqual(["Payout to your bank", "Delivery"]);
     // Sellers can't see rider wallets or payouts.
     expect(await asSeller(shop, (tx) => tx.payout.count({ where: { riderId: rider.id } }))).toBe(0);
     expect(await asSeller(shop, (tx) => tx.payoutAccount.count({ where: { riderId: rider.id } }))).toBe(0);
