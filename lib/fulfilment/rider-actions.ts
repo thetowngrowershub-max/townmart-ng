@@ -11,7 +11,8 @@ import { logger } from "@/lib/logger";
 import { enqueueNotice } from "@/lib/queue";
 import { getSellerContext, withSellerRls, type SellerContext } from "@/lib/seller/context";
 import { validationError, type ActionResult } from "@/lib/validation/form-result";
-import { assignRiderSchema, riderAvailabilitySchema, riderIdSchema, riderSchema, shopLocationSchema, type RiderInput } from "@/lib/validation/riders";
+import { openToPool } from "@/lib/riders/pool";
+import { assignRiderSchema, riderAvailabilitySchema, riderIdSchema, riderModeSchema, riderSchema, sellerOrderRefSchema, shopLocationSchema, type RiderInput } from "@/lib/validation/riders";
 import { FulfilmentError } from "./orders";
 import { assignRider } from "./riders";
 
@@ -117,4 +118,44 @@ export async function saveShopLocationAction(input: { lat: number; lng: number }
   }
   revalidatePath("/dashboard/settings");
   return { ok: true, message: "Shop location saved. Delivery fees are now worked out from here." };
+}
+
+/** Who delivers the shop's orders by default: TownMart riders (the standard) or the shop's own. */
+export async function setRiderModeAction(input: { mode: "townmart" | "own" }): Promise<ActionResult> {
+  const parsed = riderModeSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  try {
+    const ctx = await seller("store.manage");
+    await withSellerRls(ctx, async (tx) => {
+      await tx.business.update({ where: { id: ctx.business.id }, data: { riderMode: parsed.data.mode } });
+      await writeAudit(tx, { actorUserId: ctx.user.id, action: "business.rider_mode", entityType: "business", entityId: ctx.business.id, after: { riderMode: parsed.data.mode } });
+    });
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/dashboard/riders");
+  return { ok: true, message: parsed.data.mode === "townmart" ? "New deliveries go to TownMart riders. You can still use your own rider on any order." : "New deliveries wait for you to assign one of your riders. You can still ask for a TownMart rider on any order." };
+}
+
+/** One delivery to a TownMart rider, for a shop that normally uses its own (or whose rider can't make it). */
+export async function requestPoolRiderAction(input: { sellerOrderId: string }): Promise<ActionResult> {
+  const parsed = sellerOrderRefSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  let openedAt: Date | null = null;
+  try {
+    const ctx = await seller("order.manage");
+    openedAt = await withSellerRls(ctx, async (tx) => {
+      const so = await tx.sellerOrder.findFirst({ where: { id: parsed.data.sellerOrderId, businessId: ctx.business.id }, select: { id: true, riderId: true } });
+      if (!so) throw new FulfilmentError("Order not found.");
+      if (so.riderId) throw new FulfilmentError("Take your rider off this order first.");
+      const now = new Date();
+      if (!(await openToPool(tx, so.id, now))) throw new FulfilmentError("This order is already with TownMart riders, or past the point of needing one.");
+      return now;
+    });
+  } catch (err) {
+    return failure(err);
+  }
+  if (openedAt) await enqueueNotice({ type: "rider.pool_offer", sellerOrderId: parsed.data.sellerOrderId, at: openedAt.getTime() });
+  revalidatePath(`/dashboard/orders/${parsed.data.sellerOrderId}`);
+  return { ok: true, message: "Sent to TownMart riders nearby. The first to take it will appear here." };
 }

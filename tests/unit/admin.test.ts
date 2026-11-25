@@ -116,12 +116,13 @@ describe("admin forms", () => {
       "delivery.max_km": "25",
       "riders.nearby_km": "5",
       "riders.pool_share_percent": "80",
-      "riders.pool_offer_count": "5",
+      "riders.pool_offer_count": "3",
       "riders.pool_max_jobs": "2",
     };
     expect(platformSettingsSchema.parse(all)).toMatchObject({ "fees.service_fee_percent": 1.5, "payouts.minimum_naira": 1000, "payments.pay_on_delivery_enabled": true });
     expect(platformSettingsSchema.safeParse({ ...all, "refunds.late_cancel_percent": "150" }).success).toBe(false);
     expect(platformSettingsSchema.safeParse({ ...all, "checkout.stock_hold_minutes": "1" }).success).toBe(false);
+    expect(platformSettingsSchema.safeParse({ ...all, "riders.pool_share_percent": "120" }).success).toBe(false);
   });
 
   it("banner links stay on TownMart or use https", () => {

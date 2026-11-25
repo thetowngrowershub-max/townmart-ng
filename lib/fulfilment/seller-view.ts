@@ -75,7 +75,7 @@ export async function listSellerOrders(tx: Tx, businessId: string, filter: Order
       method: METHOD_LABELS[so.deliveryMethod],
       itemCount: so._count.items,
       customer: (so.fulfilmentContact as FulfilmentContact | null)?.name ?? "Customer",
-      net: formatPrice(so.sellerNetKobo),
+      net: formatPrice(sellerEarns(so)),
       payOnDelivery: so.payOnDelivery,
       cashCollected: so.cashCollectedAt !== null,
       nextBooking: so.bookings[0] ? formatBookingTime(so.bookings[0].startsAt) : null,
@@ -122,7 +122,7 @@ export type SellerOrderDetail = {
       canChange: boolean;
     } | null;
   }[];
-  money: { subtotal: string; discount: string | null; delivery: string; commission: string; net: string; payLater: string | null };
+  money: { subtotal: string; discount: string | null; delivery: string; deliveryToRider: string | null; commission: string; net: string; payLater: string | null };
   steps: { to: SellerStep; label: string }[];
   canCancel: boolean;
   canMarkCash: boolean;
@@ -199,8 +199,10 @@ export async function loadSellerOrder(tx: Tx, businessId: string, id: string, no
       subtotal: formatPrice(so.subtotalKobo),
       discount: so.discountKobo > 0n ? formatPrice(so.discountKobo) : null,
       delivery: so.deliveryMethod === "delivery" ? (so.deliveryKobo === 0n ? "Free" : formatPrice(so.deliveryKobo)) : "None",
+      // A TownMart rider is paid the delivery fee (their share, TownMart the rest), so it's not the shop's.
+      deliveryToRider: byPoolRider(so) && so.deliveryKobo > 0n ? formatPrice(so.deliveryKobo) : null,
       commission: formatPrice(so.commissionKobo),
-      net: formatPrice(so.sellerNetKobo),
+      net: formatPrice(sellerEarns(so)),
       payLater: so.payLaterKobo > 0n ? formatPrice(so.payLaterKobo) : null,
     },
     steps: nextSteps(so).map((to) => ({ to, label: STEP_LABELS[to] })),
@@ -209,4 +211,12 @@ export async function loadSellerOrder(tx: Tx, businessId: string, id: string, no
     canMarkCash: so.payOnDelivery && !so.cashCollectedAt && (["shipped", "ready_for_pickup", "delivered", "completed"].includes(so.status) || so.deliveryMethod === "none"),
     timeline: mergeTimeline(so.statusHistory, so.items),
   };
+}
+
+/** A TownMart pool rider took this delivery: their pay was fixed when they took it. */
+const byPoolRider = (so: { riderPayKobo: bigint | null }) => so.riderPayKobo !== null;
+
+/** What the shop keeps: its net share, less the delivery fee when a TownMart rider delivers (lib/wallets/rider.ts). */
+function sellerEarns(so: { sellerNetKobo: bigint; deliveryKobo: bigint; riderPayKobo: bigint | null }): bigint {
+  return byPoolRider(so) ? so.sellerNetKobo - so.deliveryKobo : so.sellerNetKobo;
 }
