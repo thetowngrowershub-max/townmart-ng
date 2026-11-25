@@ -128,16 +128,36 @@ export async function listingReviews(tx: Tx, where: { productId: string } | { se
   return { reviews: rows.map(toReviewView), total, breakdown };
 }
 
-export type WaitingItem = { orderItemId: string; title: string; imageUrl: string | null; businessName: string; orderNumber: string };
+export type ProviderReview = ReviewView & { about: string | null };
+
+/**
+ * "Rate my service" ratings of a provider: the published reviews of all its
+ * booked services, newest first, with the average and a star breakdown.
+ * Guest RLS: hidden reviews never show.
+ */
+export async function providerReviews(tx: Tx, businessId: string, take = 10): Promise<{ reviews: ProviderReview[]; total: number; avg: number; breakdown: number[] }> {
+  const base: Prisma.ReviewWhereInput = { businessId, targetType: "service", status: { not: "hidden" } };
+  const [rows, groups] = await Promise.all([
+    tx.review.findMany({ where: base, orderBy: { createdAt: "desc" }, take, include: { service: { select: { title: true } } } }),
+    tx.review.groupBy({ by: ["rating"], where: base, _count: true }),
+  ]);
+  const breakdown = [5, 4, 3, 2, 1].map((star) => groups.find((g) => g.rating === star)?._count ?? 0);
+  const total = breakdown.reduce((a, b) => a + b, 0);
+  const avg = total ? breakdown.reduce((sum, n, i) => sum + n * (5 - i), 0) / total : 0;
+  return { reviews: rows.map((r) => ({ ...toReviewView(r), about: r.service?.title ?? null })), total, avg, breakdown };
+}
+
+export type WaitingItem = { orderItemId: string; title: string; imageUrl: string | null; businessName: string; orderNumber: string; kind: "product" | "service" };
 
 /**
  * Items the shopper can review now: the same rule as findReviewable, as one
  * query. Runs under the shopper's RLS, so only their own orders are seen.
  */
-export async function waitingForReview(tx: Tx, userId: string, take = 20): Promise<WaitingItem[]> {
+export async function waitingForReview(tx: Tx, userId: string, take = 20, only?: { businessId: string; services: true }): Promise<WaitingItem[]> {
   const items = await tx.orderItem.findMany({
     where: {
       review: null,
+      ...(only ? { businessId: only.businessId, serviceId: { not: null } } : {}),
       sellerOrder: { order: { userId, cancelledAt: null, paymentStatus: { notIn: ["unpaid", "failed"] } } },
       OR: [
         { productId: { not: null }, sellerOrder: { status: { in: ["delivered", "completed"] } } },
@@ -146,11 +166,11 @@ export async function waitingForReview(tx: Tx, userId: string, take = 20): Promi
     },
     orderBy: { createdAt: "desc" },
     take,
-    select: { id: true, snapshot: true, sellerOrder: { select: { orderNumber: true, business: { select: { name: true } } } } },
+    select: { id: true, snapshot: true, serviceId: true, sellerOrder: { select: { orderNumber: true, business: { select: { name: true } } } } },
   });
   return items.map((i) => {
     const s = i.snapshot as { title: string; imageKey?: string | null };
-    return { orderItemId: i.id, title: s.title, imageUrl: s.imageKey ? publicImageUrl(s.imageKey) : null, businessName: i.sellerOrder.business.name, orderNumber: i.sellerOrder.orderNumber };
+    return { orderItemId: i.id, title: s.title, imageUrl: s.imageKey ? publicImageUrl(s.imageKey) : null, businessName: i.sellerOrder.business.name, orderNumber: i.sellerOrder.orderNumber, kind: i.serviceId ? "service" : "product" };
   });
 }
 

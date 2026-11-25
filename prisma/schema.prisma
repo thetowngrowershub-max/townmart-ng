@@ -49,8 +49,18 @@ enum OtpPurpose {
   verify_phone
   two_factor
   verify_business_phone
+  two_factor_email
 
   @@map("otp_purpose")
+}
+
+/// The way an account prefers to get its second sign-in step.
+enum TwoFactorMethod {
+  authenticator
+  sms
+  email
+
+  @@map("two_factor_method")
 }
 
 model User {
@@ -67,8 +77,16 @@ model User {
   failedLoginCount    Int        @default(0) @map("failed_login_count")
   lockedUntil         DateTime?  @map("locked_until") @db.Timestamptz(6)
   deletionRequestedAt DateTime?  @map("deletion_requested_at") @db.Timestamptz(6)
-  // Sign-in with a password also asks for a code sent to the verified phone.
+  // Two-step sign-in: every sign-in (password, phone code or Google) also asks
+  // for a second code. See lib/auth/two-factor-methods.ts.
   twoFactorEnabledAt  DateTime?  @map("two_factor_enabled_at") @db.Timestamptz(6)
+  twoFactorMethod     TwoFactorMethod? @map("two_factor_method")
+  // Authenticator app (TOTP, RFC 6238) secret, encrypted like other personal data.
+  totpSecretEncrypted String?    @map("totp_secret_encrypted")
+  // The last 30-second step accepted, so a code can't be replayed.
+  totpLastStep        Int?       @map("totp_last_step")
+  // Keyed hashes of the unused one-time backup codes.
+  twoFactorBackupCodes String[]  @default([]) @map("two_factor_backup_codes")
   anonymisedAt        DateTime?  @map("anonymised_at") @db.Timestamptz(6)
   lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(6)
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -201,6 +219,9 @@ model Address {
   stateId        Int      @map("state_id") @db.SmallInt
   lgaId          Int      @map("lga_id") @db.SmallInt
   landmark       String?
+  // Where the address is on the map, pinned from the shopper's phone (GPS). Prices delivery by distance.
+  latitude       Float?
+  longitude      Float?
   isDefault      Boolean  @default(false) @map("is_default")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -325,6 +346,10 @@ enum BusinessType {
   producer
   service_provider
   artisan
+  // Restaurants and quick-service restaurants (QSRs): cooked food made to order.
+  restaurant
+  // Bakeries, cake makers and sweet shops.
+  confectioner
 
   @@map("business_type")
 }
@@ -368,6 +393,10 @@ model Business {
   city                      String
   stateId                   Int            @map("state_id") @db.SmallInt
   lgaId                     Int            @map("lga_id") @db.SmallInt
+  // Where orders are picked up, set by the seller from their phone at the shop.
+  // Used to find the nearest shop, price delivery by distance and find nearby riders.
+  latitude                  Float?
+  longitude                 Float?
   status                    BusinessStatus @default(draft)
   rejectionReason           String?        @map("rejection_reason")
   submittedAt               DateTime?      @map("submitted_at") @db.Timestamptz(6)
@@ -409,6 +438,8 @@ model Business {
   questions       ListingQuestion[]
   invitations     StaffInvitation[]
   featured        FeaturedStore?
+  portfolioPhotos PortfolioPhoto[]
+  riders          Rider[]
 
   @@index([ownerUserId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "businesses_name_trgm")
@@ -485,6 +516,11 @@ model StorePolicy {
   // { "delivery": true, "pickup": false, "notes": "..." }
   deliveryOptions        Json     @default("{\"delivery\": true, \"pickup\": false}") @map("delivery_options")
   acceptsPayOnDelivery   Boolean  @default(false) @map("accepts_pay_on_delivery")
+  // When the store takes orders, in Lagos time. Null means any time (most shops).
+  // Seven entries, Sunday first: null (closed that day) or { "open": 480, "close": 1320 } in minutes after midnight.
+  openingHours           Json?    @map("opening_hours")
+  // A restaurant that is too busy can stop new orders for a while without changing its hours.
+  ordersPaused           Boolean  @default(false) @map("orders_paused")
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -568,6 +604,9 @@ model Category {
   icon      String?
   sortOrder Int          @default(0) @map("sort_order")
   isActive  Boolean      @default(true) @map("is_active")
+  // Cooked food, cakes and pastries: listings show the prep time, and can only be
+  // ordered while the seller is open (StorePolicy.openingHours).
+  isFood    Boolean      @default(false) @map("is_food")
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -640,6 +679,11 @@ model Product {
   dimensions         Json?
   isPerishable       Boolean                  @default(false) @map("is_perishable")
   shelfLifeNote      String?                  @map("shelf_life_note")
+  // Food made to order: minutes from order to ready for pickup or the rider.
+  prepTimeMinutes    Int?                     @map("prep_time_minutes") @db.SmallInt
+  // Restaurants: the customer builds the plate (meal, soup, protein, drink) before
+  // adding it to the cart. See lib/catalogue/meal-builder.ts for the shape.
+  mealBuilder        Json?                    @map("meal_builder")
   status             ListingStatus            @default(draft)
   metaTitle          String?                  @map("meta_title")
   metaDescription    String?                  @map("meta_description")
@@ -817,6 +861,26 @@ model Service {
   @@index([businessId, status, createdAt])
   @@index([categoryId])
   @@map("services")
+}
+
+/// Photos of jobs a provider has done (an artisan's portfolio), shown on their
+/// store page and service pages. Public while the business is approved.
+model PortfolioPhoto {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  storageKey String   @map("storage_key")
+  // What the job was ("Rewired a 3-bedroom flat in Mowe"). Also the image's alt text.
+  caption    String
+  width      Int
+  height     Int
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, sortOrder])
+  @@map("portfolio_photos")
 }
 
 model ServicePackage {
@@ -1180,6 +1244,10 @@ model CartItem {
   businessId      String    @map("business_id") @db.Uuid
   qty             Decimal   @db.Decimal(12, 3)
   savedForLater   Boolean   @default(false) @map("saved_for_later")
+  // A plate from a restaurant's meal builder: { [groupKey]: { [itemKey]: qty } }.
+  choices         Json?
+  // Same plate, same key: one line per variant and plate. "" for everything else.
+  choicesKey      String    @default("") @map("choices_key")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1189,7 +1257,7 @@ model CartItem {
   package  ServicePackage? @relation(fields: [packageId], references: [id], onDelete: Cascade)
   business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  @@unique([cartId, variantId])
+  @@unique([cartId, variantId, choicesKey])
   @@index([variantId, businessId])
   @@index([serviceId, businessId])
   @@index([packageId])
@@ -1299,6 +1367,13 @@ model SellerOrder {
   etaDaysMax           Int?           @map("eta_days_max") @db.SmallInt
   trackingNumber       String?        @map("tracking_number")
   carrier              String?
+  // Straight-line distance from the shop to the drop-off times the road factor, in metres, when delivery was priced by distance.
+  deliveryDistanceM    Int?           @map("delivery_distance_m")
+  // The seller's rider taking this delivery (lib/fulfilment/riders.ts assigns them).
+  riderId              String?        @map("rider_id") @db.Uuid
+  riderAssignedAt      DateTime?      @map("rider_assigned_at") @db.Timestamptz(6)
+  // When the rider collected the parcel from the shop.
+  pickedUpAt           DateTime?      @map("picked_up_at") @db.Timestamptz(6)
   shippedAt            DateTime?      @map("shipped_at") @db.Timestamptz(6)
   deliveredAt          DateTime?      @map("delivered_at") @db.Timestamptz(6)
   completedAt          DateTime?      @map("completed_at") @db.Timestamptz(6)
@@ -1313,6 +1388,8 @@ model SellerOrder {
 
   order         Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   business      Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  // The rider must belong to the same shop.
+  rider         Rider?               @relation(fields: [riderId, businessId], references: [id, businessId], onDelete: Restrict, map: "seller_orders_rider_same_business")
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
   reservations  StockReservation[]
@@ -1324,6 +1401,7 @@ model SellerOrder {
   @@unique([orderId, businessId])
   @@unique([id, businessId], map: "seller_orders_id_business_key")
   @@index([businessId, status, createdAt])
+  @@index([riderId, businessId])
   @@map("seller_orders")
 }
 
@@ -1477,6 +1555,36 @@ model DeliveryRate {
   @@index([zoneId, businessId, minWeightG])
   @@index([businessId])
   @@map("delivery_rates")
+}
+
+// A delivery rider who works for a shop (seller-managed riders). Riders have
+// no TownMart account: the shop adds them, and they get order links by text.
+model Rider {
+  id                String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  name              String
+  phoneEncrypted    String    @map("phone_encrypted")
+  phoneHash         String    @map("phone_hash")
+  // motorbike, bicycle, tricycle (keke), car, on_foot
+  vehicle           String    @default("motorbike")
+  // Off when the rider has left the shop; kept for order history.
+  isActive          Boolean   @default(true) @map("is_active")
+  // The seller (or later the rider) switches this on when they can take a job.
+  isAvailable       Boolean   @default(true) @map("is_available")
+  // Last known position. Null means "at the shop".
+  latitude          Float?
+  longitude         Float?
+  locationUpdatedAt DateTime? @map("location_updated_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sellerOrders SellerOrder[]
+
+  @@unique([businessId, phoneHash])
+  @@unique([id, businessId], map: "riders_id_business_key")
+  @@index([businessId, isActive, isAvailable])
+  @@map("riders")
 }
 
 // ── Double-entry ledger (append-only) ────────────────────────────────────────
@@ -1644,17 +1752,22 @@ enum MessageSender {
   customer
   seller
   system
+  // The shop's rider, writing from their job link (no account).
+  rider
 
   @@map("message_sender")
 }
 
-/// One conversation per seller order, between the customer and the seller.
+/// One conversation per seller order, between the customer, the seller and
+/// (once one is assigned) the seller's rider.
 model Message {
   id            String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   sellerOrderId String        @map("seller_order_id") @db.Uuid
   businessId    String        @map("business_id") @db.Uuid
   senderUserId  String?       @map("sender_user_id") @db.Uuid
   sender        MessageSender
+  // The rider's name as it was when they wrote (riders have no user account).
+  senderName    String?       @map("sender_name")
   body          String
   // When the other side read it.
   readAt        DateTime?     @map("read_at") @db.Timestamptz(6)

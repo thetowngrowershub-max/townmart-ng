@@ -20,7 +20,12 @@ export type BusinessMembership = {
   permissions?: Readonly<Record<string, boolean>>;
 };
 
-export type Actor = { id: string; roles: readonly Role[]; businesses?: readonly BusinessMembership[] } | null;
+/**
+ * `adminNeedsTwoFactor`: a TownMart admin who hasn't turned on two-step sign-in.
+ * Until they do, their admin roles grant only what a customer gets, so all they
+ * can do is reach Profile & security and set it up.
+ */
+export type Actor = { id: string; roles: readonly Role[]; businesses?: readonly BusinessMembership[]; adminNeedsTwoFactor?: boolean } | null;
 
 type OwnedResources = {
   "address.read": { userId: string };
@@ -150,8 +155,10 @@ const STAFF_FLAG: Record<BusinessPermission, string | null> = {
   "question.answer": "reviews",
 };
 
+const isAdminRole = (role: Role) => role === "admin" || role === "super_admin";
+
 function hasGrant(actor: NonNullable<Actor>, grant: Grant): boolean {
-  return actor.roles.some((role) => ROLE_GRANTS[role].includes(grant));
+  return actor.roles.some((role) => (actor.adminNeedsTwoFactor && isAdminRole(role) ? CUSTOMER : ROLE_GRANTS[role]).includes(grant));
 }
 
 type ResourceArgs<P extends Permission> = P extends OwnedPermission
@@ -198,7 +205,7 @@ export function assertCan<P extends Permission>(actor: Actor, permission: P, ...
   if (!can(actor, permission, ...args)) throw new AuthzError(403);
 }
 
-export const isPlatformAdmin = (actor: Actor) => !!actor && actor.roles.some((r) => r === "admin" || r === "super_admin");
+export const isPlatformAdmin = (actor: Actor) => !!actor && !actor.adminNeedsTwoFactor && actor.roles.some(isAdminRole);
 
 /** The RLS scope to use after an authz check: admins act with `admin` scope only inside the admin console. */
 export function rlsScopeFor(actor: NonNullable<Actor>, area: "storefront" | "admin"): "user" | "admin" {

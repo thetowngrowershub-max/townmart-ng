@@ -8,7 +8,7 @@ import { marketingAudience, unsubscribe } from "@/lib/marketing";
 import { anonymiseAccount, anonymisedEmail, requestAccountDeletion, restoreAccount } from "@/lib/privacy/account";
 import { collectPersonalData } from "@/lib/privacy/export";
 import { createDataRequest, DataRequestError } from "@/lib/privacy/requests";
-import { createAddress, createBareOrder, createUser, deleteUsers, lagosIkeja, owner } from "./helpers";
+import { createAddress, createBareOrder, createUser, deleteUsers, moweOgun, owner } from "./helpers";
 
 /**
  * Phase 6 at the database layer: policy acceptances and consent are
@@ -39,7 +39,7 @@ async function user(label: string) {
 /** An approved shop with one product, owned by a new user. */
 async function shop(label: string) {
   const ownerUser = await user(label);
-  const { stateId, lgaId } = await lagosIkeja();
+  const { stateId, lgaId } = await moweOgun();
   const categoryId = (await owner.category.findFirstOrThrow({ where: { kind: "product", isActive: true, parentId: { not: null } } })).id;
   return asSystem(async (tx) => {
     const business = await tx.business.create({
@@ -52,7 +52,7 @@ async function shop(label: string) {
         phoneEncrypted: "v1.k1.test.test.test",
         phoneHash: `${label}-${tag}`,
         addressEncrypted: "v1.k1.test.test.test",
-        city: "Ikeja",
+        city: "Mowe",
         stateId,
         lgaId,
         status: "approved",

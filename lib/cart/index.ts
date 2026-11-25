@@ -67,7 +67,7 @@ export async function mergeGuestCart(userId: string): Promise<void> {
     const mine = await tx.cart.upsert({ where: { userId }, update: {}, create: { userId, expiresAt: expiry() }, include: { items: true } });
     for (const item of guest.items) {
       const existing = item.variantId
-        ? mine.items.find((i) => i.variantId === item.variantId)
+        ? mine.items.find((i) => i.variantId === item.variantId && i.choicesKey === item.choicesKey)
         : mine.items.find((i) => i.serviceId === item.serviceId && i.bookingStartsAt?.getTime() === item.bookingStartsAt?.getTime());
       if (!existing) {
         await tx.cartItem.create({
@@ -81,6 +81,8 @@ export async function mergeGuestCart(userId: string): Promise<void> {
             businessId: item.businessId,
             qty: item.qty,
             savedForLater: item.savedForLater,
+            choicesKey: item.choicesKey,
+            ...(item.choices !== null ? { choices: item.choices } : {}),
           },
         });
       } else if (item.qty.greaterThan(existing.qty)) {

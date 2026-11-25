@@ -24,6 +24,7 @@ export function PaymentStatus({ orderNumber, token, canPay, failed }: { orderNum
       if (!res.ok) return setMessage(res.error);
       const status = res.data?.status;
       if (status === "paid" || status === "already_paid" || status === "success") return router.refresh();
+      if (status === "test_refunded") return setMessage("Payment test received. It is being refunded to you automatically, and this order stays unpaid.");
       if (status === "needs_attention") return setMessage("We received a payment we need to check by hand. Our team will contact you; you don't need to pay again.");
       setMessage(status === "not_paid" || status === "failed" || status === "abandoned" ? "We haven't received your payment yet." : null);
     });

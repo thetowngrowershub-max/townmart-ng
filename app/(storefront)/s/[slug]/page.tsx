@@ -10,6 +10,7 @@ import {
 } from "@/components/storefront/listing-cards";
 import { QuestionsSection } from "@/components/listings/questions-section";
 import { ReportListing } from "@/components/listings/report-listing";
+import { JobPhotos } from "@/components/portfolio/job-photos";
 import { ReviewList } from "@/components/reviews/review-list";
 import { WishlistButton } from "@/components/storefront/wishlist-button";
 import { isSaved } from "@/lib/wishlist";
@@ -20,8 +21,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { listingQuestions } from "@/lib/questions/questions";
 import {
-  getLgaNames,
   getListingReviews,
+  getPortfolio,
   getListingRules,
   getPublicService,
 } from "@/lib/catalogue/storefront";
@@ -67,7 +68,7 @@ const LOCATION_TEXT = {
 export default async function ServicePage({ params }: Props) {
   const s = await getPublicService((await params).slug);
   if (!s) notFound();
-  const [lgas, reviews, viewer] = await Promise.all([getLgaNames(s.serviceLgaIds), getListingReviews({ serviceId: s.id }), getCurrentUser()]);
+  const [reviews, viewer, jobPhotos] = await Promise.all([getListingReviews({ serviceId: s.id }), getCurrentUser(), getPortfolio(s.businessId, 8)]);
   const questions = await listingQuestions({ serviceId: s.id }, viewer?.id ?? null);
   const saved = await isSaved(viewer?.id, { serviceId: s.id });
   const now = new Date();
@@ -325,33 +326,35 @@ export default async function ServicePage({ params }: Props) {
               <CardTitle>Service area</CardTitle>
             </CardHeader>
             <CardContent className="text-sm">
-              {s.locationMode === "at_provider" ? (
-                <p>
-                  Based in {s.business.lga.name}, {s.business.state.name}.
-                </p>
-              ) : (
-                <>
-                  {lgas.length > 0 && (
-                    <p>
-                      {lgas
-                        .map((l) => `${l.name} (${l.state.name})`)
-                        .join(", ")}
-                    </p>
-                  )}
-                  {s.radiusKm && (
-                    <p className="mt-1">
-                      Within {s.radiusKm} km of {s.business.city}.
-                    </p>
-                  )}
-                </>
-              )}
+              {/* Providers are locked to the LGA they're registered in. */}
+              <p>
+                {s.locationMode === "at_provider" ? "Based in" : "Works only in"} {s.business.city}, {s.business.lga.name}, {s.business.state.name}.
+              </p>
+              {s.locationMode !== "at_provider" && s.radiusKm && <p className="mt-1">Travels up to {s.radiusKm} km from their base.</p>}
             </CardContent>
           </Card>
         </div>
       </div>
+      {jobPhotos.length > 0 && (
+        <Card className="mt-10">
+          <CardContent className="flex flex-col gap-4 pt-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-lg font-bold">Jobs done by {s.business.name}</h2>
+              <Link href={`/store/${s.business.slug}#jobs`} className="text-sm font-medium text-primary underline">
+                See all job photos
+              </Link>
+            </div>
+            <JobPhotos photos={jobPhotos} compact />
+          </CardContent>
+        </Card>
+      )}
       <Card className="mt-10">
         <CardContent className="pt-6">
-          <ReviewList avg={Number(s.ratingAvg)} total={reviews.total} breakdown={reviews.breakdown} reviews={reviews.reviews} signedIn={Boolean(viewer)} />
+          <ReviewList
+            title="Rate my service"
+            verifiedLabel="Booked on TownMart"
+            emptyText="No ratings yet. Customers who book this service through TownMart can rate it once the job is done."
+            avg={Number(s.ratingAvg)} total={reviews.total} breakdown={reviews.breakdown} reviews={reviews.reviews} signedIn={Boolean(viewer)} />
         </CardContent>
       </Card>
 

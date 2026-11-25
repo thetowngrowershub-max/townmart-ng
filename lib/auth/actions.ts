@@ -4,15 +4,15 @@ import { Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { writeAudit } from "@/lib/audit";
 import { assertCan } from "@/lib/authz";
-import { decrypt, sha256 } from "@/lib/crypto";
+import { phoneHash, sha256 } from "@/lib/crypto";
 import { prisma, withRls } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { resetPasswordTemplate, verifyEmailTemplate } from "@/lib/notifications/email/templates";
+import { issueOtp } from "@/lib/otp";
 import { enqueueEmail } from "@/lib/queue";
 import { rateLimit } from "@/lib/rate-limit";
 import { recordAcceptances } from "@/lib/legal/documents";
-import { issueOtp } from "@/lib/otp";
 import { requestMeta } from "@/lib/request";
 import { verifyTurnstile } from "@/lib/turnstile";
 import {
@@ -38,8 +38,9 @@ import {
 import { signIn as authJsSignIn } from "./config";
 import { completeSignIn } from "./complete-sign-in";
 import { consumeToken, issueToken } from "./tokens";
-import { setPendingTwoFactor } from "./two-factor";
+import { loadTwoFactorUser, startSecondStep } from "./two-factor-methods";
 import { getCurrentUser } from "./current-user";
+import { setPendingPhone } from "./pending-phone";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "./password";
 import { createUserSession, currentSessionToken, destroyCurrentSession } from "./session";
 
@@ -53,12 +54,21 @@ async function sendVerificationEmail(user: { email: string; name: string | null 
   await enqueueEmail(verifyEmailTemplate({ to: user.email, name: user.name, url: url.toString() }));
 }
 
+/** Texts a code to the number typed at sign-up, unless another account already has it. */
+async function textSignUpCode(userId: string, phone: string): Promise<void> {
+  const hash = phoneHash(phone);
+  const owner = await prisma.user.findUnique({ where: { phoneHash: hash }, select: { id: true } });
+  if (owner) return;
+  const sent = await issueOtp({ phoneE164: phone, phoneHash: hash, purpose: "verify_phone", userId });
+  if (sent.ok) await setPendingPhone(userId, phone);
+}
+
 // ─── Sign up ────────────────────────────────────────────────────────────────
 
 export async function signUpAction(input: SignUpInput): Promise<ActionResult> {
   const parsed = signUpSchema.safeParse(input);
   if (!parsed.success) return validationError(parsed.error);
-  const { name, email, password, turnstileToken, marketingEmail } = parsed.data;
+  const { name, email, password, turnstileToken, marketingEmail, phone } = parsed.data;
   const meta = await requestMeta();
 
   if (!(await rateLimit(`auth:sign-up:ip:${meta.ipHash}`, 5, 3600)).allowed) return { ok: false, error: TOO_MANY };
@@ -101,6 +111,15 @@ export async function signUpAction(input: SignUpInput): Promise<ActionResult> {
     logger.error({ err, userId }, "failed to queue verification email");
   }
 
+  if (phone) {
+    try {
+      await textSignUpCode(userId, phone);
+    } catch (err) {
+      // The account exists; they can add the phone from their account page.
+      logger.error({ err, userId }, "failed to send the sign-up phone code");
+    }
+  }
+
   await createUserSession(userId, meta);
   redirect("/account?welcome=1");
 }
@@ -122,7 +141,7 @@ export async function signInAction(input: SignInInput): Promise<ActionResult> {
   const invalid: ActionResult = { ok: false, error: "Incorrect email or password." };
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, passwordHash: true, status: true, lockedUntil: true, failedLoginCount: true, twoFactorEnabledAt: true, phoneEncrypted: true, phoneHash: true, phoneVerifiedAt: true },
+    select: { id: true, passwordHash: true, status: true, lockedUntil: true, failedLoginCount: true, twoFactorEnabledAt: true },
   });
 
   if (!user?.passwordHash) {
@@ -156,12 +175,14 @@ export async function signInAction(input: SignInInput): Promise<ActionResult> {
   }
   await prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil: null } });
 
-  // Two-step sign-in: a code to the verified phone before any session exists.
-  if (user.twoFactorEnabledAt && user.phoneVerifiedAt && user.phoneEncrypted && user.phoneHash) {
-    const sent = await issueOtp({ phoneE164: decrypt(user.phoneEncrypted), phoneHash: user.phoneHash, purpose: "two_factor", userId: user.id });
-    if (!sent.ok) return { ok: false, error: sent.error };
-    await setPendingTwoFactor(user.id, next ?? null);
-    redirect("/auth/two-factor");
+  // Two-step sign-in: a second code before any session exists.
+  if (user.twoFactorEnabledAt) {
+    const twoFactorUser = await loadTwoFactorUser(user.id);
+    if (twoFactorUser) {
+      const started = await startSecondStep(twoFactorUser, next ?? null, "password");
+      if (!started.ok) return { ok: false, error: started.error };
+      redirect("/auth/two-factor");
+    }
   }
   redirect(await completeSignIn(user.id, next ?? null, meta));
 }

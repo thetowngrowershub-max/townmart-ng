@@ -122,3 +122,37 @@ export async function setRoleAction(input: z.input<typeof roleSchema>): Promise<
     return fail(err);
   }
 }
+
+const resetTwoFactorSchema = z.object({ userId: z.uuid(), reason: z.string().trim().min(5, "Say how you checked it's them, for the audit log").max(500) });
+
+/**
+ * For someone locked out after losing their phone and backup codes: turns
+ * two-step sign-in off once support has checked who they are another way.
+ * Signs them out everywhere too. Staff accounts need a super admin.
+ */
+export async function resetTwoFactorAction(input: z.input<typeof resetTwoFactorSchema>): Promise<ActionResult> {
+  const parsed = resetTwoFactorSchema.safeParse(input);
+  if (!parsed.success) return validationError(parsed.error);
+  const { userId, reason } = parsed.data;
+  try {
+    const { actor, run } = await adminContext("user.manage");
+    if (userId === actor.id) throw new AdminError("Turn off your own two-step sign-in from Profile & security.");
+    await run(async (tx, audit) => {
+      const u = await tx.user.findUnique({ where: { id: userId }, select: { twoFactorEnabledAt: true, twoFactorMethod: true, roles: { select: { role: true } } } });
+      if (!u) throw new AdminError("Account not found.");
+      if (!u.twoFactorEnabledAt) throw new AdminError("Two-step sign-in is already off.");
+      const roles = u.roles.map((r) => r.role);
+      if ((roles.includes("admin") || roles.includes("super_admin")) && !actor.roles.includes("super_admin")) throw new AdminError("Only a super admin can reset TownMart staff.");
+      await tx.user.update({
+        where: { id: userId },
+        data: { twoFactorEnabledAt: null, twoFactorMethod: null, totpSecretEncrypted: null, totpLastStep: null, twoFactorBackupCodes: [] },
+      });
+      const { count } = await tx.session.deleteMany({ where: { userId } });
+      await audit("user.two_factor_reset", "user", userId, { twoFactor: "off", reason, sessionsEnded: count }, { twoFactor: "on", method: u.twoFactorMethod });
+    });
+    refresh(userId);
+    return { ok: true, message: "Two-step sign-in is off and they're signed out everywhere. Ask them to turn it back on." };
+  } catch (err) {
+    return fail(err);
+  }
+}

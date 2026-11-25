@@ -30,6 +30,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
         emailVerified: true,
         phoneVerifiedAt: true,
         twoFactorEnabledAt: true,
+        twoFactorMethod: true,
         createdAt: true,
         lastLoginAt: true,
         lockedUntil: true,
@@ -53,7 +54,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
   const facts: [string, React.ReactNode][] = [
     ["Email", <>{u.email} {u.emailVerified ? <Badge variant="success">Verified</Badge> : <Badge variant="warning">Not verified</Badge>}</>],
     ["Phone", u.phoneVerifiedAt ? "Verified" : "Not verified"],
-    ["Two-step sign-in", u.twoFactorEnabledAt ? "On" : "Off"],
+    ["Two-step sign-in", u.twoFactorEnabledAt ? `On (${u.twoFactorMethod === "authenticator" ? "authenticator app" : u.twoFactorMethod === "sms" ? "text message" : "email"})` : "Off"],
     ["Joined", formatDateTime(u.createdAt)],
     ["Last sign-in", u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "Never"],
     ["Signed in on", `${u._count.sessions} device${u._count.sessions === 1 ? "" : "s"}`],
@@ -100,7 +101,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                   </div>
                 ))}
               </dl>
-              {(u.status === "active" || u.status === "suspended") && <AccountControls userId={u.id} status={u.status} self={u.id === actor.id} />}
+              {(u.status === "active" || u.status === "suspended") && <AccountControls userId={u.id} status={u.status} self={u.id === actor.id} twoFactorOn={u.twoFactorEnabledAt !== null} />}
             </CardContent>
           </Card>
           {(u.ownedBusinesses.length > 0 || u.staffOf.length > 0) && (

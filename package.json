@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "vercel-build": "tsx scripts/vercel/prepare.ts && next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -36,7 +37,6 @@
     "@prisma/client": "6.19.3",
     "@radix-ui/react-label": "^2.1.17",
     "@radix-ui/react-slot": "^1.5.0",
-    "@tanstack/react-query": "^5.105.0",
     "@tiptap/pm": "^3.32.0",
     "@tiptap/react": "^3.32.0",
     "@tiptap/starter-kit": "^3.32.0",
@@ -54,6 +54,7 @@
     "nodemailer": "^10.2.1",
     "pdf-lib": "1.17.1",
     "pino": "^10.4.0",
+    "qrcode": "^1.5.4",
     "react": "19.1.10",
     "react-dom": "19.1.10",
     "react-hook-form": "^7.91.0",
@@ -70,6 +71,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.5",
     "@types/nodemailer": "^8.0.2",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "dotenv": "^18.0.9",
@@ -94,7 +96,8 @@
     ],
     "overrides": {
       "next>postcss": "^8.5.31",
-      "@prisma/config>deepmerge-ts": "^8.0.0"
+      "@prisma/config>deepmerge-ts": "^8.0.0",
+      "isomorphic-dompurify>jsdom": "^26.1.0"
     }
   }
 }

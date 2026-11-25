@@ -76,7 +76,7 @@ In `.env`, set at least:
 | `POSTGRES_PASSWORD`, `TOWNMART_MIGRATOR_PASSWORD`, `TOWNMART_APP_PASSWORD`, `TOWNMART_READONLY_PASSWORD`, `REDIS_PASSWORD` | each `openssl rand -base64 24 \| tr -d '/+='` |
 | `PAYMENT_PROVIDER`, `PAYSTACK_SECRET_KEY` (and Flutterwave keys if used) | live keys from the provider dashboards |
 | `BANK_VERIFIER` | `paystack` |
-| `SMS_PROVIDER`, `TERMII_API_KEY`, `TERMII_SENDER_ID` | `termii` and the approved sender ID |
+| `SMS_PROVIDER`, `TERMII_API_KEY`, `TERMII_SENDER_ID`, `TERMII_BASE_URL` | `termii`, the approved sender ID, and the Base URL from the Termii dashboard. `TERMII_CHANNEL` stays `dnd` once Termii has enabled the DND route. Check both with **Admin → System health → Send test text** |
 | `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM` | `resend`, the key, and an address on a domain verified in Resend (SPF, DKIM, DMARC) |
 | `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | from Cloudflare Turnstile |
 | `S3_*` | your storage endpoint, keys and buckets; `S3_PUBLIC_BASE_URL` is the public bucket's URL |
@@ -177,7 +177,48 @@ Rotate the data encryption key with the runbook in `scripts/db/rotate-keys.md`. 
 
 The app also runs on a managed Node host with managed Postgres and Redis:
 
-- Use Postgres 16 with `pg_stat_statements`, and run `sql/bootstrap/roles.sql` (or `pnpm db:bootstrap`) as the database superuser to create the three roles before the first migration.
+- Use Postgres 16, and run `sql/bootstrap/roles.sql` (or `pnpm db:bootstrap`) as the database superuser to create the three roles before the first migration. On Vercel with Neon this happens by itself (below).
 - Point `DATABASE_URL` at the provider's pooler in **transaction mode** with `?pgbouncer=true`, and `MIGRATE_DATABASE_URL` at a direct connection as `townmart_migrator`. TownMart is safe behind a transaction pooler: all advisory locks are transaction-scoped, and RLS settings are set per transaction.
-- Run `pnpm worker` as a separate always-on process (a background worker or a small VM); serverless functions can't run it.
+- Run `pnpm worker` as a separate always-on process (a background worker or a small VM) for a live site. Without one, set `JOBS_INLINE=true` (below).
 - Backups then come from the provider's PITR. Still run `scripts/db/backup.sh` and `verify-restore.sh` from a scheduled job elsewhere, so you have a copy outside the provider and proof that it restores.
+
+### Vercel test site
+
+A staging site people can click through, with no real money, emails or SMS. Vercel builds with `pnpm vercel-build`, which runs `scripts/vercel/prepare.ts` and then `next build`:
+
+1. **Database roles.** With Vercel's Neon integration (`DATABASE_URL` is the owner's pooled connection, `DATABASE_URL_UNPOOLED` its direct one), the build creates `townmart_migrator`, `townmart_app` and `townmart_readonly` and a separate `townmart` database, like `roles.sql`. Their passwords are derived from `AUTH_SECRET`, and at runtime the app connects through the pooler as `townmart_app`, so row-level security still applies (`lib/platform.ts`). Set `DATABASE_ROLES=manual` to give `DATABASE_URL` and `MIGRATE_DATABASE_URL` yourself instead.
+2. **Migrations** (`prisma migrate deploy`) as `townmart_migrator`.
+3. **Seed.** Reference data always; the demo shops, orders and accounts on a test-mode site. The seed is idempotent.
+
+**Background jobs.** On Vercel (`VERCEL=1`), `JOBS_INLINE` defaults to true: each queued job runs in the same function straight after the response, with the worker's handlers (`lib/jobs/inline.ts`). Scheduled jobs (unpaid orders expiring, refunds, escrow, payouts, retention) run when people use the site: a page view asks `/api/jobs/tick` at most once a minute, and each job keeps its own interval from its cron pattern (every N minutes, hourly, or daily). With no visitors, nothing runs. A live site should run the worker instead.
+
+**Test mode** (`TOWNMART_TEST_MODE=true`):
+
+- a banner on every page says no real money moves, and robots are told not to index anything;
+- payments use the pretend payment page and bank checks are faked, unless real providers are set;
+- emails and SMS go to the test inbox at `/test-inbox` (anyone on the site can read it, so testers should use made-up details);
+- `/auth/demo` signs in as any seeded demo account (admin, super admin, the six sellers, the demo shopper) without a password;
+- Turnstile is skipped if it isn't configured, and `DATA_ENCRYPTION_KEY` and `DATA_HASH_KEY` are derived from `AUTH_SECRET` if not set.
+
+Never set it on the live site.
+
+**Environment variables** (Project Settings → Environment Variables):
+
+| Variable | Value |
+|---|---|
+| `TOWNMART_TEST_MODE` | `true` |
+| `TEST_SITE_PASSWORD` | a password for your testers. Every page asks for it first. Set it before turning on real email or SMS, because anyone on the test site can sign in as the demo admin |
+| `AUTH_SECRET` | 32 or more random characters |
+| `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | set by the Neon integration (leave its prefix empty) |
+| `REDIS_URL` (or `KV_URL`) | set by the Redis integration (Upstash) |
+| `STORAGE_DRIVER` | `s3` |
+| `S3_ENDPOINT` | `https://<account id>.r2.cloudflarestorage.com` |
+| `S3_REGION` | `auto` |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | from an R2 API token with Object Read & Write on both buckets |
+| `S3_PUBLIC_BASE_URL` | the public bucket's `https://pub-….r2.dev` address |
+
+`APP_URL` defaults to the deployment's own address. The public bucket needs public access turned on (its r2.dev address), and both buckets need the CORS rule from section 3 with the Vercel address as the allowed origin.
+
+**Flutterwave on the test site.** Payments stay on the pretend page until `PAYMENT_PROVIDER=flutterwave` is set. Then add `FLUTTERWAVE_SECRET_KEY` (a v3 **test** key, `FLWSECK_TEST-…`) and `FLUTTERWAVE_WEBHOOK_HASH` (the secret hash typed under Settings → Webhooks, with the URL `https://<site>/api/webhooks/flutterwave` and "Enable v3 webhooks" ticked). With a **live** key (`FLWSECK-…`) a test-mode site runs **gateway tests** only (`lib/payments/gateway-test.ts`): card checkout is refused for everyone except payment testers, listed in `LIVE_PAYMENT_TESTERS` (comma-separated account emails, each verified). A tester is charged `LIVE_TEST_CHARGE_NAIRA` (default 100) whatever the order costs. The payment reference ends in `-GWTEST`, the payment is refunded automatically through Flutterwave, and the order is never marked paid. That tests the payment page, webhook, verify and refund with real money and no real sale. `/api/health` shows `payments`: the provider, whether the key is a test key, whether the webhook hash is set and whether Flutterwave accepts the key (never the keys themselves).
+
+How a payment is trusted: the webhook's `verif-hash` must match (compared in constant time), the event is stored once per Flutterwave transaction, and then the transaction is fetched from Flutterwave's verify API by its id. Its `tx_ref` must be the order's payment reference, its currency NGN and its amount exactly the order total worked out on the server; a wrong amount is refunded and flagged, never accepted. The shopper's return to `/checkout/complete` and the unpaid-order expiry job check the same way, so a missed webhook doesn't lose a payment.

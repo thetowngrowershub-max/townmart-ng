@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { appDatabaseUrl, derivedKey, isTestMode, jobsInline, platformAppUrl, platformRedisUrl } from "@/lib/platform";
 
 const base64Key = z
   .string()
@@ -17,7 +18,8 @@ const schema = z.object({
   DATA_ENCRYPTION_KEY: base64Key,
   DATA_ENCRYPTION_KEY_ID: z.string().regex(/^[A-Za-z0-9_-]{1,16}$/).default("k1"),
   DATA_HASH_KEY: base64Key,
-  EMAIL_PROVIDER: z.enum(["smtp", "resend"]).default("smtp"),
+  // "outbox" keeps emails in the on-site test inbox (/test-inbox) instead of sending them; test mode only.
+  EMAIL_PROVIDER: z.enum(["smtp", "resend", "outbox"]).default("smtp"),
   EMAIL_FROM: z.string().default("TownMart <no-reply@townmart.local>"),
   SMTP_HOST: z.string().default("localhost"),
   SMTP_PORT: z.coerce.number().int().default(1025),
@@ -40,11 +42,15 @@ const schema = z.object({
   S3_PRIVATE_BUCKET: z.string().default("townmart-private"),
   S3_PUBLIC_BASE_URL: z.string().optional(),
 
-  // SMS: "termii" or "console" (logs messages; development only)
-  SMS_PROVIDER: z.enum(["termii", "console"]).default("console"),
+  // SMS: "termii", "console" (logs messages; development only) or "outbox" (the test inbox; test mode only)
+  SMS_PROVIDER: z.enum(["termii", "console", "outbox"]).default("console"),
   TERMII_API_KEY: z.string().optional(),
+  // Road distance for delivery fees (Google Routes API). Unset: straight line x road factor.
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
   TERMII_SENDER_ID: z.string().default("TownMart"),
-  TERMII_BASE_URL: z.url().default("https://api.ng.termii.com"),
+  TERMII_BASE_URL: z.url().default("https://api.ng.termii.com").transform((u) => u.replace(/\/+$/, "")),
+  // "dnd" reaches numbers on Do-Not-Disturb (Termii support must enable it); "generic" works before that, but misses DND numbers.
+  TERMII_CHANNEL: z.enum(["dnd", "generic"]).default("dnd"),
 
   // Bank account verification and payout subaccounts: "paystack" or "fake" (development only)
   BANK_VERIFIER: z.enum(["paystack", "fake"]).default("paystack"),
@@ -58,6 +64,15 @@ const schema = z.object({
   FLUTTERWAVE_SECRET_KEY: z.string().optional(),
   // The "secret hash" set on the Flutterwave dashboard, sent back in the verif-hash header.
   FLUTTERWAVE_WEBHOOK_HASH: z.string().optional(),
+  // A test-mode site with a live Flutterwave key only lets these verified account emails pay (comma-separated),
+  // charges them this many naira whatever the order costs, and refunds it automatically (lib/payments/gateway-test.ts).
+  LIVE_PAYMENT_TESTERS: z.string().optional(),
+  LIVE_TEST_CHARGE_NAIRA: z.coerce.number().int().min(50).max(1000).default(100),
+
+  // A staging site for clicking through (see lib/platform.ts). Fills in the pretend drivers below.
+  TOWNMART_TEST_MODE: z.stringbool().default(false),
+  // Run background jobs in the web process (hosts without a worker). Defaults to on for Vercel.
+  JOBS_INLINE: z.stringbool().default(false),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -70,23 +85,62 @@ let cached: Env | undefined;
  */
 export function env(): Env {
   if (!cached) {
-    const parsed = schema.safeParse(process.env);
+    const parsed = schema.safeParse(withPlatformDefaults(process.env));
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
       throw new Error(`Invalid environment variables:\n${issues}`);
     }
-    if (parsed.data.NODE_ENV === "production") {
-      const devOnly = [
-        parsed.data.STORAGE_DRIVER === "local" && "STORAGE_DRIVER=local",
-        parsed.data.SMS_PROVIDER === "console" && "SMS_PROVIDER=console",
-        parsed.data.BANK_VERIFIER === "fake" && "BANK_VERIFIER=fake",
-        parsed.data.PAYMENT_PROVIDER === "fake" && "PAYMENT_PROVIDER=fake",
-      ].filter(Boolean);
-      if (devOnly.length) throw new Error(`Development-only drivers are not allowed in production: ${devOnly.join(", ")}`);
-    }
+    const problems = productionProblems(parsed.data);
+    if (problems.length) throw new Error(problems.join("\n"));
     cached = parsed.data;
   }
   return cached;
 }
+
+/**
+ * Values the host provides under other names (Vercel), and the pretend drivers
+ * that test mode stands for. Anything set explicitly wins.
+ */
+export function withPlatformDefaults(source: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const e: Record<string, string | undefined> = { ...source };
+  e.APP_URL ??= platformAppUrl();
+  e.REDIS_URL ??= platformRedisUrl();
+  e.DATABASE_URL = appDatabaseUrl() ?? e.DATABASE_URL;
+  e.JOBS_INLINE = String(jobsInline());
+  if (isTestMode()) {
+    e.PAYMENT_PROVIDER ??= "fake";
+    e.BANK_VERIFIER ??= "fake";
+    e.SMS_PROVIDER ??= "outbox";
+    e.EMAIL_PROVIDER ??= "outbox";
+    e.DATA_ENCRYPTION_KEY ??= derivedKey("data-encryption");
+    e.DATA_HASH_KEY ??= derivedKey("data-hash");
+  }
+  return e;
+}
+
+/** Drivers a live site must not use. Test mode allows the pretend ones; files on local disk never work in production. */
+export function productionProblems(e: Env): string[] {
+  if (e.NODE_ENV !== "production") return [];
+  const devOnly = [
+    e.STORAGE_DRIVER === "local" && "STORAGE_DRIVER=local",
+    ...(e.TOWNMART_TEST_MODE
+      ? []
+      : [
+          e.SMS_PROVIDER === "console" && "SMS_PROVIDER=console",
+          e.SMS_PROVIDER === "outbox" && "SMS_PROVIDER=outbox",
+          e.EMAIL_PROVIDER === "outbox" && "EMAIL_PROVIDER=outbox",
+          e.BANK_VERIFIER === "fake" && "BANK_VERIFIER=fake",
+          e.PAYMENT_PROVIDER === "fake" && "PAYMENT_PROVIDER=fake",
+        ]),
+  ].filter(Boolean);
+  return devOnly.length ? [`Development-only drivers are not allowed in production: ${devOnly.join(", ")}`] : [];
+}
+
+/**
+ * The pretend payment page and fake bank checks: development, or a test-mode
+ * site. Reads the validated runtime environment, because Next.js bakes a
+ * literal process.env.NODE_ENV into the build.
+ */
+export const devDriversAllowed = () => env().NODE_ENV !== "production" || env().TOWNMART_TEST_MODE;
 
 export const isProduction = () => process.env.NODE_ENV === "production";

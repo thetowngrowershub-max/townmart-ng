@@ -38,6 +38,8 @@ export type WebhookEvent = {
   kind: "charge" | "refund" | "transfer" | "other";
   /** For transfer events: our payout reference. */
   transferReference?: string | null;
+  /** For charge events: the provider's own id for the transaction, checked directly when verifying. */
+  providerTransactionId?: string | null;
   payload: unknown;
 };
 
@@ -61,7 +63,8 @@ export type ProviderRefund = {
 export interface PaymentProvider {
   readonly name: ProviderName;
   start(p: StartPayment): Promise<{ redirectUrl: string }>;
-  verify(reference: string): Promise<VerifiedPayment>;
+  /** Confirms a payment with the provider's API. `transactionId` (from a webhook) narrows it to one attempt, where supported. */
+  verify(reference: string, transactionId?: string | null): Promise<VerifiedPayment>;
   /** Checks the webhook signature over the raw body. Never throws on bad input. */
   verifyWebhook(rawBody: string, headers: Headers): boolean;
   parseWebhook(rawBody: string): WebhookEvent;

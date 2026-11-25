@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { signInWithGoogleAction } from "@/lib/auth/actions";
 import { googleEnabled } from "@/lib/auth/config";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { isTestMode } from "@/lib/platform";
 import { safeNextPath } from "@/lib/validation/auth";
 import { AuthCard } from "../auth-card";
 
@@ -16,6 +17,7 @@ const ERRORS: Record<string, string> = {
   OAuthAccountNotLinked:
     "An account with this email already exists. Sign in with your password instead.",
   AccessDenied: "This account can't sign in right now. Please contact support.",
+  TwoFactorUnavailable: "We couldn't send your two-step sign-in code. Wait a few minutes, or sign in with your email and password.",
 };
 
 export default async function SignInPage({
@@ -31,6 +33,15 @@ export default async function SignInPage({
     <AuthCard title="Welcome back" description="Sign in to your TownMart account.">
       <div className="flex flex-col gap-4">
         {params.signedOut === "all" && <Alert variant="success">You&apos;ve been signed out on all devices.</Alert>}
+        {isTestMode() && (
+          <Alert>
+            Test site:{" "}
+            <Link href="/auth/demo" className="font-semibold underline">
+              sign in as a demo account
+            </Link>{" "}
+            without a password.
+          </Alert>
+        )}
         {params.error && <Alert variant="danger">{ERRORS[params.error] ?? "Sign-in failed. Please try again."}</Alert>}
         {googleEnabled && (
           <>
