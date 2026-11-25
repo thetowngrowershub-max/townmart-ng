@@ -4,13 +4,13 @@ import { handleCookieBanner } from "./fixtures";
 // Only on a test-mode site (TOWNMART_TEST_MODE=true), like the Vercel staging site.
 test.skip(process.env.TOWNMART_TEST_MODE !== "true", "needs a test-mode site");
 
-test("a tester signs in as a demo seller without a password", async ({ page }) => {
+test("there is no passwordless demo sign-in", async ({ page }) => {
   await handleCookieBanner(page);
   await page.goto("/");
   await expect(page.getByRole("note", { name: "Test site" })).toContainText("no real money moves");
-  await page.getByRole("link", { name: "Demo accounts" }).click();
-  await page.getByRole("button", { name: "Sign in as Mowe Gadget Hub" }).click();
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page.getByRole("link", { name: "Demo accounts" })).toHaveCount(0);
+  const res = await page.goto("/auth/demo");
+  expect(res?.status()).toBe(404);
 });
 
 test("a new account is confirmed from the test inbox", async ({ page }) => {

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { testInboxOpen } from "@/lib/test-mode/inbox";
 
 /** Shown on every page of a test-mode site (lib/platform.ts), so nobody mistakes it for the real shop. */
 export function TestModeBanner() {
@@ -12,13 +13,11 @@ export function TestModeBanner() {
         ? "Card payments are off. Payment testers are charged a small amount that is refunded automatically."
         : flutterwave
           ? "Pay with Flutterwave test cards only." : "Payments, bank checks, emails and SMS are pretend."}{" "}
-      <Link href="/test-inbox" className="font-medium underline underline-offset-2">
-        Test inbox
-      </Link>
-      {" · "}
-      <Link href="/auth/demo" className="font-medium underline underline-offset-2">
-        Demo accounts
-      </Link>
+      {testInboxOpen() && (
+        <Link href="/test-inbox" className="font-medium underline underline-offset-2">
+          Test inbox
+        </Link>
+      )}
     </div>
   );
 }

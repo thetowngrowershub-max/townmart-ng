@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatDateTime } from "@/lib/datetime";
 import { readOutbox } from "@/lib/notifications/outbox";
-import { isTestMode } from "@/lib/platform";
+import { testInboxOpen } from "@/lib/test-mode/inbox";
 
 export const metadata: Metadata = { title: "Test inbox", robots: { index: false } };
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ const masked = (phone: string) => (phone.length > 6 ? `${phone.slice(0, 4)}…${
  * first, so testers can confirm accounts and read one-time codes.
  */
 export default async function TestInboxPage({ searchParams }: { searchParams: Promise<{ to?: string }> }) {
-  if (!isTestMode()) notFound();
+  if (!testInboxOpen()) notFound();
   const { to } = await searchParams;
   const messages = await readOutbox(to);
 

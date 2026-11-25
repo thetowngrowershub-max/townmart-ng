@@ -7,12 +7,13 @@
  *      sql/bootstrap/roles.sql does on a server. Role passwords are derived
  *      from AUTH_SECRET (lib/platform.ts), so nothing else needs setting.
  *   2. Applies new migrations (prisma migrate deploy) as townmart_migrator.
- *   3. Seeds: reference data always; the demo shops, orders and accounts on a
- *      test-mode site (TOWNMART_TEST_MODE=true) or with SEED_DEMO_DATA=true.
- *      The live site (no test mode) seeds as production: only its first super
- *      admin, from SEED_SUPER_ADMIN_EMAIL and SEED_SUPER_ADMIN_PASSWORD. Only
- *      its production builds run, so previews never touch the live database.
- *      The seed is idempotent, so this is safe on every deploy.
+ *   3. Seeds: reference data always; the demo shops, orders and accounts only
+ *      with SEED_DEMO_DATA=true. Otherwise any demo accounts already there are
+ *      suspended (prisma/seed-accounts.ts). The first super admin comes from
+ *      SEED_SUPER_ADMIN_EMAIL (and SEED_SUPER_ADMIN_PASSWORD for a new account;
+ *      required on the live site). On the live site only production builds
+ *      run, so previews never touch the live database. The seed is
+ *      idempotent, so this is safe on every deploy.
  *
  * Every step is safe to repeat.
  */
@@ -89,7 +90,7 @@ function run(cmd: string, args: string[], env: Record<string, string>) {
 
 /** Which expected settings this build can see (names only, never values), to tell a missing setting from a wrong one. */
 function reportSettings() {
-  const names = ["TOWNMART_TEST_MODE", "AUTH_SECRET", "DATA_ENCRYPTION_KEY", "DATA_HASH_KEY", "APP_URL", "CRON_SECRET", "HEALTH_KEY", "SEED_SUPER_ADMIN_EMAIL", "SEED_SUPER_ADMIN_PASSWORD", "DATABASE_URL", "DATABASE_URL_UNPOOLED", "REDIS_URL", "KV_URL", "STORAGE_DRIVER", "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_PUBLIC_BASE_URL"];
+  const names = ["TOWNMART_TEST_MODE", "SEED_DEMO_DATA", "AUTH_SECRET", "DATA_ENCRYPTION_KEY", "DATA_HASH_KEY", "APP_URL", "CRON_SECRET", "HEALTH_KEY", "SEED_SUPER_ADMIN_EMAIL", "SEED_SUPER_ADMIN_PASSWORD", "DATABASE_URL", "DATABASE_URL_UNPOOLED", "REDIS_URL", "KV_URL", "STORAGE_DRIVER", "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_PUBLIC_BASE_URL"];
   console.log(`Settings this ${process.env.VERCEL_ENV ?? "local"} build can see:`);
   for (const n of names) console.log(`  ${process.env[n] ? "✓" : "✗"} ${n}${n === "AUTH_SECRET" && process.env[n] ? ` (${process.env[n]!.length} characters)` : ""}`);
 }
@@ -118,7 +119,7 @@ async function main() {
   const roles = { DATABASE_ROLES: MODE };
   run("pnpm", ["exec", "prisma", "migrate", "deploy"], { ...roles, DATABASE_URL: migrateUrl, MIGRATE_DATABASE_URL: migrateUrl });
 
-  const demo = isTestMode() || process.env.SEED_DEMO_DATA === "true";
+  const demo = process.env.SEED_DEMO_DATA === "true";
   // The demo refunds and payouts need the pretend providers that test mode stands for.
   const pretend: Record<string, string> = isTestMode() ? { PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER ?? "fake", BANK_VERIFIER: process.env.BANK_VERIFIER ?? "fake" } : {};
   // The live site seeds as production whatever the builder sets: no demo shops, and staff accounts need real passwords.
