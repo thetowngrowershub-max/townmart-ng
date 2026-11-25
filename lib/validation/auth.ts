@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nigerianPhone, otpCode } from "./common";
 
 export const emailSchema = z
   .string()
@@ -21,6 +22,13 @@ export const signUpSchema = z.object({
   name: z.string().trim().min(2, "Enter your name").max(80),
   email: emailSchema,
   password: passwordSchema,
+  acceptTerms: z.literal(true, { error: "Please accept the Terms of Use and Privacy Policy" }),
+  marketingEmail: z.boolean().default(false),
+  // Optional: we text it a code, so the customer can sign in with their phone too.
+  phone: z
+    .union([z.literal(""), nigerianPhone])
+    .optional()
+    .transform((v) => v || undefined),
   turnstileToken: z.string().optional(),
 });
 export type SignUpInput = z.input<typeof signUpSchema>;
@@ -55,3 +63,7 @@ export const verifyEmailSchema = z.object({
   email: emailSchema,
   token: z.string().min(20).max(200),
 });
+
+export const phoneOnlySchema = z.object({ phone: nigerianPhone });
+export const phoneCodeSchema = z.object({ phone: nigerianPhone, code: otpCode, next: safeNextPath });
+export type PhoneCodeInput = z.input<typeof phoneCodeSchema>;

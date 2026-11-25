@@ -3,39 +3,20 @@
  *   pnpm worker        (or the `worker` service in docker-compose.yml)
  *
  * Queues:
- *   notifications — emails (SMS and in-app arrive with checkout)
+ *   notifications — emails, SMS and low-stock alerts
+ *   imports       — seller CSV product imports
+ *   orders        — order confirmations, payment webhooks, and order/booking/message notices
+ *   privacy       — data exports for the Privacy Centre
  *   maintenance   — scheduled clean-up jobs, recorded in job_runs
  */
 import "dotenv/config";
-import { Queue, Worker, type Job } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import { prisma } from "@/lib/db";
+import { handleImport, handleMaintenance, handleNotification, handleOrder, handlePrivacy } from "@/lib/jobs/handlers";
 import { logger } from "@/lib/logger";
-import { emailProvider, type EmailMessage } from "@/lib/notifications/email";
 import { QUEUES } from "@/lib/queue";
 import { newRedisConnection } from "@/lib/redis";
 import { maintenanceJobs } from "./jobs/maintenance";
-import { trackJobRun } from "./job-runs";
-
-async function handleNotification(job: Job) {
-  switch (job.name) {
-    case "email.send": {
-      const message = job.data as EmailMessage;
-      const { id } = await emailProvider().send(message);
-      logger.info({ jobId: job.id, provider: emailProvider().name, messageId: id }, "email sent");
-      return;
-    }
-    default:
-      throw new Error(`Unknown notifications job: ${job.name}`);
-  }
-}
-
-async function handleMaintenance(job: Job) {
-  const def = maintenanceJobs[job.name];
-  if (!def) throw new Error(`Unknown maintenance job: ${job.name}`);
-  const result = await trackJobRun(job.name, def.run);
-  logger.info({ job: job.name, result }, "maintenance job finished");
-  return result;
-}
 
 async function main() {
   const maintenanceQueue = new Queue(QUEUES.maintenance, { connection: newRedisConnection() });
@@ -49,6 +30,9 @@ async function main() {
 
   const workers = [
     new Worker(QUEUES.notifications, handleNotification, { connection: newRedisConnection(), concurrency: 5 }),
+    new Worker(QUEUES.imports, handleImport, { connection: newRedisConnection(), concurrency: 2 }),
+    new Worker(QUEUES.orders, handleOrder, { connection: newRedisConnection(), concurrency: 5 }),
+    new Worker(QUEUES.privacy, handlePrivacy, { connection: newRedisConnection(), concurrency: 1 }),
     new Worker(QUEUES.maintenance, handleMaintenance, { connection: newRedisConnection(), concurrency: 1 }),
   ];
   for (const w of workers) {

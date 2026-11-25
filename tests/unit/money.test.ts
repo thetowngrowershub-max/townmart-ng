@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatNaira, parseNairaToKobo } from "@/lib/money";
+import { formatNaira, formatPrice, koboToNairaString, parseNairaToKobo } from "@/lib/money";
 
 describe("formatNaira", () => {
   it.each([
@@ -29,5 +29,28 @@ describe("parseNairaToKobo", () => {
 
   it.each(["", "abc", "-5", "1.234", "1e3"])("rejects %j", (input) => {
     expect(() => parseNairaToKobo(input)).toThrow();
+  });
+});
+
+describe("koboToNairaString and formatPrice", () => {
+  it.each([
+    [0n, "0"],
+    [5n, "0.05"],
+    [950_000n, "9500"],
+    [950_050n, "9500.50"],
+    [-150n, "-1.50"],
+  ])("%s kobo → %s", (kobo, expected) => {
+    expect(koboToNairaString(kobo)).toBe(expected);
+  });
+
+  it("round-trips with parseNairaToKobo, which CSV import relies on", () => {
+    for (const kobo of [0n, 5n, 950_000n, 950_050n, 123_456_789n]) {
+      expect(parseNairaToKobo(koboToNairaString(kobo))).toBe(kobo);
+    }
+  });
+
+  it("drops .00 for price tags only", () => {
+    expect(formatPrice(1_250_000n)).toBe("₦12,500");
+    expect(formatPrice(1_250_050n)).toBe("₦12,500.50");
   });
 });

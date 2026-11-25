@@ -10,3 +10,10 @@ next-env.d.ts
 !.env.example
 .DS_Store
 *.log
+.storage/
+secrets/
+backup.env
+!backup.env.example
+test-results/
+playwright-report/
+tests/e2e/.cache/
