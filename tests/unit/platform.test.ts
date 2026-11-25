@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { productionProblems, withPlatformDefaults, type Env } from "@/lib/env";
+import { keyBytes, productionProblems, withPlatformDefaults, type Env } from "@/lib/env";
 import { intervalMinutes } from "@/lib/jobs/schedule";
+import { testSitePassword } from "@/lib/test-mode/access";
 import { appDatabaseUrl, asRole, autoRolePassword, databaseRoles, jobsInline, platformAppUrl } from "@/lib/platform";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -67,5 +68,31 @@ describe("test mode", () => {
     expect(productionProblems({ ...base, TOWNMART_TEST_MODE: true })).toEqual([]);
     expect(productionProblems({ ...base, TOWNMART_TEST_MODE: false })[0]).toMatch(/PAYMENT_PROVIDER=fake/);
     expect(productionProblems({ ...base, TOWNMART_TEST_MODE: true, STORAGE_DRIVER: "local" })[0]).toMatch(/STORAGE_DRIVER=local/);
+  });
+
+  it("refuses payment test keys on the live site", () => {
+    const live = { NODE_ENV: "production", STORAGE_DRIVER: "s3", SMS_PROVIDER: "termii", EMAIL_PROVIDER: "resend", BANK_VERIFIER: "paystack", PAYMENT_PROVIDER: "flutterwave", TOWNMART_TEST_MODE: false } as Env;
+    expect(productionProblems({ ...live, FLUTTERWAVE_SECRET_KEY: "FLWSECK-abc-X" })).toEqual([]);
+    expect(productionProblems({ ...live, FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-abc-X" })[0]).toMatch(/FLUTTERWAVE_SECRET_KEY/);
+    expect(productionProblems({ ...live, PAYSTACK_SECRET_KEY: "sk_test_abc" })[0]).toMatch(/PAYSTACK_SECRET_KEY/);
+    expect(productionProblems({ ...live, TOWNMART_TEST_MODE: true, FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-abc-X" })).toEqual([]);
+  });
+
+  it("reads data keys as base64 or 64 hex characters", () => {
+    const raw = Buffer.alloc(32, 7);
+    expect(keyBytes(raw.toString("base64"))).toEqual(raw);
+    expect(keyBytes(raw.toString("hex"))).toEqual(raw);
+    expect(keyBytes(` ${raw.toString("hex")}\n`)).toEqual(raw);
+  });
+
+  it("puts the test password on a test site and the pre-launch password on the live site", () => {
+    vi.stubEnv("TEST_SITE_PASSWORD", "test-pass");
+    vi.stubEnv("PRELAUNCH_PASSWORD", "soon-pass");
+    vi.stubEnv("TOWNMART_TEST_MODE", "true");
+    expect(testSitePassword()).toBe("test-pass");
+    vi.stubEnv("TOWNMART_TEST_MODE", "false");
+    expect(testSitePassword()).toBe("soon-pass");
+    vi.stubEnv("PRELAUNCH_PASSWORD", "");
+    expect(testSitePassword()).toBeUndefined();
   });
 });

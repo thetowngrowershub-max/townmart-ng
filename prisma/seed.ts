@@ -73,18 +73,35 @@ async function seedSettings() {
   console.log(`✓ ${DEFAULT_SETTINGS.length} default settings`);
 }
 
-async function seedStaffAccount(email: string, name: string, roles: Role[], envVar: string) {
+const isLive = isProd && process.env.TOWNMART_TEST_MODE !== "true";
+
+/**
+ * Creates a staff account once; later runs leave it alone. The email can be
+ * given (SEED_SUPER_ADMIN_EMAIL, SEED_ADMIN_EMAIL), so a live site's first
+ * super admin is a real person who receives TownMart's emails. In production
+ * the super admin's password must be given; the plain admin is optional there.
+ */
+async function seedStaffAccount(defaultEmail: string, name: string, roles: Role[], prefix: string, opts: { requiredInProduction: boolean }) {
+  const email = (process.env[`${prefix}_EMAIL`]?.trim() || defaultEmail).toLowerCase();
+  const passwordVar = `${prefix}_PASSWORD`;
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     console.log(`• ${email} already exists (password unchanged)`);
     return;
   }
-  let password = process.env[envVar];
+  let password = process.env[passwordVar];
   if (!password) {
     // A test-mode site signs staff in from /auth/demo, so their passwords can stay unknown.
-    if (isProd && process.env.TOWNMART_TEST_MODE !== "true") throw new Error(`${envVar} must be set to seed ${email} in production`);
+    if (isLive) {
+      if (!opts.requiredInProduction) {
+        console.log(`• ${defaultEmail} skipped (set ${passwordVar} to create it)`);
+        return;
+      }
+      throw new Error(`${prefix}_EMAIL and ${passwordVar} must be set to create the first ${name} in production`);
+    }
     password = randomBytes(12).toString("base64url");
   }
+  if (isLive && password.length < 12) throw new Error(`${passwordVar} must be 12 characters or more`);
   const user = await prisma.user.create({
     data: {
       email,
@@ -105,8 +122,9 @@ async function main() {
   await seedStatesAndLgas();
   await seedSettings();
   await seedCompliance(prisma);
-  await seedStaffAccount("admin@townmart.local", "TownMart Admin", ["admin", "customer"], "SEED_ADMIN_PASSWORD");
-  await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN_PASSWORD");
+  // Super admin first: with nothing else set, a live site's build stops here with what to add.
+  await seedStaffAccount("superadmin@townmart.local", "TownMart Super Admin", ["super_admin", "customer"], "SEED_SUPER_ADMIN", { requiredInProduction: true });
+  await seedStaffAccount("admin@townmart.local", "TownMart Admin", ["admin", "customer"], "SEED_ADMIN", { requiredInProduction: false });
   await seedDeliveryAndCommission(prisma);
   await seedDemoCatalogue(prisma);
   await seedContent(prisma);

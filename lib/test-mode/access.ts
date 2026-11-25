@@ -8,9 +8,13 @@
 export const TEST_ACCESS_COOKIE = "tm_test_access";
 export const TEST_ACCESS_PATH = "/test-access";
 
-/** The password, when this is a test-mode site that has one. */
+/**
+ * The password: TEST_SITE_PASSWORD on a test-mode site, or PRELAUNCH_PASSWORD
+ * on the live site before it opens to the public (so partners can set up their
+ * shops first). Remove PRELAUNCH_PASSWORD to open the live site.
+ */
 export function testSitePassword(): string | undefined {
-  if (process.env.TOWNMART_TEST_MODE !== "true") return undefined;
+  if (process.env.TOWNMART_TEST_MODE !== "true") return process.env.PRELAUNCH_PASSWORD || undefined;
   return process.env.TEST_SITE_PASSWORD || undefined;
 }
 

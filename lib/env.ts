@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { appDatabaseUrl, derivedKey, isTestMode, jobsInline, platformAppUrl, platformRedisUrl } from "@/lib/platform";
 
+/** A 32-byte key, base64-encoded or as 64 hex characters (what generate-secret.vercel.app/64 gives). */
+export function keyBytes(v: string): Buffer {
+  const t = v.trim();
+  return /^[0-9a-fA-F]{64}$/.test(t) ? Buffer.from(t, "hex") : Buffer.from(t, "base64");
+}
+
 const base64Key = z
   .string()
-  .refine((v) => Buffer.from(v, "base64").length === 32, "must be 32 bytes, base64-encoded");
+  .refine((v) => keyBytes(v).length === 32, "must be 32 bytes: base64-encoded, or 64 hex characters");
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -73,6 +79,10 @@ const schema = z.object({
   TOWNMART_TEST_MODE: z.stringbool().default(false),
   // Run background jobs in the web process (hosts without a worker). Defaults to on for Vercel.
   JOBS_INLINE: z.stringbool().default(false),
+  // Lets a scheduler (cron-job.org, Vercel Cron) run the scheduled jobs: GET /api/jobs/tick with "Authorization: Bearer <it>".
+  CRON_SECRET: z.string().min(24).optional(),
+  // Shows the detailed setup report on a live site's /api/health?key=<it>. Test-mode sites always show it.
+  HEALTH_KEY: z.string().min(24).optional(),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -133,7 +143,16 @@ export function productionProblems(e: Env): string[] {
           e.PAYMENT_PROVIDER === "fake" && "PAYMENT_PROVIDER=fake",
         ]),
   ].filter(Boolean);
-  return devOnly.length ? [`Development-only drivers are not allowed in production: ${devOnly.join(", ")}`] : [];
+  const problems = devOnly.length ? [`Development-only drivers are not allowed in production: ${devOnly.join(", ")}`] : [];
+  if (!e.TOWNMART_TEST_MODE) {
+    // Test keys on the live site would mark orders paid without real money.
+    const testKeys = [
+      e.FLUTTERWAVE_SECRET_KEY?.trim().startsWith("FLWSECK_TEST") && "FLUTTERWAVE_SECRET_KEY",
+      e.PAYSTACK_SECRET_KEY?.trim().startsWith("sk_test_") && "PAYSTACK_SECRET_KEY",
+    ].filter(Boolean);
+    if (testKeys.length) problems.push(`The live site needs live payment keys, not test keys: ${testKeys.join(", ")}`);
+  }
+  return problems;
 }
 
 /**

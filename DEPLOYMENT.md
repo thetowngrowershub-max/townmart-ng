@@ -182,6 +182,35 @@ The app also runs on a managed Node host with managed Postgres and Redis:
 - Run `pnpm worker` as a separate always-on process (a background worker or a small VM) for a live site. Without one, set `JOBS_INLINE=true` (below).
 - Backups then come from the provider's PITR. Still run `scripts/db/backup.sh` and `verify-restore.sh` from a scheduled job elsewhere, so you have a copy outside the provider and proof that it restores.
 
+### Vercel live site
+
+The live site is a **second Vercel project** on the same repository, with its own Neon database, Upstash Redis, R2 buckets and secrets, and `TOWNMART_TEST_MODE` not set. Nothing is shared with the test site except the email, SMS and maps accounts.
+
+What changes without test mode:
+
+- **Only production builds run.** `scripts/vercel/prepare.ts` stops a preview build, so a work-in-progress branch never migrates the live database. Set the project's Ignored Build Step to "Only build production" so previews skip quietly instead of failing.
+- **The seed runs as production:** reference data only, no demo shops, orders or accounts, and no `/auth/demo` or test inbox. The first super admin comes from `SEED_SUPER_ADMIN_EMAIL` and `SEED_SUPER_ADMIN_PASSWORD` (12+ characters); the build fails until both are set. The plain admin account is created only if `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` are set too. Existing accounts are never changed, so remove the passwords from Vercel after the first deploy.
+- **Real providers are required.** The pretend drivers are refused, and so are payment test keys (`FLWSECK_TEST-…`, `sk_test_…`). `DATA_ENCRYPTION_KEY` and `DATA_HASH_KEY` must be set: 32 bytes, base64 or 64 hex characters. Keep a copy somewhere safe, because encrypted phone numbers and addresses can't be read without the first, and lookups break without the second. Turnstile fails closed without `TURNSTILE_SECRET_KEY`.
+- **Scheduled jobs need a clock.** Jobs still run inline (no worker), but page views alone are not reliable. Set `CRON_SECRET` (24+ characters) and have a scheduler call `GET /api/jobs/tick` every minute with `Authorization: Bearer <CRON_SECRET>`: cron-job.org works on any Vercel plan, and Vercel Cron sends that header by itself on Pro. Each call starts at most one pass a minute.
+- **Setup report.** `/api/health` shows no details on a live site. Set `HEALTH_KEY` (24+ characters) and open `/api/health?key=<HEALTH_KEY>` to see the same report as on the test site (settings, database, Redis, payments, SMS, email and recent page errors, never secrets).
+- **Before opening.** `PRELAUNCH_PASSWORD` puts a password page in front of every page (API routes and webhooks still work), so partners can set up shops before the public sees the site. Remove it to open.
+
+Extra environment variables, on top of the test site's table below (without `TOWNMART_TEST_MODE`, `TEST_SITE_PASSWORD` and `LIVE_PAYMENT_TESTERS`):
+
+| Variable | Value |
+|---|---|
+| `APP_URL` | the live address, e.g. `https://townmart.com.ng` |
+| `DATA_ENCRYPTION_KEY`, `DATA_HASH_KEY` | two different random 32-byte keys |
+| `SEED_SUPER_ADMIN_EMAIL`, `SEED_SUPER_ADMIN_PASSWORD` | the first super admin |
+| `S3_PUBLIC_BUCKET`, `S3_PRIVATE_BUCKET` | the live site's own buckets |
+| `CRON_SECRET`, `HEALTH_KEY` | random strings, 24+ characters |
+| `PRELAUNCH_PASSWORD` | optional, until launch |
+| `PAYMENT_PROVIDER`, `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH` | `flutterwave` and the live v3 keys; the webhook URL is `https://<live site>/api/webhooks/flutterwave` |
+| `BANK_VERIFIER`, `PAYSTACK_SECRET_KEY` | the payout bank check (see `lib/payments/banks.ts`) |
+| `SMS_PROVIDER`, `TERMII_*`, `EMAIL_PROVIDER`, `RESEND_API_KEY`, `EMAIL_FROM` | as in section 4 |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | the live hostname added in Turnstile |
+| `GOOGLE_MAPS_API_KEY` | road distances for delivery fees |
+
 ### Vercel test site
 
 A staging site people can click through, with no real money, emails or SMS. Vercel builds with `pnpm vercel-build`, which runs `scripts/vercel/prepare.ts` and then `next build`:

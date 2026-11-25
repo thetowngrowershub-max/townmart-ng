@@ -4,13 +4,13 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isTestMode } from "@/lib/platform";
 import { testSitePassword } from "@/lib/test-mode/access";
 import { safeNextPath } from "@/lib/validation/auth";
 
-export const metadata: Metadata = {
-  title: "Test site",
-  robots: { index: false, follow: false },
-};
+export function generateMetadata(): Metadata {
+  return { title: isTestMode() ? "Test site" : "Opening soon", robots: { index: false, follow: false } };
+}
 export const dynamic = "force-dynamic";
 
 const MESSAGES: Record<string, string> = {
@@ -18,7 +18,7 @@ const MESSAGES: Record<string, string> = {
   limit: "Too many tries. Wait 15 minutes, then try again.",
 };
 
-/** The password page in front of a test site. Outside the storefront, so it shows nothing of the site. */
+/** The password page in front of a test site, or the live site before it opens. Outside the storefront, so it shows nothing of the site. */
 export default async function TestAccessPage({
   searchParams,
 }: {
@@ -35,11 +35,12 @@ export default async function TestAccessPage({
     >
       <div className="flex flex-col gap-2">
         <h1 className="font-display text-2xl font-semibold">
-          TownMart test site
+          {isTestMode() ? "TownMart test site" : "TownMart is opening soon"}
         </h1>
         <p className="text-sm text-muted-foreground">
-          This site is for testing only. Enter the password you were given to
-          continue.
+          {isTestMode()
+            ? "This site is for testing only. Enter the password you were given to continue."
+            : "We're getting the shops ready. If you're a TownMart partner, enter the password you were given to continue."}
         </p>
       </div>
       {error && MESSAGES[error] ? (
